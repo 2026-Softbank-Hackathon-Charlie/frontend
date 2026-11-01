@@ -36,3 +36,20 @@
   --sp-lg: 20px;
 }
 
+/*
+ * Motion. The DS publishes no motion tokens; these are the values softbank.jp's
+ * own stylesheets use most (inspected 2026-11-02):
+ *   cubic-bezier(0.4, 0, 0.2, 1) ×82, ease-out ×59,
+ *   link hover "opacity .6" with "transition: opacity .4s" / ".2s ease-out",
+ *   CTA chevron "arrow-r .4s ease-in-out 2 alternate" (translate 30%),
+ *   spinner arc 1333ms + container rotate 1568ms.
+ */
+:root {
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: ease-out;
+  --dur-fast: 0.2s;
+  --dur-base: 0.3s;
+  --dur-slow: 0.4s;
+  --hover-fade: 0.6;
+  --hover-fade-solid: 0.7;
+}

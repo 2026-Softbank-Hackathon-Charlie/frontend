@@ -10,7 +10,16 @@ export function Chip({ kind = "", children }: { kind?: ChipKind; children: React
 
 /** Square status indicator. Purely decorative: the adjacent text always carries the state. */
 export function Ind({ st }: { st: StepState }) {
-  return <span className={"ind " + st} aria-hidden="true" />;
+  return (
+    <span className={"ind " + st} aria-hidden="true">
+      {st === "run" && (
+        <svg viewBox="0 0 16 16">
+          <circle className="track" cx="8" cy="8" r="6.5" />
+          <circle className="arc" cx="8" cy="8" r="6.5" />
+        </svg>
+      )}
+    </span>
+  );
 }
 
 /** Monospace log that stays scrolled to the newest line without moving focus. */

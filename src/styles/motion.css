@@ -1,0 +1,77 @@
+/* SoftBank-style motion: quiet fades, standard easing, nudging chevrons. */
+
+/* Hover: fade, never shift layout. Text links fade to .6, filled controls to .7. */
+a, .linkbtn { transition: opacity var(--dur-slow) var(--ease-out); }
+a:hover, .linkbtn:hover { opacity: var(--hover-fade); }
+.btn { transition: opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.btn:hover:not(:disabled) { opacity: var(--hover-fade-solid); }
+.btn:active:not(:disabled) { opacity: 1; transition-duration: 0s; }
+.btn:disabled:hover, .side a[aria-current="page"]:hover { opacity: 1; }
+
+/* Side nav: current item's underline draws in instead of snapping. */
+.side a[aria-current="page"] { text-decoration: none; }
+.side a .lbl { position: relative; }
+.side a .lbl::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -6px; height: 1px; background: currentColor;
+  transform: scaleX(0); transform-origin: left center; transition: transform var(--dur-base) var(--ease);
+}
+.side a[aria-current="page"] .lbl::after { transform: scaleX(1); }
+
+/* CTA chevron (softbank.jp arrow-r). */
+.more { display: inline-flex; align-items: center; gap: 7px; }
+.more::after {
+  content: ""; width: 6px; height: 6px; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor;
+  transform: rotate(45deg); flex: none;
+}
+.more:hover::after { animation: sb-arrow-r var(--dur-slow) ease-in-out 0s 2 alternate; }
+@keyframes sb-arrow-r {
+  0% { transform: translate3d(0, 0, 0) rotate(45deg); }
+  100% { transform: translate3d(30%, 0, 0) rotate(45deg); }
+}
+
+/* Entering content: the softbank.jp fade (0 → .5 at 30% → 1) with a short rise. */
+@keyframes sb-in {
+  0% { opacity: 0; transform: translateY(8px); }
+  30% { opacity: 0.5; }
+  100% { opacity: 1; transform: none; }
+}
+.page > * { animation: sb-in var(--dur-slow) var(--ease) both; }
+.page > :nth-child(2) { animation-delay: 40ms; }
+.page > :nth-child(3) { animation-delay: 80ms; }
+.page > :nth-child(4) { animation-delay: 120ms; }
+.page > :nth-child(5) { animation-delay: 160ms; }
+.page > :nth-child(n + 6) { animation-delay: 200ms; }
+
+/* Panels that appear as a run progresses (results, confirmations). */
+.okbox, .badbox, .fillbox { animation: sb-in var(--dur-slow) var(--ease) both; }
+
+/* New log lines and table rows fade in where they land. */
+@keyframes sb-fade { from { opacity: 0; } to { opacity: 1; } }
+.log > div, .tbl tbody tr, .rows li { animation: sb-fade var(--dur-base) var(--ease-out) both; }
+
+/* State changes: colors cross-fade, completed steps settle in. */
+.chip { transition: background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
+@keyframes sb-settle { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+.ind.ok, .ind.bad { animation: sb-settle var(--dur-base) var(--ease) both; }
+.wiz li, .wiz .n, .phases div { transition: color var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out); }
+
+/* Progress and traffic move on the standard curve. */
+.bar i { transition: width var(--dur-slow) var(--ease); }
+.seg { transition: flex-basis 0.6s var(--ease); }
+
+/* Running indicator: softbank.jp's arc spinner (fill/unfill + slow rotation). */
+.ind.run { border: 0; border-radius: 0; animation: none; }
+.ind.run svg { display: block; width: 16px; height: 16px; animation: sb-spin-rotate 1568ms linear infinite; }
+.ind.run .track { fill: none; stroke: var(--hairline); stroke-width: 2; }
+.ind.run .arc { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linecap: round; animation: sb-spin-arc 1333ms var(--ease) infinite both; }
+@keyframes sb-spin-rotate { to { transform: rotate(360deg); } }
+@keyframes sb-spin-arc {
+  0% { stroke-dasharray: 2 41; stroke-dashoffset: 0; }
+  50% { stroke-dasharray: 28 41; stroke-dashoffset: -6; }
+  100% { stroke-dasharray: 2 41; stroke-dashoffset: -39; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .ind.run .arc { stroke-dasharray: 10 41; }
+}

@@ -18,7 +18,9 @@ export function Overview() {
                 <li key={r[0]}>
                   <Ind st="run" />
                   <span className="grow">{r[0]}</span>
-                  <a href={r[1]}>열기</a>
+                  <a className="more" href={r[1]}>
+                    열기
+                  </a>
                 </li>
               ))}
             </ul>
@@ -32,7 +34,9 @@ export function Overview() {
       <section className="sec">
         <div className="sech">
           <h2>앱</h2>
-          <a href="#apps">전체 보기</a>
+          <a className="more" href="#apps">
+            전체 보기
+          </a>
         </div>
         <AppsTable full={false} />
       </section>

@@ -36,7 +36,7 @@ function SideNav({ r }: { r: string }) {
         {items.map(([k, label, badge]) => (
           <li key={k}>
             <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
-              {label}
+              <span className="lbl">{label}</span>
               {badge && (
                 <>
                   {" "}
@@ -92,7 +92,8 @@ export function App() {
         <div className="in shell">
           <SideNav r={r} />
           <main id="main">
-            <Page r={r} />
+            {/* keyed by route so the enter animation replays on navigation only, not on every tick */}
+            <Page key={r} r={r} />
           </main>
         </div>
       </div>
