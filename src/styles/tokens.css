@@ -1,0 +1,38 @@
+/*
+ * SoftBank design system tokens (oh-my-design.kr/design-systems/softbank).
+ *   foreground #333333, heading #323232, canvas #ffffff, hairline #c1c1c2
+ *   radius: control 6px, badge 10px, pill 50px (none 0)
+ *   type: heading 32px/1.35/700, body 16px/1.5/400, global nav item 14px/14px/400, flat, no shadow
+ *   spacing observed: 8 / 10 / 16 / 20
+ * The DS publishes no status, muted or fill colors and no shadows; the extra
+ * tokens below are console extensions kept in the same quiet, flat register.
+ */
+:root {
+  --canvas: #ffffff;
+  --fg: #333333;
+  --heading: #323232;
+  --hairline: #c1c1c2;
+
+  /* console extensions */
+  --muted: #646468;
+  --fill: #f4f4f5;
+  --old: #9b9ba0;
+  --ok: #1d6b45;
+  --ok-bg: #e8f3ed;
+  --bad: #a3271c;
+  --bad-bg: #f9ebe9;
+
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --r-none: 0;
+  --r-control: 6px;
+  --r-badge: 10px;
+  --r-pill: 50px;
+
+  --sp-xs: 8px;
+  --sp-sm: 10px;
+  --sp-md: 16px;
+  --sp-lg: 20px;
+}
+
