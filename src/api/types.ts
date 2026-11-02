@@ -43,6 +43,10 @@ export type StepStatus = S["StepStatus"];
 export type StepRecord = S["StepRecord"];
 export type RunEvent = S["RunEvent"];
 export type RollbackRequest = S["RollbackRequest"];
+export type ObserveOptions = S["ObserveOptions"];
+export type ObserveResult = S["ObserveResult"];
+export type ObserveStep = S["ObserveStep"];
+export type ObserveVerdict = ObserveStep["verdict"];
 export type WrittenRecordStats = S["WrittenRecordStats"];
 
 export type Provider = S["Provider"];
@@ -98,6 +102,16 @@ export interface CanaryStepData {
 export interface GateResultData {
   weight: number;
   gate: GateResult;
+}
+/** `observe_step`: one gate evaluation of the target after the cutover. */
+export interface ObserveStepData {
+  verdict: ObserveVerdict;
+  gate: GateResult;
+}
+/** `observe_rollback`: the rollback the observe phase started, or why it could not. */
+export interface ObserveRollbackData {
+  rollbackRunId?: string;
+  error?: string;
 }
 export interface MetricData {
   lagBytes?: number;

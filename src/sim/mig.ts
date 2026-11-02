@@ -598,6 +598,7 @@ export const PHASE_LABEL: Record<RunPhase, string> = {
   awaiting_switch: "전환 승인 대기",
   cutover: "전환",
   verify: "검증",
+  observe: "전환 후 관찰",
   done: "완료",
 };
 
