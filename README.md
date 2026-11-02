@@ -12,6 +12,56 @@ npm test           # 시뮬레이션·화면 테스트
 npm run build      # 타입 검사 + 프로덕션 빌드
 ```
 
+## 화면
+
+시연용 시뮬레이션 화면입니다. 숫자와 로그는 모두 가상입니다. (1440px 너비, 전체 페이지)
+
+### 개요
+클러스터 3개의 상태, 6개 경로 결과표, 앱, 최근 활동을 한 화면에서 봅니다.
+
+![개요](docs/screenshots/overview.png)
+
+### 기존 앱 가져오기
+플랫폼 밖(EC2, RDS, S3)에서 돌던 앱을 AI가 점검하고 고쳐서 클러스터에 첫 배포합니다. AI 범위 결정(3장 7번) 전 시안입니다.
+
+| 1. 연결 정보 | 2. AI 점검 |
+| --- | --- |
+| ![연결 정보](docs/screenshots/onboard-1-connect.png) | ![AI 점검](docs/screenshots/onboard-2-ai-check.png) |
+| **3. 샌드박스 테스트** | **4. PR 승인과 첫 배포** |
+| ![샌드박스 테스트](docs/screenshots/onboard-3-sandbox.png) | ![첫 배포](docs/screenshots/onboard-4-done.png) |
+
+### 이전
+**설정:** 원본은 앱이 지금 있는 클러스터이고, 옮겨 갈 클러스터를 고릅니다.
+
+![이전 설정](docs/screenshots/migrate-1-setup.png)
+
+**AI 계획 → 리허설 → 승인:** Plan JSON과 플랫폼 검사 결과, 샌드박스 리허설(1차 실패 → AI 수정안 → 2차 통과), AI 권한으로 시도했다가 막힌 명령을 보고 운영자가 승인합니다.
+
+![승인 대기](docs/screenshots/migrate-2-approve.png)
+
+**실행:** 엔진이 6단계를 순서대로 실행합니다. 3분 목표 타이머, 트래픽 비율, 복제 지연, k6 지표, 원복 경계 안내가 함께 보입니다.
+
+| 미리 복사, 변경분 동기화 | 쓰기 경계 → 전환 |
+| --- | --- |
+| ![복사 중](docs/screenshots/migrate-3-copy.png) | ![전환 중](docs/screenshots/migrate-4-switch.png) |
+
+**이전 리포트:** 전체 시간, 전환 시간, 쓰기 보류, 실패 요청, 누락 쓰기·파일을 남기고, 원본 삭제는 따로 승인받습니다.
+
+![이전 리포트](docs/screenshots/migrate-5-report.png)
+
+### 경로별 결과
+EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
+
+![경로별 결과](docs/screenshots/routes.png)
+
+### 앱, 새 앱 배포, 환경
+
+| 앱 목록 | 앱 상세 (shop) |
+| --- | --- |
+| ![앱](docs/screenshots/apps.png) | ![shop](docs/screenshots/app-shop.png) |
+| **새 앱 배포** | **환경** |
+| ![새 앱 배포](docs/screenshots/new-app.png) | ![환경](docs/screenshots/envs.png) |
+
 ## 이전 흐름
 
 (기존 앱 가져오기 →) AI 계획 → 리허설 → 승인 → 실행 순서입니다. 운영자가 누르는 버튼은 승인(또는 반려)과 원본 삭제 승인뿐이고, 나머지는 자동으로 진행합니다.
