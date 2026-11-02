@@ -512,6 +512,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
         />
       </div>
       <CanaryBox r={r} />
+      <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
       <section className="sec">
         <h2>엔진 기록</h2>
@@ -579,6 +580,50 @@ function CanaryBox({ r }: { r: Run }) {
           ];
         })}
       />
+    </div>
+  );
+}
+
+// After the cutover the platform keeps checking the target against the gate
+// (run.observe, started with observe options) and may start the rollback itself.
+function ObserveBox({ r }: { r: Run }) {
+  const o = r.observe;
+  if (!o) return null;
+  const opts = o.options;
+  let chip;
+  if (o.rollbackRunId) chip = <Chip kind="bad">자동 롤백 시작: {o.rollbackRunId}</Chip>;
+  else if (o.passed === false) chip = <Chip kind="bad">위반: {o.violation}</Chip>;
+  else if (o.passed) chip = <Chip kind="ok">게이트 통과</Chip>;
+  else if (o.stoppedReason) chip = <Chip>중단: {o.stoppedReason}</Chip>;
+  else if (r.phase === "observe") chip = <Chip kind="run">관찰 중</Chip>;
+  else chip = <Chip>전환 뒤 시작</Chip>;
+  const verdict = (s: (typeof o.steps)[number]) =>
+    s.verdict === "ok" ? <Chip kind="ok">통과</Chip> : s.verdict === "violated" ? <Chip kind="bad">위반: {s.gate?.reason}</Chip> : <Chip>판단 불가: {s.gate?.reason}</Chip>;
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>전환 후 관찰</b>
+        {chip}
+        <span className="hint">
+          {opts.duration ?? "2m"} 동안 {opts.stepDuration ?? "20s"}마다 판정{opts.autoRollback ? ", 위반하면 자동 롤백" : ""}
+        </span>
+      </div>
+      {o.rollbackError && <div className="bb hint">자동 롤백을 시작하지 못했습니다: {o.rollbackError}</div>}
+      {o.steps.length > 0 && (
+        <Table
+          head={["단계", "판정", "요청", "오류율", "p95"]}
+          rows={o.steps.map((s, i) => {
+            const g = s.gate;
+            return [
+              td(i + 1 + "단계", "m"),
+              td(verdict(s)),
+              td(g ? fmt(g.requests) : "-", "m"),
+              td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "m"),
+              td(g ? g.p95Millis + "ms" : "-", "m"),
+            ];
+          })}
+        />
+      )}
     </div>
   );
 }

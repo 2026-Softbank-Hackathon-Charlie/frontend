@@ -26,6 +26,9 @@ import type {
   GateResultData,
   Matrix,
   MetricData,
+  ObserveResult,
+  ObserveRollbackData,
+  ObserveStepData,
   Run,
   RunEvent,
   SecurityReport,
@@ -170,8 +173,56 @@ export function applyRunEvent(run: Run, ev: RunEvent): Run {
       const passed = gate.passed ? run.canary.passed : false;
       return { ...run, canary: { ...run.canary, steps, passed } };
     }
+    // After the cutover: the server emits observe_step when a step has ended,
+    // so the event time is the step's endedAt.
+    case "observe_step": {
+      const x = d as Partial<ObserveStepData>;
+      if (!x.verdict) return run;
+      const obs: ObserveResult = run.observe ?? { options: {}, steps: [] };
+      const t = ev.time;
+      if (obs.steps.some((s) => s.endedAt === t)) return run;
+      // The step started stepDuration before it ended. Times carry nanoseconds,
+      // which Date.parse does not take everywhere, so parse them to milliseconds.
+      const stepMs = parseDurationMs(obs.options.stepDuration);
+      const endMs = Date.parse(t.replace(/(\.\d{3})\d*/, "$1"));
+      const startedAt = stepMs !== undefined && !Number.isNaN(endMs) ? new Date(endMs - stepMs).toISOString() : t;
+      const steps = [...obs.steps, { startedAt, endedAt: t, verdict: x.verdict, gate: x.gate }];
+      const violated = x.verdict === "violated";
+      return {
+        ...run,
+        observe: { ...obs, steps, ...(violated ? { passed: false, violation: x.gate?.reason ?? obs.violation } : {}) },
+      };
+    }
+    case "observe_rollback": {
+      const x = d as ObserveRollbackData;
+      const obs: ObserveResult = run.observe ?? { options: {}, steps: [] };
+      if (!x.rollbackRunId && !x.error) return run;
+      return {
+        ...run,
+        observe: {
+          ...obs,
+          ...(x.rollbackRunId ? { rollbackRunId: x.rollbackRunId } : {}),
+          ...(x.error ? { rollbackError: x.error } : {}),
+        },
+      };
+    }
   }
   return run;
+}
+
+/** Milliseconds of a Go duration such as "20s", "1m30s" or "500ms"; undefined if it is not one. */
+export function parseDurationMs(s: string | undefined): number | undefined {
+  if (!s) return undefined;
+  const unit: Record<string, number> = { h: 3_600_000, m: 60_000, s: 1000, ms: 1, us: 0.001, "µs": 0.001, ns: 0.000001 };
+  let total = 0;
+  let rest = s;
+  while (rest) {
+    const m = /^(\d+(?:\.\d+)?)(h|ms|m|s|us|µs|ns)/.exec(rest);
+    if (!m) return undefined;
+    total += Number(m[1]) * unit[m[2]];
+    rest = rest.slice(m[0].length);
+  }
+  return total;
 }
 
 export interface RunWatch {

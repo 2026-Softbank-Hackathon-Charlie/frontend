@@ -68,7 +68,9 @@ export interface paths {
      * mean the migration finished. The run syncs data, optionally sends a share
      * of read traffic to the target (canary), and then waits in
      * `awaiting_switch` until an operator calls `/switch`, unless `autoSwitch`
-     * is true. Send the same `Idempotency-Key` to get the original run back on
+     * is true. With `observe`, a succeeded cutover is followed by an observe
+     * phase that checks the target against the gate and can start the
+     * rollback by itself (`observe.autoRollback`). Send the same `Idempotency-Key` to get the original run back on
      * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
      * once the stream has records (400 `invalid_request` before that). A plan
      * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.
@@ -368,6 +370,7 @@ export interface components {
       id: string;
       source: components["schemas"]["EnginePlanEndpoint"];
       target: components["schemas"]["EnginePlanEndpoint"];
+      /** @description Object storage moved with rclone. source and target must each be exactly a bucket the server registers (an app's bucket in PLATFORM_APPS_FILE, or PLATFORM_PLAN_BUCKETS) and must differ; rclone remotes and their credentials come from the server's environment (RCLONE_CONFIG_<REMOTE>_*), never from the plan. rclone must be "rclone" or omitted, and only allowed flags pass. */
       files?: {
         /** @example gcs:shop-uploads-gke */
         source: string;
@@ -477,6 +480,62 @@ export interface components {
        */
       autoSwitch?: boolean;
       canary?: components["schemas"]["CanaryOptions"];
+      observe?: components["schemas"]["ObserveOptions"];
+    };
+    /**
+     * @description After a successful cutover, keep watching the target at the gateway
+     * before the run ends. Each step evaluates the gate over that step's
+     * requests to the target. A step with fewer than `gate.minRequests`
+     * requests, or without gateway data, is inconclusive: it is recorded but
+     * is not a violation, because a rollback is a full migration back and is
+     * started only on a measured breach. The first violated step ends the
+     * observation. The run still ends `succeeded` (the data moved) with the
+     * violation in `observe` and `statusReason`. With `autoRollback` the
+     * server then starts this run's rollback (as POST
+     * /v1/migrations/{runId}/rollback does) as actor `slo-guard`; without it
+     * an operator decides. Needs gateway mode http.
+     */
+    ObserveOptions: {
+      /**
+       * @description total observation time, from 10s to 30m
+       * @default 2m
+       */
+      duration?: string;
+      /**
+       * @description each gate evaluation covers this window
+       * @default 20s
+       */
+      stepDuration?: string;
+      gate?: components["schemas"]["GateThresholds"];
+      /** @default false */
+      autoRollback?: boolean;
+    };
+    ObserveResult: {
+      options: components["schemas"]["ObserveOptions"];
+      steps: components["schemas"]["ObserveStep"][];
+      /**
+       * @description true: the whole duration was observed, no step violated the gate and
+       * at least one step was conclusive. false: a step violated the gate.
+       * Absent: still observing, stopped early, or nothing conclusive was measured.
+       */
+      passed?: boolean;
+      /** @description the violated gate's reason */
+      violation?: string;
+      /** @description why the observation ended before its duration */
+      stoppedReason?: string;
+      /** @description the automatic rollback's run (its rollbackOf is this run) */
+      rollbackRunId?: string;
+      /** @description why the automatic rollback could not start */
+      rollbackError?: string;
+    };
+    ObserveStep: {
+      /** Format: date-time */
+      startedAt: string;
+      /** Format: date-time */
+      endedAt?: string;
+      /** @enum {string} */
+      verdict: "ok" | "violated" | "inconclusive";
+      gate?: components["schemas"]["GateResult"];
     };
     /**
      * @description Before cutover, send this share of read requests (GET, HEAD, OPTIONS) to
@@ -541,11 +600,13 @@ export interface components {
      * awaiting_switch: waiting for /switch.
      * cutover: fence, switchover, cutover (writes are held here).
      * verify: verify, finalize.
+     * observe: optional; the cutover succeeded and the target's traffic is
+     *   watched against the gate before the run ends (ObserveOptions).
      * done: the run ended.
      *
      * @enum {string}
      */
-    RunPhase: "sync" | "canary" | "awaiting_switch" | "cutover" | "verify" | "done";
+    RunPhase: "sync" | "canary" | "awaiting_switch" | "cutover" | "verify" | "observe" | "done";
     Run: {
       runId: string;
       planRef: string;
@@ -556,6 +617,7 @@ export interface components {
       phase: components["schemas"]["RunPhase"];
       autoSwitch: boolean;
       canary?: components["schemas"]["CanaryResult"];
+      observe?: components["schemas"]["ObserveResult"];
       startedBy: string;
       /** Format: date-time */
       startedAt: string;
@@ -684,7 +746,8 @@ export interface components {
     /**
      * @description Engine kinds: step_started, step_succeeded, step_failed, step_skipped,
      * log, metric, rollback, halt, done.
-     * Platform kinds: status_changed, canary_step, gate_result.
+     * Platform kinds: status_changed, canary_step, gate_result, observe_step,
+     * observe_rollback.
      *
      * `data` by kind (other keys may appear):
      * - step_succeeded: `durationMillis` (integer), `evidence` (object).
@@ -693,6 +756,8 @@ export interface components {
      * - status_changed: `status` (RunStatus), `phase` (RunPhase), `reason` (string, may be empty).
      * - canary_step: `weight` (integer; 0 means all reads are back on the source), `readWeights` (object of integers).
      * - gate_result: `weight` (integer), `gate` (GateResult).
+     * - observe_step: `verdict` (ok, violated or inconclusive), `gate` (GateResult).
+     * - observe_rollback: `rollbackRunId` (string) or `error` (string). Recorded after the run ended.
      */
     RunEvent: {
       /** Format: int64 */
@@ -809,11 +874,20 @@ export interface components {
       p95Millis: number;
       p99Millis: number;
     };
+    /** @description What clients received from this backend since the gateway started. A read that failed here (5xx or no answer) and that the gateway sent once more to another backend is counted in retried, not in requests or errors; the retry is counted on the backend that answered it. Windowed stats (BackendStats) count every answer, retried ones included, so canary gates still see a failing backend. */
     BackendTotals: {
       /** Format: int64 */
       requests: number;
-      /** Format: int64 */
+      /**
+       * Format: int64
+       * @description answers with status 500 or above that reached the client
+       */
       errors: number;
+      /**
+       * Format: int64
+       * @description failed reads sent once more to another backend
+       */
+      retried?: number;
     };
     RouteRequest: {
       backend: string;
@@ -1408,7 +1482,9 @@ export interface operations {
    * mean the migration finished. The run syncs data, optionally sends a share
    * of read traffic to the target (canary), and then waits in
    * `awaiting_switch` until an operator calls `/switch`, unless `autoSwitch`
-   * is true. Send the same `Idempotency-Key` to get the original run back on
+   * is true. With `observe`, a succeeded cutover is followed by an observe
+   * phase that checks the target against the gate and can start the
+   * rollback by itself (`observe.autoRollback`). Send the same `Idempotency-Key` to get the original run back on
    * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
    * once the stream has records (400 `invalid_request` before that). A plan
    * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.

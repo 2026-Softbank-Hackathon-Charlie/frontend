@@ -3,6 +3,7 @@ import { agentEventMsg, at, eventMsg, fakeAgentSession, fakeRun, hang, installFe
 import {
   applyRunEvent,
   isAfter,
+  parseDurationMs,
   useAgentSession,
   useAgentSessions,
   useApps,
@@ -131,6 +132,34 @@ describe("applyRunEvent and isAfter", () => {
       { weight: 10, startedAt: at(6) }, // a repeated weight is a new step
     ]);
     expect([once.status, once.phase, once.result.downtimeMillis]).toEqual(["running", "canary", 900]);
+  });
+
+  it("follows the observe phase after the cutover", () => {
+    const ok: GateResult = { passed: true, reason: "ok", requests: 230, errorRate: 0, p95Millis: 120 };
+    const bad: GateResult = { passed: false, reason: "p95 1.2s over 800ms", requests: 240, errorRate: 0, p95Millis: 1200 };
+    const base = fakeRun({ phase: "observe", observe: { options: { duration: "2m0s", stepDuration: "20s", autoRollback: true }, steps: [] } });
+    const ev = (seq: number, kind: string, data: Record<string, unknown>) => ({ seq, time: at(seq, 500_000_000), runId: "run_1", kind, data });
+    const evs = [
+      ev(20, "observe_step", { verdict: "ok", gate: ok }),
+      ev(40, "observe_step", { verdict: "violated", gate: bad }),
+      ev(41, "observe_rollback", { rollbackRunId: "run_2" }),
+    ];
+    const once = evs.reduce(applyRunEvent, base);
+    expect(evs.reduce(applyRunEvent, once)).toEqual(once); // replays change nothing
+    expect(once.observe?.steps).toEqual([
+      { startedAt: "2026-11-02T03:00:00.500Z", endedAt: at(20, 500_000_000), verdict: "ok", gate: ok },
+      { startedAt: "2026-11-02T03:00:20.500Z", endedAt: at(40, 500_000_000), verdict: "violated", gate: bad },
+    ]);
+    expect([once.observe?.passed, once.observe?.violation, once.observe?.rollbackRunId]).toEqual([false, bad.reason, "run_2"]);
+
+    // Events before any snapshot showed observe still build it.
+    const bare = applyRunEvent(fakeRun(), ev(5, "observe_rollback", { error: "a rollback of this run already exists" }));
+    expect(bare.observe).toEqual({ options: {}, steps: [], rollbackError: "a rollback of this run already exists" });
+  });
+
+  it("reads Go durations", () => {
+    expect([parseDurationMs("20s"), parseDurationMs("1m30s"), parseDurationMs("500ms"), parseDurationMs("1h2m3.5s")]).toEqual([20_000, 90_000, 500, 3_723_500]);
+    expect([parseDurationMs(""), parseDurationMs(undefined), parseDurationMs("soon")]).toEqual([undefined, undefined, undefined]);
   });
 });
 

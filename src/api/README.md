@@ -168,6 +168,8 @@ const lag = [...events].reverse().find((e) => typeof e.data?.lagBytes === "numbe
 - `status_changed`는 status, phase, statusReason을 바꾼다. `canary_step`은 카나리 단계를 열고, `gate_result`는 그 단계에 게이트 결과를 넣는다. `metric`의 `downtimeMillis`는 `run.result.downtimeMillis`가 된다.
 - 같은 이벤트를 두 번 반영해도 결과가 같다. 서버가 문서를 저장하기 직전에 찍은 snapshot은 `updatedAt`이 실제보다 이르지만, 이벤트를 그 시각이 속한 단계에 맞춰 넣으므로 단계가 두 번 생기지 않는다.
 - 서버 snapshot에는 끝난 카나리 단계만 들어 있다. 그래서 진행 중인 단계에서 다시 연결하면 그 단계가 잠시 사라졌다가 `gate_result`가 오면 다시 보인다.
+- 전환 후 관찰(`observe`, phase `observe`): `observe_step`은 끝난 관찰 단계 하나를 `run.observe.steps`에 넣는다. 이벤트 시각이 그 단계의 `endedAt`이고, 시작 시각은 `stepDuration`만큼 앞으로 잡는다. 판정이 `violated`면 `passed: false`와 `violation`을 넣는다. `observe_rollback`은 자동 롤백 run 번호(`rollbackRunId`)나 시작하지 못한 이유(`rollbackError`)를 넣는다.
+- 관찰은 시작할 때 `startMigration`의 `observe` 옵션으로 켠다(`{ duration: "2m", autoRollback: true }` 등). 지금 콘솔의 시작 버튼은 관찰을 켜지 않는다. 켜려면 `src/data/migration.ts`의 `startMigration` 호출에 옵션을 더한다.
 
 ## 에이전트 세션 SSE (`GET /v1/agent/sessions/{id}/events`)
 
