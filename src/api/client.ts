@@ -5,21 +5,32 @@
 // the fetch AbortError instead, so callers can tell "cancelled" from "failed".
 import type {
   AbortRequest,
+  AgentEvent,
+  AgentEventList,
+  AgentSession,
+  AgentSessionList,
+  AppList,
   AuditList,
   EnginePlan,
   Environment,
   EnvironmentList,
   Health,
   Matrix,
+  PlanAttachment,
+  PlanDraftRequest,
   PlanList,
   PlanRecord,
   Principal,
   ReviewRequest,
+  RollbackRequest,
   Run,
   RunList,
+  SecurityReport,
+  SecuritySeverity,
   StartMigrationRequest,
   StartMigrationResponse,
   TrafficState,
+  WrittenRecordStats,
 } from "./types";
 
 /** An API failure. `status` is 0 when no HTTP response arrived (timeout, network, CORS). */
@@ -77,7 +88,7 @@ export function hasToken(): boolean {
 
 // --- plumbing shared with sse.ts ---
 
-type Query = Record<string, string | number | undefined>;
+type Query = Record<string, string | number | boolean | undefined>;
 
 /** @internal */
 export function apiUrl(path: string, query?: Query): string {
@@ -128,11 +139,14 @@ export interface RequestOptions {
 
 interface Call extends RequestOptions {
   query?: Query;
+  /** Sent as JSON. */
   body?: unknown;
+  /** Sent as is, as application/octet-stream, instead of `body`. */
+  bytes?: Blob | ArrayBuffer | Uint8Array<ArrayBuffer> | string;
   headers?: Record<string, string>;
 }
 
-async function request<T>(method: "GET" | "POST", path: string, c: Call = {}): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "PUT", path: string, c: Call = {}): Promise<T> {
   const ctrl = new AbortController();
   const ms = c.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let timedOut = false;
@@ -145,12 +159,13 @@ async function request<T>(method: "GET" | "POST", path: string, c: Call = {}): P
   else c.signal?.addEventListener("abort", cancel, { once: true });
 
   const headers = authHeaders({ Accept: "application/json", ...c.headers });
-  if (c.body !== undefined) headers.set("Content-Type", "application/json");
+  if (c.bytes !== undefined) headers.set("Content-Type", "application/octet-stream");
+  else if (c.body !== undefined) headers.set("Content-Type", "application/json");
   try {
     const res = await fetch(apiUrl(path, c.query), {
       method,
       headers,
-      body: c.body === undefined ? undefined : JSON.stringify(c.body),
+      body: c.bytes ?? (c.body === undefined ? undefined : JSON.stringify(c.body)),
       signal: ctrl.signal,
     });
     if (!res.ok) throw await errorFromResponse(res);
@@ -181,10 +196,32 @@ export const listPlans = (o?: RequestOptions) => request<PlanList>("GET", "/v1/p
 export const getPlan = (ref: string, o?: RequestOptions) => request<PlanRecord>("GET", `/v1/plans/${seg(ref)}`, o);
 export const submitPlan = (plan: EnginePlan, o?: RequestOptions) =>
   request<PlanRecord>("POST", "/v1/plans", { ...o, body: plan });
+/**
+ * Approve a pending plan. Send the `revision` the user reviewed
+ * (PlanRecord.revision): a plan with attachments needs it, and a revision
+ * that changed since (an attachment was uploaded) fails with 409
+ * plan_state_conflict. Approving twice is a no-op.
+ */
 export const approvePlan = (ref: string, review?: ReviewRequest, o?: RequestOptions) =>
   request<PlanRecord>("POST", `/v1/plans/${seg(ref)}/approve`, { ...o, body: review });
 export const rejectPlan = (ref: string, review: ReviewRequest = {}, o?: RequestOptions) =>
   request<PlanRecord>("POST", `/v1/plans/${seg(ref)}/reject`, { ...o, body: review });
+/** The apps a plan can be drafted for, with the environments each runs in. */
+export const listApps = (o?: RequestOptions) => request<AppList>("GET", "/v1/apps", o);
+/** A plan built from the server's configuration. It is not stored: submit it, as is or edited, with submitPlan. */
+export const draftPlan = (req: PlanDraftRequest, o?: RequestOptions) =>
+  request<EnginePlan>("POST", "/v1/plans/draft", { ...o, body: req });
+/**
+ * Upload a file the plan refers to as `attachment:<name>`, at most 1 MiB, sent
+ * as raw bytes. Only while the plan is pending_approval; the same name again
+ * replaces it, and every upload raises the plan's revision by one.
+ */
+export const putPlanAttachment = (
+  ref: string,
+  name: string,
+  body: Blob | ArrayBuffer | Uint8Array<ArrayBuffer> | string,
+  o?: RequestOptions,
+) => request<PlanAttachment>("PUT", `/v1/plans/${seg(ref)}/attachments/${seg(name)}`, { ...o, bytes: body });
 
 // --- migrations ---
 
@@ -211,6 +248,17 @@ export const abortMigration = (runId: string, req?: AbortRequest, o?: RequestOpt
   request<Run>("POST", `/v1/migrations/${seg(runId)}/abort`, { ...o, body: req });
 export const resumeMigration = (runId: string, o?: RequestOptions) =>
   request<Run>("POST", `/v1/migrations/${seg(runId)}/resume`, o);
+/**
+ * Migrate a succeeded run back the way it came, as a new plan and run that
+ * both carry `rollbackOf`. It takes no Idempotency-Key: the server rolls a run
+ * back at most once, so a retry restarts a rollback whose start failed, and
+ * one that already started gets 409 run_state_conflict naming its run.
+ */
+export const rollbackMigration = (runId: string, req?: RollbackRequest, o?: RequestOptions) =>
+  request<StartMigrationResponse>("POST", `/v1/migrations/${seg(runId)}/rollback`, { ...o, body: req });
+/** How many records a written-records stream holds; a stream nobody wrote to has count 0. */
+export const getWrittenRecords = (stream: string, o?: RequestOptions) =>
+  request<WrittenRecordStats>("GET", `/v1/written-records/${seg(stream)}`, o);
 
 // --- environments, traffic, matrix, audit ---
 
@@ -224,3 +272,54 @@ export const getMatrix = (o?: RequestOptions) => request<Matrix>("GET", "/v1/mat
 /** Newest first. Pass `nextBefore` from the previous page as `before`. */
 export const listAudit = (q: { limit?: number; before?: number } = {}, o?: RequestOptions) =>
   request<AuditList>("GET", "/v1/audit", { ...o, query: q });
+
+// --- security ---
+
+export type SecurityQuery = {
+  /** Only this environment, e.g. gke, aws-account or platform. An unknown name is a 400. */
+  environment?: string;
+  /** The minimum severity: high returns critical and high. */
+  severity?: SecuritySeverity;
+  /** Read the sources again instead of the 60 s cache; the server collects at most once every 10 s. */
+  refresh?: boolean;
+};
+
+/** The filters apply to the findings and to every count. 503 security_not_configured when the server has no collectors. */
+export const getSecurity = (q: SecurityQuery = {}, o?: RequestOptions) =>
+  request<SecurityReport>("GET", "/v1/security", { ...o, query: q });
+
+// --- agent activity ---
+
+export type AgentSessionQuery = {
+  planRef?: string;
+  runId?: string;
+  /** 1 to 200; the server defaults to 50. */
+  limit?: number;
+};
+
+/** Newest first. */
+export const listAgentSessions = (q: AgentSessionQuery = {}, o?: RequestOptions) =>
+  request<AgentSessionList>("GET", "/v1/agent/sessions", { ...o, query: q });
+export const getAgentSession = (id: string, o?: RequestOptions) =>
+  request<AgentSession>("GET", `/v1/agent/sessions/${seg(id)}`, o);
+/**
+ * One page of a session's stored events with seq above `after`, at most
+ * `limit` (1 to 2000, server default 500). `nextAfter` is set when more
+ * follow; pass it as the next `after`. watchAgentSession follows them live.
+ */
+export const listAgentEvents = (id: string, q: { after?: number; limit?: number } = {}, o?: RequestOptions) =>
+  request<AgentEventList>("GET", `/v1/agent/sessions/${seg(id)}/events`, { ...o, query: { format: "json", ...q } });
+
+/** Every stored event of a session in seq order, read page by page. `o` applies to each page. */
+export async function listAllAgentEvents(id: string, o?: RequestOptions): Promise<AgentEvent[]> {
+  const out: AgentEvent[] = [];
+  let after = 0;
+  for (;;) {
+    const page = await listAgentEvents(id, { after: after || undefined }, o);
+    out.push(...page.events);
+    if (page.nextAfter === undefined) return out;
+    // A cursor that does not move would ask for the same page forever.
+    if (page.nextAfter <= after) throw new ApiError(200, "invalid_response", "nextAfter did not advance");
+    after = page.nextAfter;
+  }
+}

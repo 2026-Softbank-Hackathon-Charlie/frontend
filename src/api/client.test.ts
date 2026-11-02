@@ -1,18 +1,29 @@
 import {
   ApiError,
   approvePlan,
+  draftPlan,
+  getAgentSession,
   getHealth,
   getPlan,
+  getSecurity,
   getTraffic,
+  getWrittenRecords,
   hasToken,
+  listAgentEvents,
+  listAgentSessions,
+  listAllAgentEvents,
+  listApps,
   listAudit,
   newIdempotencyKey,
+  putPlanAttachment,
   rejectPlan,
+  rollbackMigration,
   setToken,
   startMigration,
   switchMigration,
 } from "./client";
-import { hang, installFetch, json } from "./fakes";
+import { at, hang, installFetch, json, sequence } from "./fakes";
+import type { AgentEvent } from "./types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -106,6 +117,84 @@ describe("client requests", () => {
     expect([calls[4].body, calls[4].headers.has("Content-Type")]).toEqual([undefined, false]);
     expect(calls[5].body).toBe("{}");
     expect(calls[0].headers.has("Authorization")).toBe(false);
+  });
+
+  it("uploads an attachment as raw bytes", async () => {
+    setToken("secret-token");
+    const calls = installFetch(() => json(200, { name: "target.yaml", size: 14, sha256: "ab" }));
+    const bytes = new TextEncoder().encode("kind: Cluster\n");
+    const res = await putPlanAttachment("pln_1", "target.yaml", bytes);
+    await putPlanAttachment("pln_1", "a b", "text");
+
+    expect(res).toEqual({ name: "target.yaml", size: 14, sha256: "ab" });
+    const c = calls[0];
+    expect(c.method).toBe("PUT");
+    expect(c.url).toBe("/v1/plans/pln_1/attachments/target.yaml");
+    expect(c.headers.get("Authorization")).toBe("Bearer secret-token");
+    expect(c.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(c.raw).toBe(bytes);
+    expect([calls[1].url, calls[1].raw, calls[1].headers.get("Content-Type")]).toEqual([
+      "/v1/plans/pln_1/attachments/a%20b",
+      "text",
+      "application/octet-stream",
+    ]);
+  });
+
+  it("builds the queries and bodies of the security, agent and plan tool calls", async () => {
+    const calls = installFetch(() => json(200, {}));
+    await getSecurity({ environment: "gke", severity: "high", refresh: true });
+    await getSecurity();
+    await listAgentSessions({ planRef: "pln_1", limit: 20 });
+    await listAgentSessions();
+    await getAgentSession("ags/1");
+    await listAgentEvents("ags_1", { after: 5, limit: 100 });
+    await listAgentEvents("ags_1");
+    await listApps();
+    await getWrittenRecords("k6-orders");
+    await draftPlan({ app: "shop", source: "gke", target: "eks" });
+    await rollbackMigration("run_1");
+    await rollbackMigration("run_1", { reason: "p95 regressed", autoSwitch: false });
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET /v1/security?environment=gke&severity=high&refresh=true",
+      "GET /v1/security",
+      "GET /v1/agent/sessions?planRef=pln_1&limit=20",
+      "GET /v1/agent/sessions",
+      "GET /v1/agent/sessions/ags%2F1",
+      "GET /v1/agent/sessions/ags_1/events?format=json&after=5&limit=100",
+      "GET /v1/agent/sessions/ags_1/events?format=json",
+      "GET /v1/apps",
+      "GET /v1/written-records/k6-orders",
+      "POST /v1/plans/draft",
+      "POST /v1/migrations/run_1/rollback",
+      "POST /v1/migrations/run_1/rollback",
+    ]);
+    // The JSON page is chosen by format=json; the Accept header stays the client's usual one.
+    expect(calls[5].headers.get("Accept")).toBe("application/json");
+    expect(JSON.parse(calls[9].body!)).toEqual({ app: "shop", source: "gke", target: "eks" });
+    // A rollback's body is optional, and it takes no Idempotency-Key.
+    expect([calls[10].body, calls[10].headers.has("Idempotency-Key")]).toEqual([undefined, false]);
+    expect(JSON.parse(calls[11].body!)).toEqual({ reason: "p95 regressed", autoSwitch: false });
+  });
+
+  it("reads every agent event by following nextAfter", async () => {
+    const ev = (seq: number): AgentEvent => ({ seq, sessionId: "ags_1", time: at(seq), type: "tool_call" });
+    const calls = installFetch(
+      sequence(
+        () => json(200, { events: [ev(1), ev(2)], nextAfter: 2 }),
+        () => json(200, { events: [ev(3), ev(4)], nextAfter: 4 }),
+        () => json(200, { events: [ev(5)] }),
+      ),
+    );
+    const events = await listAllAgentEvents("ags_1");
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
+    expect(calls.map((c) => c.url)).toEqual([
+      "/v1/agent/sessions/ags_1/events?format=json",
+      "/v1/agent/sessions/ags_1/events?format=json&after=2",
+      "/v1/agent/sessions/ags_1/events?format=json&after=4",
+    ]);
+
+    installFetch(() => json(200, { events: [], nextAfter: 0 }));
+    await expect(listAllAgentEvents("ags_1")).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("keeps the token in sessionStorage only when asked, and never logs it", async () => {

@@ -1,7 +1,7 @@
 // Server-Sent Events over fetch. EventSource cannot send the Authorization
 // header, so the stream is read from a fetch body instead.
 import { ApiError, apiUrl, authHeaders, errorFromResponse, networkError } from "./client";
-import type { Run, RunEvent, RunStatus } from "./types";
+import type { AgentEvent, AgentSession, Run, RunEvent, RunStatus } from "./types";
 
 // --- parser ---
 
@@ -94,23 +94,27 @@ export async function readSse(
   }
 }
 
-// --- run events ---
+// --- event streams: a run's and an agent session's ---
 
 /** running and awaiting_switch are active; every other status is final for a stream. */
 export function isActiveStatus(s: RunStatus): boolean {
   return s === "running" || s === "awaiting_switch";
 }
 
-export interface WatchHandlers {
-  /** Every connection starts with a snapshot, the source of truth at that moment; a run ends with one. */
-  onSnapshot?(run: Run): void;
+/** Handlers for a stream of snapshots `S` and stored events `E`. */
+export interface StreamHandlers<S, E> {
+  /** Every connection starts with a snapshot, the source of truth at that moment; a finished stream ends with one. */
+  onSnapshot?(snapshot: S): void;
   /** Every stored event exactly once, in seq order, across reconnects. */
-  onEvent?(event: RunEvent): void;
+  onEvent?(event: E): void;
   /** true when a stream opened, false when it closed or dropped. */
   onConnection?(connected: boolean): void;
-  /** A connection failed or dropped; watchRun reconnects after `delayMs`. */
+  /** A connection failed or dropped; the watch reconnects after `delayMs`. */
   onRetry?(error: ApiError, delayMs: number): void;
 }
+
+export type WatchHandlers = StreamHandlers<Run, RunEvent>;
+export type AgentWatchHandlers = StreamHandlers<AgentSession, AgentEvent>;
 
 export interface WatchOptions {
   signal?: AbortSignal;
@@ -167,7 +171,37 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * cannot fix: 4xx other than 408 and 429, or a stream that breaks the
  * contract. Network errors, timeouts and 5xx are retried.
  */
-export async function watchRun(runId: string, handlers: WatchHandlers, opts: WatchOptions = {}): Promise<void> {
+export function watchRun(runId: string, handlers: WatchHandlers, opts: WatchOptions = {}): Promise<void> {
+  const path = `/v1/migrations/${encodeURIComponent(runId)}/events`;
+  return watchStream(path, "run", (run) => isActiveStatus(run.status), handlers, opts);
+}
+
+/**
+ * Follows an agent session's activity (GET /v1/agent/sessions/{id}/events)
+ * until the session finishes, with the same guarantees as watchRun. Snapshots
+ * are the AgentSession, events are AgentEvents named by their type, and a
+ * session is active only while it is running: succeeded, failed and
+ * cancelled are final.
+ */
+export function watchAgentSession(id: string, handlers: AgentWatchHandlers, opts: WatchOptions = {}): Promise<void> {
+  const path = `/v1/agent/sessions/${encodeURIComponent(id)}/events`;
+  return watchStream(path, "session", (session) => session.status === "running", handlers, opts);
+}
+
+/**
+ * The loop behind watchRun and watchAgentSession, for a stream at `path` that
+ * keeps their contract: a snapshot first on every connection, then stored
+ * events with their seq as the SSE id, and, once `isActive` is false for a
+ * snapshot, the server closes. `subject` names what the stream follows in
+ * the error of a stream that closes early.
+ */
+async function watchStream<S extends object, E extends { seq: number }>(
+  path: string,
+  subject: string,
+  isActive: (snapshot: S) => boolean,
+  handlers: StreamHandlers<S, E>,
+  opts: WatchOptions,
+): Promise<void> {
   const { signal } = opts;
   const minDelay = opts.minDelayMs ?? 500;
   const maxDelay = opts.maxDelayMs ?? 15_000;
@@ -193,7 +227,7 @@ export async function watchRun(runId: string, handlers: WatchHandlers, opts: Wat
     let opened = false;
     let progressed = false; // this stream delivered a message
     let ended = false; // this stream's latest snapshot shows a final status
-    let failure = new ApiError(0, "stream_closed", "event stream closed while the run is active");
+    let failure = new ApiError(0, "stream_closed", `event stream closed while the ${subject} is active`);
 
     try {
       arm(connectTimeout, `event stream did not open within ${connectTimeout} ms`);
@@ -201,7 +235,7 @@ export async function watchRun(runId: string, handlers: WatchHandlers, opts: Wat
       if (lastSeq > 0) headers.set("Last-Event-ID", String(lastSeq));
       let res: Response;
       try {
-        res = await fetch(apiUrl(`/v1/migrations/${encodeURIComponent(runId)}/events`), {
+        res = await fetch(apiUrl(path), {
           headers,
           cache: "no-store",
           signal: conn.signal,
@@ -223,12 +257,12 @@ export async function watchRun(runId: string, handlers: WatchHandlers, opts: Wat
         if (!live()) return;
         progressed = true;
         if (m.event === "snapshot") {
-          const run = decode<Run>(m.data, "snapshot");
-          ended = !isActiveStatus(run.status);
-          handlers.onSnapshot?.(run);
+          const snapshot = decode<S>(m.data, "snapshot");
+          ended = !isActive(snapshot);
+          handlers.onSnapshot?.(snapshot);
           return;
         }
-        const ev = decode<RunEvent>(m.data, `"${m.event}" event`);
+        const ev = decode<E>(m.data, `"${m.event}" event`);
         // The JSON seq, not the SSE id: an id carries over to messages without one.
         if (ev.seq > 0) {
           if (ev.seq <= lastSeq) return; // replayed after a reconnect

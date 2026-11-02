@@ -1,7 +1,18 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { at, eventMsg, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
-import { applyRunEvent, isAfter, useAudit, useEnvironments, useRun, useTraffic } from "./hooks";
-import type { Environment, GateResult } from "./types";
+import { agentEventMsg, at, eventMsg, fakeAgentSession, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
+import {
+  applyRunEvent,
+  isAfter,
+  useAgentSession,
+  useAgentSessions,
+  useApps,
+  useAudit,
+  useEnvironments,
+  useRun,
+  useSecurity,
+  useTraffic,
+} from "./hooks";
+import type { Environment, GateResult, SecuritySeverity } from "./types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -61,6 +72,33 @@ describe("polled hooks", () => {
     expect(calls.map((c) => c.url)).toContain("/v1/audit?limit=5");
     traffic.unmount();
     audit.unmount();
+  });
+
+  it("pass the security and agent session filters, and refetch only when they change", async () => {
+    const calls = installFetch((c) => {
+      if (c.url.startsWith("/v1/security")) return json(200, { generatedAt: at(0), summary: {}, sources: [], findings: [] });
+      if (c.url.startsWith("/v1/apps")) return json(200, { apps: [] });
+      return json(200, { sessions: [fakeAgentSession()] });
+    });
+    // Every render passes a new filter object with the same values.
+    const security = renderHook(({ severity }: { severity: SecuritySeverity }) => useSecurity(0, { severity }), {
+      initialProps: { severity: "high" as SecuritySeverity },
+    });
+    const sessions = renderHook(() => useAgentSessions(0, { runId: "run_1" }));
+    const apps = renderHook(() => useApps());
+    await waitFor(() => expect(sessions.result.current.data?.map((s) => s.id)).toEqual(["ags_1"]));
+    await waitFor(() => expect(security.result.current.data?.findings).toEqual([]));
+    await waitFor(() => expect(apps.result.current.data).toEqual([]));
+    security.rerender({ severity: "high" });
+    sessions.rerender();
+    await sleep(20);
+    expect(calls.map((c) => c.url).sort()).toEqual(["/v1/agent/sessions?runId=run_1", "/v1/apps", "/v1/security?severity=high"]);
+
+    security.rerender({ severity: "critical" });
+    await waitFor(() => expect(calls.map((c) => c.url)).toContain("/v1/security?severity=critical"));
+    security.unmount();
+    sessions.unmount();
+    apps.unmount();
   });
 });
 
@@ -218,5 +256,55 @@ describe("useRun", () => {
     await waitFor(() => expect(result.current.run?.runId).toBe("run_b"));
     expect(calls[0].signal?.aborted).toBe(true);
     unmount();
+  });
+});
+
+describe("useAgentSession", () => {
+  it("accumulates events across a reconnect, each once", async () => {
+    const calls = installFetch(
+      sequence(
+        sse([snapshotMsg(fakeAgentSession()), agentEventMsg(1, "tool_call"), agentEventMsg(2, "tool_result")], "drop"),
+        sse(
+          [
+            snapshotMsg(fakeAgentSession({ totals: { events: 2, toolCalls: 1, inputTokens: 0, outputTokens: 0, durationMillis: 0 } })),
+            agentEventMsg(2, "tool_result"),
+            agentEventMsg(3, "message"),
+          ],
+          "hang",
+        ),
+      ),
+    );
+    const { result, unmount } = renderHook(() => useAgentSession("ags_1"));
+    // The reconnect waits the default 500 ms backoff.
+    await waitFor(
+      () => expect(result.current.events.map((e) => [e.seq, e.type])).toEqual([[1, "tool_call"], [2, "tool_result"], [3, "message"]]),
+      { timeout: 2000 },
+    );
+
+    const { session, connected, error } = result.current;
+    expect(session?.totals.events).toBe(2);
+    expect(connected).toBe(true);
+    expect(error).toBeUndefined();
+    expect(calls.map((c) => c.headers.get("Last-Event-ID"))).toEqual([null, "2"]);
+    unmount();
+    expect(calls[1].signal?.aborted).toBe(true);
+  });
+
+  it("ends at the final snapshot and watches nothing without an id", async () => {
+    const calls = installFetch(
+      sse([snapshotMsg(fakeAgentSession()), agentEventMsg(1), snapshotMsg(fakeAgentSession({ status: "succeeded", summary: "plan pln_1 submitted" }))]),
+    );
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => useAgentSession(id), {
+      initialProps: { id: null as string | null },
+    });
+    await sleep(20);
+    expect(calls).toHaveLength(0);
+
+    rerender({ id: "ags_1" });
+    await waitFor(() => expect(result.current.session?.status).toBe("succeeded"));
+    await waitFor(() => expect(result.current.connected).toBe(false));
+    expect(result.current.events.map((e) => e.seq)).toEqual([1]);
+    await sleep(30);
+    expect(calls).toHaveLength(1);
   });
 });

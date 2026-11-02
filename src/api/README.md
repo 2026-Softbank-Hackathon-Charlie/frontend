@@ -5,10 +5,10 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry` 같은 짧은 이름 |
+| `types.ts` | `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession` 같은 짧은 이름 |
 | `client.ts` | API 함수, `ApiError`, 토큰 |
-| `sse.ts` | fetch 기반 SSE 파서와 `watchRun` |
-| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`) |
+| `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession` |
+| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
 | `fakes.ts` | 테스트 전용 가짜 fetch. 앱 코드에서 import하지 않는다 |
 | `gen-schema.mjs` | `npm run gen:api` 스크립트 |
 
@@ -60,15 +60,21 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 영역 | 함수 |
 |------|------|
 | 시스템 | `getHealth`, `getMe` |
-| 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan` |
-| 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration` |
+| 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment` |
+| 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration`, `rollbackMigration`, `getWrittenRecords` |
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
+| 보안 | `getSecurity({ environment, severity, refresh })` |
+| 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
 | 기타 | `getMatrix`, `listAudit({ limit, before })` |
 
 - 실패하면 `ApiError`를 던진다. `status`는 HTTP 상태, `code`와 `message`는 서버의 `{"error":{"code","message"}}` 값이다.
 - 응답이 오지 않으면 `status`가 0이다. `code`는 `timeout`(기본 15초) 또는 `network_error`(서버 다운, CORS 거부)다.
 - 호출한 쪽이 `signal`을 abort하면 `ApiError`가 아니라 fetch의 `AbortError`로 끝난다. 취소와 실패를 구분하려는 것이다.
 - `startMigration`은 Idempotency-Key를 꼭 받는다. 사용자가 시작 버튼을 누를 의도 하나마다 `newIdempotencyKey()`로 키를 한 번 만들고, 재시도에는 같은 키를 다시 보낸다. 그러면 버튼을 두 번 눌러도 run이 하나만 생긴다.
+- `approvePlan`에는 사용자가 본 계획의 `revision`을 `{ revision: plan.revision }`으로 보낸다. 첨부가 있는 계획은 revision이 없거나 그사이 첨부가 올라와 바뀌었으면 409 `plan_state_conflict`로 실패한다. 이때는 계획을 다시 읽어 보여 주고 다시 승인받는다.
+- `putPlanAttachment`는 파일 내용을 `application/octet-stream` 그대로 보낸다(최대 1 MiB). 올릴 때마다 계획의 revision이 1 오른다.
+- `rollbackMigration`은 Idempotency-Key를 받지 않는다. 서버가 run 하나를 한 번만 되돌리므로 다시 눌러도 run이 둘 생기지 않고, 이미 시작된 되돌리기는 409 `run_state_conflict`로 알려 준다.
+- `listAgentEvents`는 `format=json`으로 저장된 이벤트를 한 쪽씩 읽는다. `listAllAgentEvents`는 `nextAfter`를 따라 끝까지 읽어 모두 돌려준다.
 
 ## 훅
 
@@ -80,6 +86,10 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | `useMatrix()` | `Matrix` |
 | `useAudit(limit)` | `AuditEntry[]` (최신순) |
 | `useRun(runId)` | `{ run, events, error, connected }` |
+| `useApps()` | `App[]` |
+| `useSecurity(pollMs, { environment, severity, refresh })` | `SecurityReport` |
+| `useAgentSessions(pollMs, { planRef, runId, limit })` | `AgentSession[]` (최신순) |
+| `useAgentSession(id)` | `{ session, events, error, connected }` |
 
 - 목록 훅은 `{ data, error, loading, reload }`를 돌려준다. `pollMs`가 0이거나 없으면 한 번만 읽고, 있으면 응답을 받은 뒤 `pollMs`마다 다시 읽는다.
 - 폴링 중 실패하면 마지막 `data`는 그대로 두고 `error`만 채운다. 다음 성공에서 `error`가 지워진다.
@@ -158,6 +168,14 @@ const lag = [...events].reverse().find((e) => typeof e.data?.lagBytes === "numbe
 - `status_changed`는 status, phase, statusReason을 바꾼다. `canary_step`은 카나리 단계를 열고, `gate_result`는 그 단계에 게이트 결과를 넣는다. `metric`의 `downtimeMillis`는 `run.result.downtimeMillis`가 된다.
 - 같은 이벤트를 두 번 반영해도 결과가 같다. 서버가 문서를 저장하기 직전에 찍은 snapshot은 `updatedAt`이 실제보다 이르지만, 이벤트를 그 시각이 속한 단계에 맞춰 넣으므로 단계가 두 번 생기지 않는다.
 - 서버 snapshot에는 끝난 카나리 단계만 들어 있다. 그래서 진행 중인 단계에서 다시 연결하면 그 단계가 잠시 사라졌다가 `gate_result`가 오면 다시 보인다.
+
+## 에이전트 세션 SSE (`GET /v1/agent/sessions/{id}/events`)
+
+run 이벤트와 계약이 같다. snapshot의 data는 `AgentSession`, 이벤트는 `AgentEvent`이고 SSE event 이름은 `type`(`tool_call`, `tool_result`, `message`, `blocked`, `decision`, `error`)이다.
+
+- `watchAgentSession(id, handlers, { signal })`은 `watchRun`과 같은 재연결 루프를 쓴다. 재연결, `Last-Event-ID`, 중복 제거, 타임아웃, 재시도 규칙이 모두 같다.
+- 세션은 `running`인 동안만 진행 중이다. `succeeded`, `failed`, `cancelled` snapshot 뒤에 서버가 연결을 닫으면 끝난다.
+- `useAgentSession`의 `session`은 마지막 snapshot이고 이벤트로 바꾸지 않는다. 진행 중인 세션의 `totals`는 연결할 때 값이므로 실시간 수치는 `events`에서 센다.
 
 ## 테스트
 

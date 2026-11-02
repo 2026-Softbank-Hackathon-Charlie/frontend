@@ -1,12 +1,14 @@
 // Test doubles for the api tests. Nothing in the app imports this file.
 import { vi } from "vitest";
-import type { Run, RunEvent } from "./types";
+import type { AgentEvent, AgentEventType, AgentSession, Run, RunEvent } from "./types";
 
 export interface FakeCall {
   url: string;
   method: string;
   headers: Headers;
   body: string | undefined;
+  /** The body exactly as given to fetch. */
+  raw: RequestInit["body"];
   signal: AbortSignal | undefined;
 }
 
@@ -23,6 +25,7 @@ export function installFetch(route: FakeHandler): FakeCall[] {
       method: init.method ?? "GET",
       headers: new Headers(init.headers),
       body: typeof init.body === "string" ? init.body : undefined,
+      raw: init.body,
       signal: init.signal ?? undefined,
     };
     calls.push(call);
@@ -124,12 +127,31 @@ export function fakeRun(p: Partial<Run> = {}): Run {
 }
 
 /** A snapshot message as the server writes it: no id. */
-export function snapshotMsg(run: Run): string {
-  return `event: snapshot\ndata: ${JSON.stringify(run)}\n\n`;
+export function snapshotMsg(snapshot: Run | AgentSession): string {
+  return `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
 }
 
 /** A RunEvent message as the server writes it: the seq as id, the kind as event name. */
 export function eventMsg(seq: number, kind: string, data?: Record<string, unknown>, time = at(seq)): string {
   const ev: RunEvent = { seq, time, runId: "run_1", kind, ...(data ? { data } : {}) };
   return `id: ${seq}\nevent: ${kind}\ndata: ${JSON.stringify(ev)}\n\n`;
+}
+
+export function fakeAgentSession(p: Partial<AgentSession> = {}): AgentSession {
+  return {
+    id: "ags_1",
+    kind: "plan",
+    title: "shop gke to eks",
+    actor: "planner",
+    status: "running",
+    createdAt: at(0),
+    totals: { events: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, durationMillis: 0 },
+    ...p,
+  };
+}
+
+/** An AgentEvent message as the server writes it: the seq as id, the type as event name. */
+export function agentEventMsg(seq: number, type: AgentEventType = "tool_call", p: Partial<AgentEvent> = {}): string {
+  const ev: AgentEvent = { seq, sessionId: "ags_1", time: at(seq), type, ...p };
+  return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify(ev)}\n\n`;
 }

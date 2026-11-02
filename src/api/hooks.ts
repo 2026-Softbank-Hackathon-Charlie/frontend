@@ -1,9 +1,25 @@
 // React hooks over the platform API. Every hook aborts its requests and
 // timers on unmount.
 import { useCallback, useEffect, useReducer, useState } from "react";
-import { ApiError, getMatrix, getTraffic, listAudit, listEnvironments, listMigrations, networkError } from "./client";
-import { watchRun } from "./sse";
+import {
+  ApiError,
+  getMatrix,
+  getSecurity,
+  getTraffic,
+  listAgentSessions,
+  listApps,
+  listAudit,
+  listEnvironments,
+  listMigrations,
+  networkError,
+  type AgentSessionQuery,
+  type SecurityQuery,
+} from "./client";
+import { watchAgentSession, watchRun } from "./sse";
 import type {
+  AgentEvent,
+  AgentSession,
+  App,
   AuditEntry,
   CanaryStepData,
   Environment,
@@ -12,6 +28,7 @@ import type {
   MetricData,
   Run,
   RunEvent,
+  SecurityReport,
   StatusChangedData,
   TrafficState,
 } from "./types";
@@ -79,6 +96,23 @@ export function useMatrix(): Resource<Matrix> {
 /** The newest `limit` audit entries (server default 100, max 500). */
 export function useAudit(limit?: number): Resource<AuditEntry[]> {
   return usePolled("audit:" + (limit ?? ""), 0, async (signal) => (await listAudit({ limit }, { signal })).entries);
+}
+
+/** The apps a plan can be drafted for, in configuration order. */
+export function useApps(): Resource<App[]> {
+  return usePolled("apps", 0, async (signal) => (await listApps({ signal })).apps);
+}
+
+/** The security report, filtered by `q`. With `refresh` every load reads the sources again instead of the cache. */
+export function useSecurity(pollMs = 0, q: SecurityQuery = {}): Resource<SecurityReport> {
+  const key = "security:" + JSON.stringify([q.environment, q.severity, q.refresh]);
+  return usePolled(key, pollMs, (signal) => getSecurity(q, { signal }));
+}
+
+/** Agent sessions, newest first, optionally only those of one plan or run. */
+export function useAgentSessions(pollMs = 0, q: AgentSessionQuery = {}): Resource<AgentSession[]> {
+  const key = "agent-sessions:" + JSON.stringify([q.planRef, q.runId, q.limit]);
+  return usePolled(key, pollMs, async (signal) => (await listAgentSessions(q, { signal })).sessions);
 }
 
 // --- one run, live ---
@@ -204,4 +238,68 @@ export function useRun(runId: string | null | undefined): RunWatch {
     return () => ctrl.abort();
   }, [runId]);
   return { run: s.run, events: s.events, error: s.error, connected: s.connected };
+}
+
+// --- one agent session, live ---
+
+export interface AgentSessionWatch {
+  /**
+   * The latest snapshot. Events do not update it, so while the session runs
+   * its totals are as of the last connect; `events` is always complete.
+   */
+  session: AgentSession | undefined;
+  /** Every event of the session so far, each once, in seq order. */
+  events: AgentEvent[];
+  /** The last connection problem (cleared when a stream opens), or the error that stopped the watch. */
+  error: ApiError | undefined;
+  /** A stream is open right now. */
+  connected: boolean;
+}
+
+type SessionAction =
+  | { type: "reset" }
+  | { type: "snapshot"; session: AgentSession }
+  | { type: "event"; event: AgentEvent }
+  | { type: "connected"; value: boolean }
+  | { type: "error"; error: ApiError };
+
+const noSession: AgentSessionWatch = { session: undefined, events: [], error: undefined, connected: false };
+
+function sessionReducer(s: AgentSessionWatch, a: SessionAction): AgentSessionWatch {
+  switch (a.type) {
+    case "reset":
+      return noSession;
+    case "snapshot":
+      return { ...s, session: a.session };
+    case "event":
+      return { ...s, events: [...s.events, a.event] };
+    case "connected":
+      return { ...s, connected: a.value, error: a.value ? undefined : s.error };
+    case "error":
+      return { ...s, error: a.error };
+  }
+}
+
+/** Follows one agent session live over SSE until it finishes. A falsy `id` watches nothing. */
+export function useAgentSession(id: string | null | undefined): AgentSessionWatch {
+  const [s, dispatch] = useReducer(sessionReducer, noSession);
+  useEffect(() => {
+    dispatch({ type: "reset" });
+    if (!id) return;
+    const ctrl = new AbortController();
+    watchAgentSession(
+      id,
+      {
+        onSnapshot: (session) => dispatch({ type: "snapshot", session }),
+        onEvent: (event) => dispatch({ type: "event", event }),
+        onConnection: (value) => dispatch({ type: "connected", value }),
+        onRetry: (error) => dispatch({ type: "error", error }),
+      },
+      { signal: ctrl.signal },
+    ).catch((e: unknown) => {
+      if (!ctrl.signal.aborted) dispatch({ type: "error", error: toApiError(e) });
+    });
+    return () => ctrl.abort();
+  }, [id]);
+  return s;
 }

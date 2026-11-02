@@ -1,7 +1,15 @@
 import { ApiError, setToken } from "./client";
-import { eventMsg, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
-import { readSse, SseParser, watchRun, type SseMessage, type WatchHandlers } from "./sse";
-import type { RunStatus } from "./types";
+import { agentEventMsg, eventMsg, fakeAgentSession, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
+import {
+  readSse,
+  SseParser,
+  watchAgentSession,
+  watchRun,
+  type AgentWatchHandlers,
+  type SseMessage,
+  type WatchHandlers,
+} from "./sse";
+import type { AgentSessionStatus, RunStatus } from "./types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -191,5 +199,56 @@ describe("watchRun", () => {
     const done = watchRun("run_1", {}, { signal: ctrl.signal });
     ctrl.abort();
     await expect(done).resolves.toBeUndefined();
+  });
+});
+
+describe("watchAgentSession", () => {
+  const snap = (status: AgentSessionStatus) => snapshotMsg(fakeAgentSession({ status }));
+  const ev = (seq: number) => agentEventMsg(seq, seq % 2 ? "tool_call" : "tool_result", { tool: "kubectl" });
+
+  function recorder() {
+    const r = { seqs: [] as number[], snaps: [] as string[], conn: [] as boolean[], retries: [] as string[] };
+    const handlers: AgentWatchHandlers = {
+      onEvent: (e) => r.seqs.push(e.seq),
+      onSnapshot: (s) => r.snaps.push(s.status),
+      onConnection: (c) => r.conn.push(c),
+      onRetry: (e) => r.retries.push(e.message),
+    };
+    return { r, handlers };
+  }
+
+  it("replays after a reconnect without duplicates and resolves on a final snapshot", async () => {
+    setToken("tok");
+    const calls = installFetch(
+      sequence(
+        sse([snap("running"), ev(1), ev(2)], "drop"),
+        // The replay overlaps what was already delivered.
+        sse([snap("running"), ev(2), ev(3), snap("succeeded")], "close"),
+      ),
+    );
+    const { r, handlers } = recorder();
+    await watchAgentSession("ags_1", handlers, { minDelayMs: 1 });
+
+    expect(r.seqs).toEqual([1, 2, 3]);
+    expect(r.snaps).toEqual(["running", "running", "succeeded"]);
+    expect(r.conn).toEqual([true, false, true, false]);
+    expect(calls.map((c) => c.headers.get("Last-Event-ID"))).toEqual([null, "2"]);
+    expect(calls[0].url).toBe("/v1/agent/sessions/ags_1/events");
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer tok");
+    expect(calls[0].headers.get("Accept")).toBe("text/event-stream");
+  });
+
+  it("reconnects while the session runs and treats failed and cancelled as final", async () => {
+    const calls = installFetch(sequence(sse([snap("running"), ev(1)]), sse([snap("cancelled")])));
+    const { r, handlers } = recorder();
+    await watchAgentSession("ags_1", handlers, { minDelayMs: 1 });
+    expect(r.retries).toEqual(["event stream closed while the session is active"]);
+    expect(calls.map((c) => c.headers.get("Last-Event-ID"))).toEqual([null, "1"]);
+
+    const finished = installFetch(sse([snap("failed"), ev(1), ev(2), snap("failed")]));
+    const second = recorder();
+    await watchAgentSession("ags_1", second.handlers);
+    expect(second.r.seqs).toEqual([1, 2]);
+    expect(finished).toHaveLength(1);
   });
 });
