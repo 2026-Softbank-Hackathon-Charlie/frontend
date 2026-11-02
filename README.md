@@ -62,6 +62,15 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 | **새 앱 배포** | **환경** |
 | ![새 앱 배포](docs/screenshots/new-app.png) | ![환경](docs/screenshots/envs.png) |
 
+### 디자인 시스템 (`#design-system`)
+메뉴에는 없는 화면입니다. 주소창에 `#design-system`을 붙여서 엽니다. 색(대비 포함), 글꼴, 간격과 모서리, 상태 표현, 컴포넌트, 움직임을 화면과 같은 토큰과 클래스로 보여줍니다.
+
+![디자인 시스템](docs/screenshots/design-system.png)
+
+### Figma로 옮기기
+- **이미지로:** `docs/screenshots/`의 PNG를 Figma에 끌어다 놓습니다.
+- **편집 가능한 레이어로:** html.to.design 크롬 확장을 설치하고, `npm run dev`로 띄운 화면(`http://localhost:5173/#...`)에서 확장을 눌러 캡처한 뒤 Figma의 html.to.design 플러그인에서 불러옵니다. 진행 상태가 있는 화면(승인 대기, 전환 중, 리포트)은 그 상태까지 진행한 뒤 캡처합니다.
+
 ## 이전 흐름
 
 (기존 앱 가져오기 →) AI 계획 → 리허설 → 승인 → 실행 순서입니다. 운영자가 누르는 버튼은 승인(또는 반려)과 원본 삭제 승인뿐이고, 나머지는 자동으로 진행합니다.
@@ -84,7 +93,7 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 src/sim/data.ts     시연 데이터 (클러스터 3개, 경로 6개, Plan, 리허설, 로그 타임라인)
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전) — 실제 API로 바꿀 경계
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #app-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #envs)
+src/router.ts       해시 라우팅 (#overview, #apps, #app-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #envs, #design-system)
 src/pages/          화면
 src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead)
 ```

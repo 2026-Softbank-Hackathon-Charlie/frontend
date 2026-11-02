@@ -1,5 +1,6 @@
 import { Chip } from "./components/ui";
 import { AppDetail, Apps } from "./pages/Apps";
+import { DesignSystem } from "./pages/DesignSystem";
 import { Envs } from "./pages/Envs";
 import { Migrate, MigrateList } from "./pages/Migrate";
 import { NewApp } from "./pages/NewApp";
@@ -19,6 +20,7 @@ function Page({ r }: { r: string }) {
   if (r === "migrate-shop") return <Migrate />;
   if (r === "routes") return <Routes />;
   if (r === "envs") return <Envs />;
+  if (r === "design-system") return <DesignSystem />;
   return <Overview />;
 }
 
