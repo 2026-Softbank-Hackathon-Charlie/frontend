@@ -19,8 +19,13 @@ export interface paths {
     get: operations["listPlans"];
     /**
      * @description Submit an engine plan as-is. The server applies its security policy
-     * (allowed `${VAR}` references, no kubeconfig paths, gateway and DB host
-     * allowlists) and stores the plan as `pending_approval`. Roles: agent, operator.
+     * (no kubeconfig paths, gateway and DB host allowlists, environment
+     * references) and stores the plan as `pending_approval`. A DSN must be a
+     * `postgres://` URL and may reference one allowed variable, as its whole
+     * password (`postgres://app:${SRC_PGPASSWORD}@host:5432/db`); an app's
+     * `passwordEnv` only in a DSN to that app's database host.
+     * `gateway.token` may only be `${GATEWAY_TOKEN}`; no other field may
+     * contain `$`. Roles: agent, operator.
      */
     post: operations["submitPlan"];
   };
@@ -34,7 +39,12 @@ export interface paths {
     };
   };
   "/v1/plans/{ref}/approve": {
-    /** @description The human gate between AI planning and execution. Approving twice is a no-op. Role operator. */
+    /**
+     * @description The human gate between AI planning and execution. Send the plan's
+     * `revision` you reviewed: approving a plan that has attachments without
+     * it, or with a revision that changed since (an attachment was uploaded),
+     * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Role operator.
+     */
     post: operations["approvePlan"];
     parameters: {
       path: {
@@ -59,7 +69,9 @@ export interface paths {
      * of read traffic to the target (canary), and then waits in
      * `awaiting_switch` until an operator calls `/switch`, unless `autoSwitch`
      * is true. Send the same `Idempotency-Key` to get the original run back on
-     * a retry. Role operator.
+     * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
+     * once the stream has records (400 `invalid_request` before that). A plan
+     * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.
      */
     post: operations["startMigration"];
   };
@@ -123,7 +135,8 @@ export interface paths {
   "/v1/migrations/{runId}/resume": {
     /**
      * @description Continue a run that is `interrupted` (the server restarted), `failed`
-     * or `aborted`. Steps that already succeeded are skipped. Role operator.
+     * or `aborted`. Steps that already succeeded are skipped. Like a start,
+     * it needs records in the plan's written-records stream. Role operator.
      */
     post: operations["resumeMigration"];
     parameters: {
@@ -155,6 +168,178 @@ export interface paths {
   "/v1/audit": {
     /** @description Every state-changing request and every denied request, newest first. */
     get: operations["listAudit"];
+  };
+  "/": {
+    /** @description Names the service and links to the contract, so a browser pointed at the API host gets an answer. */
+    get: operations["getRoot"];
+  };
+  "/v1/security": {
+    /**
+     * @description The security and governance state of every environment in one view.
+     * Kubernetes clusters, the AWS account (IAM, EC2, CloudTrail, GuardDuty,
+     * Security Hub, S3) and the platform's own audit log and configuration
+     * are read and normalised into `SecurityFinding`s.
+     *
+     * Every finding comes from a real read. A source that could not be read
+     * is listed in `sources` with its status and a message and contributes no
+     * findings; nothing is filled in for it. Results are cached for 60
+     * seconds; `refresh=true` collects again, at most once every 10 seconds
+     * (a refresh within that window gets the latest result).
+     *
+     * The filters apply to `findings`, to the counts in `sources` and to
+     * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+     */
+    get: operations["getSecurity"];
+  };
+  "/v1/agent/sessions": {
+    get: operations["listAgentSessions"];
+    /**
+     * @description Start an activity log for one task of the AI agent (planning a
+     * migration, a sandbox rehearsal, a diagnosis). The session starts as
+     * `running`; its actor is the token's name. Roles: agent, operator.
+     */
+    post: operations["createAgentSession"];
+  };
+  "/v1/agent/sessions/{id}": {
+    get: operations["getAgentSession"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/agent/sessions/{id}/events": {
+    /**
+     * @description Server-Sent Events, with the same contract as a run's events.
+     *
+     * - The first message is `snapshot` (data: `AgentSession`). Snapshots
+     *   carry no SSE id.
+     * - Then every `AgentEvent`, with the event `type` as the SSE event name
+     *   and the event `seq` as the SSE id.
+     * - When the session finishes: a final `snapshot`, then the stream closes.
+     *   While it runs the stream stays open, with `: keep-alive` comments.
+     *
+     * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events you
+     * missed. `format=json` returns one page of the stored events as an
+     * `AgentEventList` instead of a stream: up to `limit` events after
+     * `after`, and `nextAfter` when more follow.
+     */
+    get: operations["streamAgentEvents"];
+    /**
+     * @description Record one tool call, tool result, message, blocked action, decision or
+     * error. Only the session's actor or an operator may append. A session
+     * holds at most 5000 events. `input` and `output` are any JSON value up
+     * to 64 KiB each. Credentials are stored as `"[redacted]"`: string values
+     * under keys that look like credentials (password, passwd, pwd, pass,
+     * secret, token, authorization, cookie, api key, private key, credential,
+     * access key; numbers and booleans are kept, so token counts stay), the
+     * `value` of an object whose `name` or `key` looks like one, and within
+     * strings `NAME=value` and `NAME: value` assignments, URL passwords,
+     * bearer tokens, AWS access key ids and PEM private keys. NUL characters
+     * are removed and invalid UTF-8 is replaced in every stored string.
+     * Error codes: agent_session_not_found (404), agent_session_finished
+     * (409), session_full (409), too_large (413).
+     */
+    post: operations["appendAgentEvent"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/agent/sessions/{id}/finish": {
+    /**
+     * @description End a running session. Only the session's actor or an operator may
+     * finish it. A running session with no event for `PLATFORM_AGENT_IDLE`
+     * (default 30 minutes) is finished by the platform as `cancelled` with
+     * the summary "no activity for 30m; closed by the platform". Error codes:
+     * agent_session_not_found (404), agent_session_finished (409).
+     */
+    post: operations["finishAgentSession"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/written-records/{stream}": {
+    /** @description How many records a stream holds. A stream nobody wrote to has count 0. */
+    get: operations["getWrittenRecordStats"];
+    /**
+     * @description Record writes that a load generator saw succeed. When a run's plan sets
+     * `verify.writtenRecords: "stream:<name>"`, the server writes every record
+     * of the stream to a file right before the verify step, and the engine
+     * checks that each one exists on the target database. Table names are
+     * stored in lower case (unquoted PostgreSQL identifiers); control
+     * characters in `table` or `pk` are refused. Roles: agent, operator.
+     */
+    post: operations["appendWrittenRecords"];
+    parameters: {
+      path: {
+        /** @description Stream name, `^[a-z0-9][a-z0-9-]{0,62}$`. A plan refers to it as `verify.writtenRecords: "stream:<name>"`. */
+        stream: string;
+      };
+    };
+  };
+  "/v1/plans/{ref}/attachments/{name}": {
+    /** @description The attachment as uploaded. 404 `attachment_not_found` when the plan has no attachment of that name. */
+    get: operations["getPlanAttachment"];
+    /**
+     * @description Upload a file the plan refers to, such as the target CNPG Cluster
+     * manifest (`target.manifest: "attachment:<name>"`). Allowed only while the
+     * plan is `pending_approval`, and every upload raises the plan's
+     * `revision` by one, so the approver approves fixed content.
+     * Uploading the same name again replaces it. The body is the raw content,
+     * at most 1 MiB. Approving a plan that refers to a missing attachment
+     * fails with 409. Roles: agent, operator.
+     */
+    put: operations["putPlanAttachment"];
+    parameters: {
+      path: {
+        ref: components["parameters"]["PlanRef"];
+        /** @description `^[A-Za-z0-9._-]{1,100}$`, other than `.` and `..`. */
+        name: string;
+      };
+    };
+  };
+  "/v1/apps": {
+    /** @description The applications in the server's `PLATFORM_APPS_FILE` and the environments each one runs in. Empty when the file is not set. */
+    get: operations["listApps"];
+  };
+  "/v1/plans/draft": {
+    /**
+     * @description Build an engine plan for one app and route from the server's
+     * configuration, so nobody writes plan JSON by hand. The draft is not
+     * stored: submit it with `POST /v1/plans`, as is or edited.
+     *
+     * - `id` is `<app>-<source>-to-<target>`; contexts come from the
+     *   environments, clusters and database hosts from the app.
+     * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
+     * - `files` is set when both environments have a bucket, unless `files` is false.
+     * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+     *
+     * Roles: agent, operator.
+     */
+    post: operations["draftPlan"];
+  };
+  "/v1/migrations/{runId}/rollback": {
+    /**
+     * @description One-click rollback of a `succeeded` run: migrate back the way it came.
+     * The server builds the reverse of the run's plan (source and target
+     * swapped, files and gateway backends swapped, no target manifest because
+     * the old source still exists as a replica), stores it as a new plan with
+     * id `<plan id>-rollback` and `rollbackOf` set, approved by the caller,
+     * and starts it. The new run has `rollbackOf` set. A run is rolled back
+     * at most once: when an earlier rollback's start failed (for example
+     * `cluster_busy`), its plan is started again instead of a new one, and
+     * once that plan has started, 409 `run_state_conflict` names its run. Role operator.
+     */
+    post: operations["rollbackMigration"];
+    parameters: {
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+    };
   };
 }
 
@@ -253,6 +438,13 @@ export interface components {
       /** @example pln_3f9c1a0b2d4e */
       ref: string;
       status: components["schemas"]["PlanStatus"];
+      /**
+       * Format: int64
+       * @description 1 at submit, one more with every attachment upload. Approve with the revision you reviewed.
+       */
+      revision: number;
+      /** @description the run this plan rolls back (POST /v1/migrations/{runId}/rollback) */
+      rollbackOf?: string;
       summary: components["schemas"]["PlanSummary"];
       submittedBy: string;
       /** Format: date-time */
@@ -263,12 +455,19 @@ export interface components {
       reviewedAt?: string;
       reviewComment?: string;
       runId?: string;
+      /** @description Files uploaded for this plan (PUT /v1/plans/{ref}/attachments/{name}). */
+      attachments?: components["schemas"]["PlanAttachment"][];
     };
     PlanList: {
       plans: components["schemas"]["PlanRecord"][];
     };
     ReviewRequest: {
       comment?: string;
+      /**
+       * Format: int64
+       * @description Approve only. The plan revision the approver reviewed; required when the plan has attachments.
+       */
+      revision?: number;
     };
     StartMigrationRequest: {
       planRef: string;
@@ -373,6 +572,8 @@ export interface components {
       statusReason?: string;
       result: components["schemas"]["RunResult"];
       engine: components["schemas"]["EngineState"];
+      /** @description the run this run rolls back (POST /v1/migrations/{runId}/rollback) */
+      rollbackOf?: string;
     };
     /** @description The numbers the console shows. Absent values were not measured (yet). */
     RunResult: {
@@ -662,6 +863,305 @@ export interface components {
        */
       nextBefore?: number;
     };
+    ServiceInfo: {
+      /** @example hopcharlie-platform */
+      name: string;
+      links: {
+        /** @example /openapi.yaml */
+        openapi: string;
+        /** @example /healthz */
+        health: string;
+      };
+    };
+    /** @enum {string} */
+    SecurityProvider: "aws" | "gcp" | "onprem" | "cloudflare" | "platform";
+    /** @enum {string} */
+    SecuritySeverity: "critical" | "high" | "medium" | "low" | "info";
+    /** @enum {string} */
+    SecurityCategory: "identity" | "network" | "workload" | "data" | "logging" | "threat";
+    /**
+     * @description - ok: read completely.
+     * - unavailable: the source did not answer (e.g. the cluster is unreachable).
+     * - not_configured: this server has no credentials or settings for the source; the message says what is missing.
+     * - error: credentials exist but could not be fetched (e.g. the instance metadata service timed out), or the source answered but some or all reads failed (e.g. access denied); findings read before the failure are kept.
+     *
+     * @enum {string}
+     */
+    SecuritySourceStatus: "ok" | "unavailable" | "not_configured" | "error";
+    /** @description One security or governance signal, normalised across vendors. */
+    SecurityFinding: {
+      /** @description stable across collections: a hash of environment, source, check, resource and, where it has one, the vendor's own finding id (GuardDuty finding id, Security Hub finding ARN) or the rule's protocol, ports and CIDRs */
+      id: string;
+      /**
+       * @description an environment name, or aws-account, or platform
+       * @example gke
+       */
+      environment: string;
+      provider: components["schemas"]["SecurityProvider"];
+      /**
+       * @description kubernetes, aws-iam, aws-ec2, aws-cloudtrail, aws-guardduty, aws-securityhub, aws-s3, platform-audit, platform-config
+       * @example aws-guardduty
+       */
+      source: string;
+      /**
+       * @description the rule that produced the finding
+       * @example k8s.privileged
+       */
+      check: string;
+      category: components["schemas"]["SecurityCategory"];
+      severity: components["schemas"]["SecuritySeverity"];
+      title: string;
+      /** @description what the finding is about, e.g. shop/Deployment/web/app/app or an ARN */
+      resource: string;
+      detail: string;
+      recommendation: string;
+      /**
+       * Format: date-time
+       * @description when the source reported it, or when it was read
+       */
+      observedAt: string;
+    };
+    SecuritySource: {
+      /** @example aws-guardduty */
+      name: string;
+      provider: components["schemas"]["SecurityProvider"];
+      environment: string;
+      status: components["schemas"]["SecuritySourceStatus"];
+      /** @description why the status is not ok, or what was read */
+      message?: string;
+      /** Format: date-time */
+      checkedAt: string;
+      /** @description findings from this source in this response */
+      findings: number;
+    };
+    SeverityCounts: {
+      total: number;
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      info: number;
+    };
+    SecuritySummary: {
+      bySeverity: components["schemas"]["SeverityCounts"];
+      /** @description Counts per environment; every environment with a source appears, even with no findings. */
+      byEnvironment: {
+        [key: string]: components["schemas"]["SeverityCounts"];
+      };
+    };
+    SecurityReport: {
+      /**
+       * Format: date-time
+       * @description when the sources were read
+       */
+      generatedAt: string;
+      summary: components["schemas"]["SecuritySummary"];
+      sources: components["schemas"]["SecuritySource"][];
+      /** @description Most severe first. */
+      findings: components["schemas"]["SecurityFinding"][];
+    };
+    /** @enum {string} */
+    AgentSessionKind: "plan" | "rehearsal" | "diagnose" | "explain" | "other";
+    /** @enum {string} */
+    AgentSessionStatus: "running" | "succeeded" | "failed" | "cancelled";
+    /** @enum {string} */
+    AgentEventType: "tool_call" | "tool_result" | "message" | "blocked" | "decision" | "error";
+    CreateAgentSessionRequest: {
+      kind: components["schemas"]["AgentSessionKind"];
+      title: string;
+      planRef?: string;
+      runId?: string;
+      /** @example claude-opus-4-5 */
+      model?: string;
+    };
+    AgentSessionTotals: {
+      /** Format: int64 */
+      events: number;
+      /** Format: int64 */
+      toolCalls: number;
+      /** Format: int64 */
+      inputTokens: number;
+      /** Format: int64 */
+      outputTokens: number;
+      /**
+       * Format: int64
+       * @description sum of the events' durationMillis; wall-clock time is endedAt - createdAt
+       */
+      durationMillis: number;
+    };
+    AgentSession: {
+      /** @example ags_3f9c1a0b2d4e */
+      id: string;
+      kind: components["schemas"]["AgentSessionKind"];
+      title: string;
+      /** @description the token name that started the session */
+      actor: string;
+      planRef?: string;
+      runId?: string;
+      model?: string;
+      status: components["schemas"]["AgentSessionStatus"];
+      summary?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      endedAt?: string;
+      totals: components["schemas"]["AgentSessionTotals"];
+    };
+    AgentSessionList: {
+      sessions: components["schemas"]["AgentSession"][];
+    };
+    TokenUsage: {
+      /** Format: int64 */
+      inputTokens: number;
+      /** Format: int64 */
+      outputTokens: number;
+    };
+    AgentEventRequest: {
+      type: components["schemas"]["AgentEventType"];
+      /** @description the tool name for tool_call, tool_result and blocked */
+      tool?: string;
+      /** @description any JSON value, up to 64 KiB */
+      input?: unknown;
+      /** @description any JSON value, up to 64 KiB */
+      output?: unknown;
+      /** @example ok */
+      status?: string;
+      /** Format: int64 */
+      durationMillis?: number;
+      usage?: components["schemas"]["TokenUsage"];
+    };
+    AgentEvent: {
+      /** Format: int64 */
+      seq: number;
+      sessionId: string;
+      /** Format: date-time */
+      time: string;
+      type: components["schemas"]["AgentEventType"];
+      tool?: string;
+      /** @description any JSON value; credential-like values are "[redacted]" */
+      input?: unknown;
+      /** @description any JSON value; credential-like values are "[redacted]" */
+      output?: unknown;
+      status?: string;
+      /** Format: int64 */
+      durationMillis?: number;
+      usage?: components["schemas"]["TokenUsage"];
+    };
+    AgentEventList: {
+      events: components["schemas"]["AgentEvent"][];
+      /**
+       * Format: int64
+       * @description Set when more events follow this page; pass it as `after` to read them.
+       */
+      nextAfter?: number;
+    };
+    FinishAgentSessionRequest: {
+      status: components["schemas"]["AgentSessionStatus"];
+      summary?: string;
+    };
+    /** @description One write a load generator saw succeed, in the engine's written-records format. */
+    WrittenRecord: {
+      /**
+       * @description schema.table or table
+       * @example orders.orders
+       */
+      table: string;
+      /**
+       * @description the primary key as text; composite keys as "(a,b)"
+       * @example 42
+       */
+      pk: string;
+      /**
+       * Format: date-time
+       * @description when the write succeeded; defaults to when the server received it
+       */
+      at?: string;
+    };
+    WrittenRecordsRequest: {
+      records: components["schemas"]["WrittenRecord"][];
+    };
+    WrittenRecordsAccepted: {
+      /** @description records stored */
+      accepted: number;
+    };
+    WrittenRecordStats: {
+      stream: string;
+      /** Format: int64 */
+      count: number;
+      /**
+       * Format: date-time
+       * @description the newest record's time; absent when the stream is empty
+       */
+      latestAt?: string;
+    };
+    PlanAttachment: {
+      /** @example target.yaml */
+      name: string;
+      /**
+       * Format: int64
+       * @description bytes
+       */
+      size: number;
+      /** @description hex SHA-256 of the content */
+      sha256: string;
+    };
+    AppList: {
+      apps: components["schemas"]["App"][];
+    };
+    /** @description An application from PLATFORM_APPS_FILE. */
+    App: {
+      /** @example shop */
+      name: string;
+      /** @example shop */
+      namespace: string;
+      database: components["schemas"]["AppDatabase"];
+      /** @description The environments the app runs in, in PLATFORM_ENVS_FILE order. */
+      environments: components["schemas"]["AppEnvironment"][];
+    };
+    AppDatabase: {
+      /** @example app */
+      name: string;
+      /** @example app */
+      user: string;
+      /** @description Schemas verification compares. Empty means the engine default (public). */
+      schemas: string[];
+    };
+    AppEnvironment: {
+      /** @example gke */
+      env: string;
+      /** @example shop-db-gke */
+      cnpgCluster: string;
+      /**
+       * @description host:port of the cluster's -rw service
+       * @example shop-db-gke-rw.shop.gke.ts.net:5432
+       */
+      dbHost: string;
+      /**
+       * @description the rclone remote and bucket of the app's files
+       * @example gcs:shop-uploads-gke
+       */
+      bucket?: string;
+    };
+    PlanDraftRequest: {
+      /** @example shop */
+      app: string;
+      /** @example gke */
+      source: string;
+      /** @example eks */
+      target: string;
+      /** @description false leaves object storage out even when both environments have a bucket */
+      files?: boolean;
+      /** @description sets verify.writtenRecords to "stream:<name>" */
+      writtenRecordsStream?: string;
+    };
+    RollbackRequest: {
+      reason?: string;
+      /**
+       * @description Cut over as soon as data is in sync. false waits in awaiting_switch for /switch.
+       * @default true
+       */
+      autoSwitch?: boolean;
+    };
   };
   responses: {
     /** @description invalid_request, invalid_plan */
@@ -782,8 +1282,13 @@ export interface operations {
   };
   /**
    * @description Submit an engine plan as-is. The server applies its security policy
-   * (allowed `${VAR}` references, no kubeconfig paths, gateway and DB host
-   * allowlists) and stores the plan as `pending_approval`. Roles: agent, operator.
+   * (no kubeconfig paths, gateway and DB host allowlists, environment
+   * references) and stores the plan as `pending_approval`. A DSN must be a
+   * `postgres://` URL and may reference one allowed variable, as its whole
+   * password (`postgres://app:${SRC_PGPASSWORD}@host:5432/db`); an app's
+   * `passwordEnv` only in a DSN to that app's database host.
+   * `gateway.token` may only be `${GATEWAY_TOKEN}`; no other field may
+   * contain `$`. Roles: agent, operator.
    */
   submitPlan: {
     requestBody: {
@@ -827,7 +1332,12 @@ export interface operations {
       default: components["responses"]["Internal"];
     };
   };
-  /** @description The human gate between AI planning and execution. Approving twice is a no-op. Role operator. */
+  /**
+   * @description The human gate between AI planning and execution. Send the plan's
+   * `revision` you reviewed: approving a plan that has attachments without
+   * it, or with a revision that changed since (an attachment was uploaded),
+   * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Role operator.
+   */
   approvePlan: {
     parameters: {
       path: {
@@ -899,7 +1409,9 @@ export interface operations {
    * of read traffic to the target (canary), and then waits in
    * `awaiting_switch` until an operator calls `/switch`, unless `autoSwitch`
    * is true. Send the same `Idempotency-Key` to get the original run back on
-   * a retry. Role operator.
+   * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
+   * once the stream has records (400 `invalid_request` before that). A plan
+   * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.
    */
   startMigration: {
     parameters: {
@@ -1049,7 +1561,8 @@ export interface operations {
   };
   /**
    * @description Continue a run that is `interrupted` (the server restarted), `failed`
-   * or `aborted`. Steps that already succeeded are skipped. Role operator.
+   * or `aborted`. Steps that already succeeded are skipped. Like a start,
+   * it needs records in the plan's written-records stream. Role operator.
    */
   resumeMigration: {
     parameters: {
@@ -1064,6 +1577,7 @@ export interface operations {
           "application/json": components["schemas"]["Run"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
@@ -1155,6 +1669,447 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
+    };
+  };
+  /** @description Names the service and links to the contract, so a browser pointed at the API host gets an answer. */
+  getRoot: {
+    responses: {
+      /** @description Service information. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ServiceInfo"];
+        };
+      };
+    };
+  };
+  /**
+   * @description The security and governance state of every environment in one view.
+   * Kubernetes clusters, the AWS account (IAM, EC2, CloudTrail, GuardDuty,
+   * Security Hub, S3) and the platform's own audit log and configuration
+   * are read and normalised into `SecurityFinding`s.
+   *
+   * Every finding comes from a real read. A source that could not be read
+   * is listed in `sources` with its status and a message and contributes no
+   * findings; nothing is filled in for it. Results are cached for 60
+   * seconds; `refresh=true` collects again, at most once every 10 seconds
+   * (a refresh within that window gets the latest result).
+   *
+   * The filters apply to `findings`, to the counts in `sources` and to
+   * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+   */
+  getSecurity: {
+    parameters: {
+      query?: {
+        /** @description Only this environment, e.g. `gke`, `aws-account` or `platform`. Unknown names are a 400. */
+        environment?: string;
+        /** @description Minimum severity; `high` returns critical and high findings. */
+        severity?: components["schemas"]["SecuritySeverity"];
+        refresh?: boolean;
+      };
+    };
+    responses: {
+      /** @description Findings, sources and counts. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityReport"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  listAgentSessions: {
+    parameters: {
+      query?: {
+        planRef?: string;
+        runId?: string;
+        limit?: number;
+      };
+    };
+    responses: {
+      /** @description Sessions, newest first. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AgentSessionList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Start an activity log for one task of the AI agent (planning a
+   * migration, a sandbox rehearsal, a diagnosis). The session starts as
+   * `running`; its actor is the token's name. Roles: agent, operator.
+   */
+  createAgentSession: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateAgentSessionRequest"];
+      };
+    };
+    responses: {
+      /** @description The new session. */
+      201: {
+        headers: {
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentSession"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      413: components["responses"]["TooLarge"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  getAgentSession: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description The session with its totals. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AgentSession"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Server-Sent Events, with the same contract as a run's events.
+   *
+   * - The first message is `snapshot` (data: `AgentSession`). Snapshots
+   *   carry no SSE id.
+   * - Then every `AgentEvent`, with the event `type` as the SSE event name
+   *   and the event `seq` as the SSE id.
+   * - When the session finishes: a final `snapshot`, then the stream closes.
+   *   While it runs the stream stays open, with `: keep-alive` comments.
+   *
+   * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events you
+   * missed. `format=json` returns one page of the stored events as an
+   * `AgentEventList` instead of a stream: up to `limit` events after
+   * `after`, and `nextAfter` when more follow.
+   */
+  streamAgentEvents: {
+    parameters: {
+      query?: {
+        /** @description Replay events with seq greater than this. Same as Last-Event-ID. */
+        after?: number;
+        format?: "sse" | "json";
+        /** @description With `format=json`, the most events to return. */
+        limit?: number;
+      };
+      header?: {
+        "Last-Event-ID"?: string;
+      };
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description An event stream, or a page of the event list with `format=json`. */
+      200: {
+        content: {
+          "text/event-stream": string;
+          "application/json": components["schemas"]["AgentEventList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Record one tool call, tool result, message, blocked action, decision or
+   * error. Only the session's actor or an operator may append. A session
+   * holds at most 5000 events. `input` and `output` are any JSON value up
+   * to 64 KiB each. Credentials are stored as `"[redacted]"`: string values
+   * under keys that look like credentials (password, passwd, pwd, pass,
+   * secret, token, authorization, cookie, api key, private key, credential,
+   * access key; numbers and booleans are kept, so token counts stay), the
+   * `value` of an object whose `name` or `key` looks like one, and within
+   * strings `NAME=value` and `NAME: value` assignments, URL passwords,
+   * bearer tokens, AWS access key ids and PEM private keys. NUL characters
+   * are removed and invalid UTF-8 is replaced in every stored string.
+   * Error codes: agent_session_not_found (404), agent_session_finished
+   * (409), session_full (409), too_large (413).
+   */
+  appendAgentEvent: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentEventRequest"];
+      };
+    };
+    responses: {
+      /** @description The stored event, with its seq. */
+      201: {
+        content: {
+          "application/json": components["schemas"]["AgentEvent"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      413: components["responses"]["TooLarge"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description End a running session. Only the session's actor or an operator may
+   * finish it. A running session with no event for `PLATFORM_AGENT_IDLE`
+   * (default 30 minutes) is finished by the platform as `cancelled` with
+   * the summary "no activity for 30m; closed by the platform". Error codes:
+   * agent_session_not_found (404), agent_session_finished (409).
+   */
+  finishAgentSession: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["FinishAgentSessionRequest"];
+      };
+    };
+    responses: {
+      /** @description The finished session. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AgentSession"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description How many records a stream holds. A stream nobody wrote to has count 0. */
+  getWrittenRecordStats: {
+    parameters: {
+      path: {
+        /** @description Stream name, `^[a-z0-9][a-z0-9-]{0,62}$`. A plan refers to it as `verify.writtenRecords: "stream:<name>"`. */
+        stream: string;
+      };
+    };
+    responses: {
+      /** @description The stream's numbers. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["WrittenRecordStats"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Record writes that a load generator saw succeed. When a run's plan sets
+   * `verify.writtenRecords: "stream:<name>"`, the server writes every record
+   * of the stream to a file right before the verify step, and the engine
+   * checks that each one exists on the target database. Table names are
+   * stored in lower case (unquoted PostgreSQL identifiers); control
+   * characters in `table` or `pk` are refused. Roles: agent, operator.
+   */
+  appendWrittenRecords: {
+    parameters: {
+      path: {
+        /** @description Stream name, `^[a-z0-9][a-z0-9-]{0,62}$`. A plan refers to it as `verify.writtenRecords: "stream:<name>"`. */
+        stream: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WrittenRecordsRequest"];
+      };
+    };
+    responses: {
+      /** @description Stored. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["WrittenRecordsAccepted"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      413: components["responses"]["TooLarge"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description The attachment as uploaded. 404 `attachment_not_found` when the plan has no attachment of that name. */
+  getPlanAttachment: {
+    parameters: {
+      path: {
+        ref: components["parameters"]["PlanRef"];
+        /** @description `^[A-Za-z0-9._-]{1,100}$`, other than `.` and `..`. */
+        name: string;
+      };
+    };
+    responses: {
+      /** @description The content. */
+      200: {
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Upload a file the plan refers to, such as the target CNPG Cluster
+   * manifest (`target.manifest: "attachment:<name>"`). Allowed only while the
+   * plan is `pending_approval`, and every upload raises the plan's
+   * `revision` by one, so the approver approves fixed content.
+   * Uploading the same name again replaces it. The body is the raw content,
+   * at most 1 MiB. Approving a plan that refers to a missing attachment
+   * fails with 409. Roles: agent, operator.
+   */
+  putPlanAttachment: {
+    parameters: {
+      path: {
+        ref: components["parameters"]["PlanRef"];
+        /** @description `^[A-Za-z0-9._-]{1,100}$`, other than `.` and `..`. */
+        name: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/octet-stream": string;
+      };
+    };
+    responses: {
+      /** @description Stored. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["PlanAttachment"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      413: components["responses"]["TooLarge"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description The applications in the server's `PLATFORM_APPS_FILE` and the environments each one runs in. Empty when the file is not set. */
+  listApps: {
+    responses: {
+      /** @description Apps in configuration order. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AppList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Build an engine plan for one app and route from the server's
+   * configuration, so nobody writes plan JSON by hand. The draft is not
+   * stored: submit it with `POST /v1/plans`, as is or edited.
+   *
+   * - `id` is `<app>-<source>-to-<target>`; contexts come from the
+   *   environments, clusters and database hosts from the app.
+   * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
+   * - `files` is set when both environments have a bucket, unless `files` is false.
+   * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+   *
+   * Roles: agent, operator.
+   */
+  draftPlan: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PlanDraftRequest"];
+      };
+    };
+    responses: {
+      /** @description The draft plan. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["EnginePlan"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description One-click rollback of a `succeeded` run: migrate back the way it came.
+   * The server builds the reverse of the run's plan (source and target
+   * swapped, files and gateway backends swapped, no target manifest because
+   * the old source still exists as a replica), stores it as a new plan with
+   * id `<plan id>-rollback` and `rollbackOf` set, approved by the caller,
+   * and starts it. The new run has `rollbackOf` set. A run is rolled back
+   * at most once: when an earlier rollback's start failed (for example
+   * `cluster_busy`), its plan is started again instead of a new one, and
+   * once that plan has started, 409 `run_state_conflict` names its run. Role operator.
+   */
+  rollbackMigration: {
+    parameters: {
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["RollbackRequest"];
+      };
+    };
+    responses: {
+      /** @description The rollback run was created. */
+      202: {
+        headers: {
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["StartMigrationResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      default: components["responses"]["Internal"];
     };
   };
 }
