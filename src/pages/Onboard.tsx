@@ -1,5 +1,5 @@
 import { Chip, LogBox, PageHead, Table, td, type Cell } from "../components/ui";
-import { ENV, ENV_ORDER, FINDINGS, type EnvKey } from "../sim/data";
+import { ENV, ENV_ORDER, FINDINGS, SAMPLE, type EnvKey } from "../sim/data";
 import { navigate } from "../router";
 import { useSim } from "../sim/store";
 
@@ -12,7 +12,7 @@ export function Onboard() {
     <div className="page">
       <PageHead
         title="기존 앱 가져오기"
-        sub="우리 서비스 없이 돌고 있는 앱을 AI가 점검하고 고쳐서, 플랫폼이 배포할 수 있는 형태로 바꿉니다."
+        sub="플랫폼 밖(EC2, RDS, S3)에서 돌고 있는 앱을 AI가 점검하고 고쳐서, 클러스터에 배포할 수 있는 형태로 바꿉니다. AI 범위 결정(3장 7번) 전 시안입니다."
         crumb={<a href="#apps">앱</a>}
       />
       <ol className="wiz" aria-label="가져오기 단계">
@@ -43,7 +43,7 @@ function Step1() {
             <div className="field">
               <label htmlFor="onb-repo">GitHub 레포</label>
               <select id="onb-repo">
-                <option>team-charlie/shop</option>
+                <option>{SAMPLE.repo}</option>
               </select>
             </div>
             <div className="field">
@@ -63,22 +63,23 @@ function Step1() {
                 <input id="onb-dbu" defaultValue="postgres" aria-label="DB 관리자 이름" />
                 <input id="onb-dbp" type="password" defaultValue="example-password" aria-label="DB 관리자 비밀번호" autoComplete="off" />
               </div>
-              <small>논리 복제 설정과 전환 때의 쓰기 권한 회수에 씁니다.</small>
+              <small>기존 RDS에서 데이터를 처음 복사할 때 씁니다.</small>
             </div>
             <div className="field">
               <label htmlFor="onb-stop">원본 앱 중지 권한</label>
               <input id="onb-stop" defaultValue="arn:aws:iam::<계정 ID>:role/charlie-stop-only" />
-              <small>이전의 정리 단계에서 원본 EC2를 멈출 때만 씁니다.</small>
+              <small>첫 배포가 끝난 뒤 기존 EC2를 멈출 때만 씁니다.</small>
             </div>
             <div className="field">
-              <label htmlFor="onb-sbx">샌드박스를 만들 환경</label>
-              <select id="onb-sbx" value={o.sbx} onChange={(e) => dispatch({ type: "onb-sbx-env", env: e.target.value as EnvKey })}>
+              <label htmlFor="onb-env">처음 배포할 클러스터</label>
+              <select id="onb-env" value={o.env} onChange={(e) => dispatch({ type: "onb-env", env: e.target.value as EnvKey })}>
                 {ENV_ORDER.map((k) => (
                   <option key={k} value={k}>
-                    {ENV[k].name + (k === "gcp" ? " (옮겨 갈 환경)" : "")}
+                    {ENV[k].name}
                   </option>
                 ))}
               </select>
+              <small>샌드박스 테스트도 이 클러스터에서 합니다. 다른 클러스터로는 가져온 뒤 이전 화면에서 옮깁니다.</small>
             </div>
           </div>
         </div>
@@ -170,7 +171,7 @@ function Step3() {
       td(t >= 96 ? "헬스 체크를 추가한 뒤 스모크 테스트 12개 모두 통과" : "shop:9d2b71f 배포, 스모크 테스트 실행 중"),
     ]);
   const blk: Cell[][] = [];
-  if (t >= 55) blk.push([td("kubectl get secrets -n shop-prod", "m"), td("다른 네임스페이스 접근 권한 없음 (RBAC)"), td(<Chip kind="bad">차단</Chip>)]);
+  if (t >= 55) blk.push([td("kubectl get secrets -n shop", "m"), td("다른 네임스페이스 접근 권한 없음 (RBAC)"), td(<Chip kind="bad">차단</Chip>)]);
   if (t >= 68)
     blk.push([
       td("psql -h shop-db.cxxxxxxx.ap-northeast-2.rds.amazonaws.com", "m"),
@@ -191,11 +192,11 @@ function Step3() {
                 <dt>네임스페이스</dt>
                 <dd className="m">sandbox-shop-7f3a</dd>
                 <dt>위치</dt>
-                <dd>{ENV[o.sbx].name}</dd>
+                <dd>{ENV[o.env].name}</dd>
                 <dt>자원 한도</dt>
                 <dd>CPU 2, 메모리 4 GiB, Pod 10개</dd>
                 <dt>네트워크</dt>
-                <dd>같은 네임스페이스와 DNS만 허용</dd>
+                <dd>같은 네임스페이스와 DNS만 허용 (운영망, 기존 RDS 차단)</dd>
                 <dt>데이터</dt>
                 <dd>임시 PostgreSQL, 임시 MinIO (결제 정보 마스킹)</dd>
                 <dt>자동 삭제</dt>
@@ -221,7 +222,7 @@ function Step3() {
               <Chip>{blk.length}건</Chip>
             </div>
             {blk.length ? (
-              <Table head={["AI가 실행한 명령", "막은 장치", ""]} rows={blk} />
+              <Table head={["AI 권한으로 시도한 명령", "막은 장치", ""]} rows={blk} />
             ) : (
               <div className="bb">
                 <p className="hint">아직 없습니다.</p>
@@ -320,7 +321,7 @@ function Step4() {
         </div>
         <div className="box">
           <div className="bh">
-            <b>머지와 빌드</b>
+            <b>머지, 빌드, 첫 배포</b>
             {o.done[4] ? <Chip kind="ok">완료</Chip> : o.approved ? <Chip kind="run">진행 중</Chip> : <Chip>대기</Chip>}
           </div>
           <div className="bb">
@@ -332,7 +333,10 @@ function Step4() {
         <div className="box okbox" role="status">
           <div className="bb">
             <b>shop을 가져왔습니다.</b>
-            <p>이미지 shop:9d2b71f가 준비되었습니다. 사용자 요청은 아직 기존 AWS(EC2) 앱이 처리하고, 옮겨 갈 환경은 이전을 시작할 때 만듭니다.</p>
+            <p>
+              ECR 이미지 shop:9d2b71f로 {ENV[o.env].name}에 배포했고, 게이트웨이가 모든 요청을 보냅니다. 기존 EC2·RDS·S3는 읽기 전용으로 남겨 두었습니다. 이제 다른 클러스터로
+              이전할 수 있습니다.
+            </p>
             <div className="actrow">
               <a className="btn primary" href="#migrate-shop">
                 이전하러 가기

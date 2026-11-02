@@ -21,7 +21,7 @@ function ticks(sim: Sim, n: number) {
   });
 }
 
-describe("Charlie console", () => {
+describe("HopCharlie console", () => {
   it("shows the demo banner and overview", () => {
     setup();
     expect(screen.getByText(/시연용 화면입니다/)).toBeInTheDocument();
@@ -31,26 +31,28 @@ describe("Charlie console", () => {
 
   it("runs a migration end to end from the UI", async () => {
     const { sim, user } = setup();
-    await user.click(screen.getByRole("link", { name: /^이전/ }));
+    await user.click(screen.getByRole("link", { name: /^이전$/ }));
     await user.click(await screen.findByRole("button", { name: "가져오기 완료 상태로 건너뛰기" }));
     expect(await screen.findByRole("heading", { level: 1, name: "shop 이전" })).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
-    await user.click(screen.getByRole("button", { name: "이전 시작" }));
-    ticks(sim, 151);
-    expect(screen.getByText("전환 준비가 끝났습니다.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "AI 계획 시작" }));
+    ticks(sim, 94);
+    expect(screen.getByText("Plan을 승인할까요?")).toBeInTheDocument();
+    expect(screen.getByText("kubectl get secrets -n shop")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "전환" }));
-    await user.click(screen.getByRole("button", { name: "전환 실행" }));
-    ticks(sim, 70);
-    expect(screen.getByText("전환 완료: 13.6초, 실패 요청 0건")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "승인하고 실행" }));
+    ticks(sim, 100 + 68);
     expect(screen.getByRole("img", { name: /온프레미스 k3s 100%/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "정리 실행" }));
-    ticks(sim, 67);
+    ticks(sim, 40);
     expect(screen.getByText("이전 리포트")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "삭제 승인" }));
     expect(screen.getByText("삭제 예약됨")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("link", { name: "경로별 결과" })[0]);
+    expect(screen.getByRole("heading", { level: 1, name: "경로별 결과" })).toBeInTheDocument();
+    expect(screen.getByText(/6개 중 1개 경로/)).toBeInTheDocument();
   });
 
   it("disables deploy when no environment is selected", async () => {

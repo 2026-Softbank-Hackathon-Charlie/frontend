@@ -5,6 +5,7 @@ import { Migrate, MigrateList } from "./pages/Migrate";
 import { NewApp } from "./pages/NewApp";
 import { Onboard } from "./pages/Onboard";
 import { Overview } from "./pages/Overview";
+import { Routes } from "./pages/Routes";
 import { navCurrent, navigate, useRoute } from "./router";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
@@ -16,6 +17,7 @@ function Page({ r }: { r: string }) {
   if (r === "onboard") return <Onboard />;
   if (r === "migrate") return <MigrateList />;
   if (r === "migrate-shop") return <Migrate />;
+  if (r === "routes") return <Routes />;
   if (r === "envs") return <Envs />;
   return <Overview />;
 }
@@ -28,6 +30,7 @@ function SideNav({ r }: { r: string }) {
     ["overview", "개요", ""],
     ["apps", "앱", busyApps ? "진행 중" : ""],
     ["migrate", "이전", migActive(S) ? migLabel(S) : ""],
+    ["routes", "경로별 결과", ""],
     ["envs", "환경", ""],
   ];
   return (
@@ -74,15 +77,18 @@ export function App() {
       <header className="top gut">
         <div className="in">
           <a className="brand" href="#overview">
-            Charlie
+            HopCharlie
           </a>
           <span className="org">team-charlie</span>
           <div className="acts">
             <a className="btn ghost" href="#onboard">
               기존 앱 가져오기
             </a>
-            <a className="btn primary" href="#new">
+            <a className="btn ghost" href="#new">
               새 앱 배포
+            </a>
+            <a className="btn primary" href="#migrate-shop">
+              이전하기
             </a>
             <span className="user">운영자</span>
           </div>

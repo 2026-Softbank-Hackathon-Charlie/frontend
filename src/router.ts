@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-const ROUTES = ["overview", "apps", "new", "onboard", "migrate", "migrate-shop", "envs"];
+const ROUTES = ["overview", "apps", "new", "onboard", "migrate", "migrate-shop", "routes", "envs"];
 
 export function parseRoute(hash: string): string {
   const h = hash.replace(/^#/, "") || "overview";

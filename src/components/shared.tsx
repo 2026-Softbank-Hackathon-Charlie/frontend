@@ -1,5 +1,6 @@
 import { navigate } from "../router";
-import { ENV, ENV_ORDER } from "../sim/data";
+import { ENV, ENV_ORDER, ROUTES, routeKey } from "../sim/data";
+import { dur, fmt } from "../sim/format";
 import { appsIn, migActive, migLabel, type App } from "../sim/state";
 import { useSim } from "../sim/store";
 import { Chip, Table, td } from "./ui";
@@ -25,6 +26,8 @@ export function EnvGrid() {
               </dd>
               <dt>파일 저장소</dt>
               <dd>{e.storage}</dd>
+              <dt>사설망</dt>
+              <dd>Tailscale 연결됨</dd>
               <dt>앱</dt>
               <dd>{appsIn(S, k)}개</dd>
             </dl>
@@ -48,7 +51,7 @@ export function LocChips({ a }: { a: App }) {
   }
   return (
     <div className="chips">
-      <Chip>{a.loc === "legacy" || !a.loc ? "기존 AWS (EC2)" : ENV[a.loc].name}</Chip>
+      <Chip>{ENV[a.loc ?? "aws"].name}</Chip>
       {migActive(S) && <Chip kind="run">{migLabel(S)}</Chip>}
     </div>
   );
@@ -64,7 +67,7 @@ export function AppsTable({ full }: { full: boolean }) {
     if (full)
       r.push(
         td(
-          a.kind === "legacy" ? (
+          a.kind === "service" ? (
             <a className="btn ghost" href="#migrate-shop">
               이전
             </a>
@@ -83,13 +86,38 @@ export function AppsTable({ full }: { full: boolean }) {
   );
 }
 
+/** The six-route scoreboard: one row per direction between the three clusters. */
+export function RoutesTable() {
+  const { S } = useSim();
+  const rows = ROUTES.map(([s, t]) => {
+    const r = S.results[routeKey(s, t)];
+    const running = migActive(S) && S.mig.src === s && S.mig.tgt === t;
+    return [
+      td(ENV[s].short + " → " + ENV[t].short, "nw"),
+      td(r ? <Chip kind="ok">성공</Chip> : running ? <Chip kind="run">{migLabel(S)}</Chip> : <Chip>미실행</Chip>),
+      td(r ? dur(r.total) : "-", "m"),
+      td(r ? r.sw + "초" : "-", "m"),
+      td(r ? r.hold.toFixed(1) + "초" : "-", "m"),
+      td(r ? r.failed + "건" : "-", "m"),
+      td(r ? r.lostRows + "건 / " + r.lostFiles + "개" : "-", "m"),
+      td(r ? fmt(r.ok) : "-", "m"),
+      td(r ? r.when : "-", "nw"),
+    ];
+  });
+  return (
+    <div className="box">
+      <Table head={["경로", "결과", "전체", "전환", "쓰기 보류", "실패 요청", "누락 (쓰기 / 파일)", "성공한 쓰기", "실행"]} rows={rows} />
+    </div>
+  );
+}
+
 export function EmptyShop() {
   const { dispatch } = useSim();
   return (
     <div className="box">
       <div className="empty-state">
         <b>이전할 수 있는 앱이 아직 없습니다.</b>
-        <p className="hint">우리 서비스 없이 AWS에서 돌고 있는 shop을 먼저 가져오면, 여기서 다른 환경으로 옮길 수 있습니다.</p>
+        <p className="hint">플랫폼 밖 AWS(EC2)에서 돌고 있는 shop을 먼저 가져오면, 클러스터 사이로 옮길 수 있습니다.</p>
         <div className="actrow">
           <a className="btn primary" href="#onboard">
             기존 앱 가져오기

@@ -1,4 +1,4 @@
-import { AppsTable, EnvGrid } from "../components/shared";
+import { AppsTable, EnvGrid, RoutesTable } from "../components/shared";
 import { Ind, PageHead } from "../components/ui";
 import { running } from "../sim/state";
 import { useSim } from "../sim/store";
@@ -8,7 +8,7 @@ export function Overview() {
   const run = running(S);
   return (
     <div className="page">
-      <PageHead title="개요" sub="team-charlie 프로젝트의 환경과 앱 상태입니다." />
+      <PageHead title="개요" sub="team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다." />
       {run.length > 0 && (
         <section className="sec">
           <h2>진행 중인 작업</h2>
@@ -28,8 +28,17 @@ export function Overview() {
         </section>
       )}
       <section className="sec">
-        <h2>환경</h2>
+        <h2>클러스터</h2>
         <EnvGrid />
+      </section>
+      <section className="sec">
+        <div className="sech">
+          <h2>경로별 결과</h2>
+          <a className="more" href="#routes">
+            자세히
+          </a>
+        </div>
+        <RoutesTable />
       </section>
       <section className="sec">
         <div className="sech">
