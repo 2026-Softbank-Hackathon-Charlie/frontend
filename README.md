@@ -116,3 +116,44 @@ src/router.ts       해시 라우팅 (#overview, #apps, #app-<id>, #new, #onboar
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나)
 src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표)
 ```
+
+## 수동 배포 (GitHub Actions)
+
+[Deploy frontend](.github/workflows/deploy.yml)은 **Run workflow로 실행할 때만** 배포합니다. PR과 main push에서는 실행하지 않습니다. 먼저 workflow를 main에 반영해야 Actions에 실행 버튼이 나타나며, 실행 브랜치도 main만 허용합니다.
+
+Node 24에서 `npm ci`, `npm test`, `npm run build`를 통과하면 기존 플랫폼과 같은 Caddy 이미지로 빌드합니다. ECR에 frontend 커밋 SHA와 `latest` 태그를 게시하고, SSM으로 기존 관리 EC2의 **console 서비스만** 갱신합니다. API·게이트웨이·DB는 재시작하지 않습니다. SSM 명령의 종료 상태와 콘솔의 `version.txt`가 실제 배포 SHA와 일치하는지 확인해야 성공입니다.
+
+### 최초 준비
+
+Settings → Secrets and variables → Actions → **Variables**에 다음 값을 설정합니다. 배포 대상 EC2·ECR·플랫폼 API는 이미 존재해야 합니다.
+
+| 변수 | 값 / 기존 platform의 Terraform output |
+| --- | --- |
+| `AWS_DEPLOY_ROLE_ARN` | frontend 배포용 GitHub OIDC 역할 ARN. 기존 infra 역할을 자동으로 재사용하지 않습니다 |
+| `ECR_CONSOLE_REPOSITORY` | `console_repository_url`. 태그 없는 전체 ECR 주소 |
+| `PLATFORM_INSTANCE_ID` | `instance_id`. SSM으로 관리되는 기존 EC2 |
+| `VITE_PLATFORM_URL` | `api_url`. HTTPS API 주소. 빌드 시 포함됩니다 |
+| `CONSOLE_URL` | `console_url`. 배포 후 확인할 HTTPS 콘솔 주소 |
+| `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR·EC2와 같은 리전 |
+
+이 값은 비밀값이 아닙니다. API 토큰·AWS 액세스 키·DB 비밀번호를 넣지 않습니다. 브라우저의 API 연결 토큰은 배포 후 사용자가 별도로 입력합니다.
+
+배포 역할에는 지정된 ECR 저장소의 이미지 push 권한, `ecr:GetAuthorizationToken`, 지정된 EC2와 `AWS-RunShellScript` 문서에 대한 `ssm:SendCommand`, `ssm:GetCommandInvocation` 권한이 필요합니다. 관리 EC2의 기존 instance role은 ECR 이미지를 pull할 수 있어야 합니다. EC2에는 `/opt/hopcharlie`의 Compose·환경 설정과 SSM Agent가 준비돼 있어야 합니다. ECR은 `latest` 갱신을 허용해야 하며, API·콘솔 URL은 GitHub runner에서 공인 주소로 DNS 조회·HTTPS 접속이 가능해야 합니다.
+
+OIDC 신뢰 정책은 `aud=sts.amazonaws.com`과 **이 저장소 main**으로 제한합니다. 조회한 이 저장소의 immutable subject는 다음과 같습니다. GitHub Environment를 사용하는 workflow로 변경한다면 subject도 다시 확인해야 합니다.
+
+```text
+repo:2026-Softbank-Hackathon-Charlie@350278309/frontend@1441992854:ref:refs/heads/main
+```
+
+공식 설정: [AWS용 GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+
+### 배포 순서
+
+1. 위 변수와 배포 역할을 준비한 뒤 workflow PR을 main에 merge합니다.
+2. Actions → **Deploy frontend** → **Run workflow**에서 main을 선택합니다.
+3. 빌드·검사·ECR 게시·SSM 결과·콘솔 SHA 확인이 모두 통과했는지 확인합니다. 같은 배포 workflow는 순서대로 실행되며 진행 중 배포를 새 실행이 취소하지 않습니다.
+
+실행한 커밋의 이미지를 `CONSOLE_IMAGE`로 지정해 console만 교체합니다. Terraform이 관리하는 `.env`와 SSM 설정은 수정하지 않습니다. `latest`도 함께 게시하므로 기존 플랫폼 배포와 호환되지만, 이후 플랫폼 전체 재배포는 플랫폼의 `console_image_tag` 설정을 따릅니다. 특정 버전 유지나 롤백이 필요하면 플랫폼 담당자와 이 태그를 맞춥니다.
+
+이 workflow는 클러스터 생성·앱 데이터 이전·Terraform apply를 수행하지 않습니다. IAM 역할과 저장소 변수도 workflow가 생성하지 않습니다.

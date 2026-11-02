@@ -1,0 +1,160 @@
+name: Deploy frontend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: frontend-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-2' }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      ECR_CONSOLE_REPOSITORY: ${{ vars.ECR_CONSOLE_REPOSITORY }}
+      PLATFORM_INSTANCE_ID: ${{ vars.PLATFORM_INSTANCE_ID }}
+      VITE_PLATFORM_URL: ${{ vars.VITE_PLATFORM_URL }}
+      CONSOLE_URL: ${{ vars.CONSOLE_URL }}
+      AWS_PAGER: ''
+    steps:
+      - name: Validate deployment configuration
+        id: config
+        run: |
+          python3 - <<'PY'
+          import ipaddress, os, re, socket
+          from urllib.parse import urlsplit
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          for name in ('AWS_DEPLOY_ROLE_ARN', 'ECR_CONSOLE_REPOSITORY', 'PLATFORM_INSTANCE_ID', 'VITE_PLATFORM_URL', 'CONSOLE_URL'):
+              require(os.environ.get(name), f'Missing repository variable: {name}')
+          repository = os.environ['ECR_CONSOLE_REPOSITORY']
+          ecr = re.fullmatch(r'([0-9]{12})\.dkr\.ecr\.([a-z]{2}(?:-[a-z]+)+-[0-9]+)\.amazonaws\.com/([a-z0-9]+(?:[._/-][a-z0-9]+)*)', repository)
+          require(ecr, 'ECR_CONSOLE_REPOSITORY must be a full private ECR repository URI')
+          account, region, _ = ecr.groups()
+          require(region == os.environ['AWS_REGION'], 'AWS_REGION must match the ECR region')
+          role = re.fullmatch(r'arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+', os.environ['AWS_DEPLOY_ROLE_ARN'])
+          require(role and role[1] == account, 'Deployment role must belong to the ECR account')
+          require(re.fullmatch(r'i-(?:[0-9a-f]{8}|[0-9a-f]{17})', os.environ['PLATFORM_INSTANCE_ID']), 'Invalid PLATFORM_INSTANCE_ID')
+          for name in ('VITE_PLATFORM_URL', 'CONSOLE_URL'):
+              value = os.environ[name]
+              require(not re.search(r'[\s\x00-\x1f\x7f\\]', value), f'{name} contains invalid characters')
+              url = urlsplit(value)
+              require(url.scheme == 'https' and url.hostname and not url.username and not url.password and url.port in (None, 443) and not url.query and not url.fragment, f'{name} must be a public HTTPS URL without credentials, query, or fragment')
+              require(name != 'CONSOLE_URL' or url.path in ('', '/'), 'CONSOLE_URL must be the console origin')
+              addresses = socket.getaddrinfo(url.hostname, 443, type=socket.SOCK_STREAM)
+              require(addresses and all(ipaddress.ip_address(item[4][0]).is_global for item in addresses), f'{name} must resolve to public addresses')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'account={account}\nregistry={repository.split("/")[0]}\n')
+          PY
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install, test, and build
+        run: |
+          npm ci
+          npm test
+          npm run build
+          printf '%s\n' "$GITHUB_SHA" > dist/version.txt
+
+      - name: Authenticate to AWS with OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+          role-session-name: frontend-deploy-${{ github.run_id }}
+
+      - name: Build and publish console image
+        env:
+          REGISTRY: ${{ steps.config.outputs.registry }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          docker build --platform linux/amd64 -t "$ECR_CONSOLE_REPOSITORY:$GITHUB_SHA" -t "$ECR_CONSOLE_REPOSITORY:latest" -f- dist <<'DOCKERFILE'
+          FROM caddy:2.11.7-alpine
+          COPY . /srv
+          EXPOSE 80
+          CMD ["caddy", "file-server", "--root", "/srv", "--listen", ":80"]
+          DOCKERFILE
+          docker push "$ECR_CONSOLE_REPOSITORY:$GITHUB_SHA"
+          docker push "$ECR_CONSOLE_REPOSITORY:latest"
+
+      - name: Deploy only console and await SSM completion
+        timeout-minutes: 15
+        env:
+          REGISTRY: ${{ steps.config.outputs.registry }}
+        run: |
+          python3 - <<'PY'
+          import json, os, shlex
+          from pathlib import Path
+          quote = shlex.quote
+          remote = f'''set -euo pipefail
+          cd /opt/hopcharlie
+          aws ecr get-login-password --region {quote(os.environ['AWS_REGION'])} | docker login --username AWS --password-stdin {quote(os.environ['REGISTRY'])}
+          export CONSOLE_IMAGE={quote(os.environ['ECR_CONSOLE_REPOSITORY'] + ':' + os.environ['GITHUB_SHA'])}
+          docker compose pull console
+          docker compose up -d --no-deps console
+          '''
+          Path(os.environ['RUNNER_TEMP'], 'console-deploy.json').write_text(json.dumps({'commands': ['bash -c ' + quote(remote)], 'executionTimeout': ['600']}))
+          PY
+          command_id=$(aws ssm send-command --instance-ids "$PLATFORM_INSTANCE_ID" \
+            --document-name AWS-RunShellScript --timeout-seconds 60 \
+            --parameters "file://$RUNNER_TEMP/console-deploy.json" \
+            --query Command.CommandId --output text)
+          deadline=$((SECONDS + 780))
+          while (( SECONDS < deadline )); do
+            if aws ssm get-command-invocation --command-id "$command_id" --instance-id "$PLATFORM_INSTANCE_ID" \
+              --cli-connect-timeout 5 --cli-read-timeout 10 \
+              --query '{Status:Status,ResponseCode:ResponseCode}' --output json \
+              > "$RUNNER_TEMP/console-invocation.json" 2> "$RUNNER_TEMP/console-invocation.err"; then
+              status=$(jq -r '.Status' "$RUNNER_TEMP/console-invocation.json")
+              case "$status" in
+                Success)
+                  test "$(jq -r '.ResponseCode' "$RUNNER_TEMP/console-invocation.json")" = 0
+                  break ;;
+                Pending|InProgress|Delayed) ;;
+                *) echo "SSM deployment failed with status: $status" >&2; exit 1 ;;
+              esac
+            elif ! grep -q 'InvocationDoesNotExist' "$RUNNER_TEMP/console-invocation.err"; then
+              echo 'Unable to read SSM invocation status' >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          test "${status:-}" = Success || { echo 'SSM deployment timed out' >&2; exit 1; }
+
+      - name: Verify public release
+        run: |
+          console="${CONSOLE_URL%/}"
+          for attempt in {1..12}; do
+            if root_status=$(curl --fail --silent --show-error --proto '=https' --connect-timeout 5 --max-time 10 \
+              "$console/?deploy=$GITHUB_SHA" --output /dev/null --write-out '%{http_code}') && test "$root_status" = 200 && \
+              version_status=$(curl --fail --silent --show-error --proto '=https' --connect-timeout 5 --max-time 10 \
+              "$console/version.txt?deploy=$GITHUB_SHA&attempt=$attempt" --output "$RUNNER_TEMP/console-version" --write-out '%{http_code}') && \
+              test "$version_status" = 200 && test "$(cat "$RUNNER_TEMP/console-version")" = "$GITHUB_SHA"; then
+              printf 'Deployed `%s`\n\nImage: `%s:%s`\n\nConsole: %s\n' \
+                "$GITHUB_SHA" "$ECR_CONSOLE_REPOSITORY" "$GITHUB_SHA" "$console" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Public console did not serve the expected release SHA' >&2
+          exit 1
