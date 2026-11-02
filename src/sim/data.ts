@@ -3,6 +3,8 @@
 export type EnvKey = "aws" | "gcp" | "onprem";
 
 export interface Env {
+  /** environment name in the platform API (Environment.name, PlanEndpoint.env) */
+  id: string;
   name: string;
   short: string;
   region: string;
@@ -10,18 +12,23 @@ export interface Env {
   k8s: string;
   storage: string;
   sc: string;
+  bucket: string;
 }
 
 export const ENV: Record<EnvKey, Env> = {
-  aws: { name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3" },
-  gcp: { name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo" },
-  onprem: { name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path" },
+  aws: { id: "eks", name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3", bucket: "s3:shop-uploads-eks" },
+  gcp: { id: "gke", name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo", bucket: "gcs:shop-uploads-gke" },
+  onprem: { id: "k3s", name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path", bucket: "minio:shop-uploads-k3s" },
 };
 export const ENV_ORDER: EnvKey[] = ["aws", "gcp", "onprem"];
 
 /** The six migration routes, in display order. */
 export const ROUTES: [EnvKey, EnvKey][] = ENV_ORDER.flatMap((s) => ENV_ORDER.filter((t) => t !== s).map((t): [EnvKey, EnvKey] => [s, t]));
 export const routeKey = (s: EnvKey, t: EnvKey) => s + ">" + t;
+/** Platform environment name (eks, gke, k3s) → EnvKey, for data from the API. */
+export function envKeyOf(name: string): EnvKey | undefined {
+  return ENV_ORDER.find((k) => ENV[k].id === name || k === name);
+}
 
 // MOCK: 샘플 앱은 서현님이 만드는 MSA 앱으로 교체한다. 서비스 이름과 수치는 자리표시.
 export const SAMPLE = {
@@ -34,9 +41,6 @@ export const SAMPLE = {
   dbSize: "2.1 GiB",
   tables: 38,
 };
-
-// 3장 2번(DB 이전 방식)이 정해지기 전까지 화면에는 방식 이름을 쓰지 않는다.
-export const DB_METHOD = "복제 방식 미정 (CNPG replica 또는 논리 복제)";
 
 export interface Repo {
   label: string;
@@ -149,168 +153,4 @@ export const FINDINGS: [number, string, string, "run" | "ok", string][] = [
   [32, "파일 저장소", "상품 이미지의 전체 URL을 DB에 저장", "run", "파일 키만 저장"],
   [36, "DB", "기본 키가 없는 테이블 0개", "ok", "문제 없음"],
   [40, "클라우드 전용 서비스", "SQS, DynamoDB 사용 안 함", "ok", "문제 없음"],
-];
-
-/* ---------- migration: AI plan → rehearsal → approval → engine ---------- */
-
-export const PLAN_END = 24;
-export const REH_END = 70;
-export const PREP_END = 100;
-export const SW_END = 13.6;
-export const CL_END = 40;
-export const SW_FLIP = 6.8;
-export const SW_HOLD_START = 1.2;
-export const SW_CATCHUP = 4.5;
-export const HOLD_MAX = 30;
-/** Whole-run target the topic commits to. */
-export const TARGET_SEC = 180;
-
-export function planLog(src: EnvKey, tgt: EnvKey): LogEntry[] {
-  const s = ENV[src];
-  const t = ENV[tgt];
-  return [
-    [0, "AI 계획 시작 (도구: 읽기 전용 조회만 허용)"],
-    [2, "원본 " + s.name + " 조회: Deployment " + SAMPLE.services.length + "개, CNPG 클러스터 1개, 버킷 1개"],
-    [5, "DB " + SAMPLE.db + ": " + SAMPLE.dbSize + ", 테이블 " + SAMPLE.tables + "개, 기본 키 없는 테이블 0개"],
-    [8, "버킷 " + SAMPLE.bucket + ": 객체 " + SAMPLE.files.toLocaleString("ko-KR") + "개 (S3 API)"],
-    [11, "대상 " + t.name + " 조회: StorageClass " + t.sc + ", 노드 여유 CPU 6, 메모리 18 GiB"],
-    [15, "Plan 초안 생성 (단계 6개)"],
-    [16, "스키마 검증 실패: steps[2].timeoutSec 값 없음, 오류를 넣어 다시 요청"],
-    [21, "Plan 다시 생성, 스키마 검증 통과"],
-    [24, "고정 검사 통과: 쓰기 주체 1곳, 원본 삭제는 사람 승인 필요"],
-  ];
-}
-
-/** [at, rule, ok] — what the platform checks on the AI's Plan before anything runs */
-export function planChecks(): [number, string, boolean][] {
-  return [
-    [16, "JSON 스키마 (1차)", false],
-    [21, "JSON 스키마 (2차)", true],
-    [24, "쓰기 주체는 한 곳", true],
-    [24, "전환 단계에 타임아웃 있음 (최대 30초)", true],
-    [24, "원본 삭제는 사람 승인 단계 뒤", true],
-  ];
-}
-
-export function planJson(src: EnvKey, tgt: EnvKey): string {
-  return [
-    "{",
-    '  "app": "' + SAMPLE.id + '",',
-    '  "from": "' + src + '", "to": "' + tgt + '",',
-    '  "profile": "values-' + tgt + '.yaml",',
-    '  "steps": [',
-    '    { "id": "precopy",  "db": "initial-copy", "files": "rclone sync" },',
-    '    { "id": "sync",     "until": { "dbLagSec": 1, "filesBehind": 0 } },',
-    '    { "id": "fence",    "holdWrites": true, "timeoutSec": 30 },',
-    '    { "id": "verify",   "rows": "pk-compare", "files": "rclone check" },',
-    '    { "id": "cutover",  "gateway": { "' + tgt + '": 100 } },',
-    '    { "id": "cleanup",  "source": "scale-to-zero", "delete": "needs-approval" }',
-    "  ],",
-    '  "rollback": "auto-until-target-accepts-writes"',
-    "}",
-  ].join("\n");
-}
-
-export function rehLog(src: EnvKey, tgt: EnvKey): LogEntry[] {
-  const t = ENV[tgt];
-  const s = ENV[src];
-  return [
-    [0, "샌드박스 sandbox-shop-7f3a 생성 (" + t.name + ", 토큰 1시간)"],
-    [3, "ResourceQuota, NetworkPolicy 적용"],
-    [6, "임시 PostgreSQL, 임시 MinIO 준비 (테스트 데이터 10,000건)"],
-    [10, "1차 리허설: Plan 6단계를 테스트 데이터로 실행"],
-    [22, "차단됨: kubectl get secrets -n shop (RBAC)"],
-    [28, "1차 실패: 대상 DB의 PVC가 Pending (StorageClass " + s.sc + " 없음)"],
-    [32, "AI 진단: values에 원본 프로필의 StorageClass가 남아 있음"],
-    [36, "AI 수정안: values-" + tgt + ".yaml storageClass " + s.sc + " → " + t.sc],
-    [38, "차단됨: curl 169.254.169.254 (NetworkPolicy)"],
-    [42, "2차 리허설 시작 (수정안 적용)"],
-    [64, "2차 통과: 데이터 10,000/10,000 일치, 스모크 12/12, 원본 차단 테스트 통과"],
-    [70, "샌드박스 삭제, 승인 대기"],
-  ];
-}
-
-export const SANDBOX = {
-  ns: "sandbox-shop-7f3a",
-  quota: "CPU 4, 메모리 8 GiB, Pod 20개",
-  net: "같은 네임스페이스와 DNS만 허용 (운영망, Tailscale 대역, 169.254.169.254 차단)",
-  data: "임시 PostgreSQL, 임시 MinIO, 외부 호출은 mock 서버",
-  ttl: "최대 1시간 뒤 자동 삭제",
-};
-
-/** [at, command, guard] */
-export const BLOCKED: [number, string, string][] = [
-  [22, "kubectl get secrets -n shop", "다른 네임스페이스 접근 권한 없음 (RBAC)"],
-  [38, "curl http://169.254.169.254/latest/meta-data/", "메타데이터 주소로 나가는 통신 차단 (NetworkPolicy)"],
-];
-
-/** HopCharlie migration order. [label, detail, phase, start, end] within that phase's clock. */
-export type Step = [string, string, "prep" | "switch" | "cleanup", number, number];
-export const STEPS: Step[] = [
-  ["미리 복사", "Argo CD 배포, DB 초기 복사, 파일 초기 복사", "prep", 0, 50],
-  ["변경분 동기화", "DB 복제 지연 1초 이내, 파일 증분", "prep", 50, PREP_END],
-  ["쓰기 경계", "쓰기 요청 보류, 원본 쓰기 권한 회수", "switch", 0, 1.9],
-  ["최종 반영 확인", "마지막 변경, 시퀀스, 행 수와 파일 해시", "switch", 1.9, 6.6],
-  ["전환", "게이트웨이 100%, 보류한 쓰기 전달", "switch", 6.6, SW_END],
-  ["원본 정리", "원본 요청 0건, 원본 차단 테스트, 축소", "cleanup", 0, CL_END],
-];
-
-export function prepItems(src: EnvKey, tgt: EnvKey): [string, string, number, number][] {
-  const t = ENV[tgt];
-  return [
-    ["대상 네임스페이스와 비밀값", "shop, " + t.name, 0, 5],
-    ["Argo CD 동기화", "공통 Helm chart + values-" + tgt + ", 이미지는 ECR", 5, 35],
-    ["DB 생성", "CloudNativePG 1개, StorageClass " + t.sc, 5, 20],
-    ["DB 초기 복사", DB_METHOD, 20, 50],
-    ["파일 초기 복사", "rclone sync, " + ENV[src].storage + " → " + t.storage, 15, 70],
-    ["변경분 동기화", "DB 복제 지연 1초 이내, rclone 증분 5초마다", 50, PREP_END],
-  ];
-}
-
-export function prepLog(src: EnvKey, tgt: EnvKey): LogEntry[] {
-  const s = ENV[src];
-  const t = ENV[tgt];
-  return [
-    [0, "승인된 Plan 실행: " + s.name + " → " + t.name],
-    [5, "네임스페이스 shop과 비밀값 생성"],
-    [15, "파일 초기 복사 시작 (rclone)"],
-    [20, "DB 생성 완료, 초기 복사 시작"],
-    [35, "Argo CD 동기화 완료, Pod 준비 (사용자 요청은 아직 보내지 않음)"],
-    [50, "DB 초기 복사 완료, 변경분 동기화 시작"],
-    [70, "파일 " + SAMPLE.files.toLocaleString("ko-KR") + "개 복사 완료, 증분 동기화로 전환"],
-    [100, "동기화 확인: 복제 지연 0.4초, 파일 최신"],
-  ];
-}
-
-export const SW_ITEMS: [string, number][] = [
-  ["사전 확인", 1.2],
-  ["처리 중인 쓰기 마무리", 0.4],
-  ["원본 DB 쓰기 권한 회수", 0.3],
-  ["마지막 변경 반영, 시퀀스 맞춤", 2.6],
-  ["파일 마지막 복사 (3개)", 2.1],
-  ["게이트웨이 전환", 0.2],
-  ["새 환경 응답 확인", 6.8],
-];
-export const SW_LOG: LogEntry[] = [
-  [0, "쓰기 경계 시작"],
-  [1.2, "사전 확인 통과, 쓰기 요청 보류 시작"],
-  [1.6, "처리 중인 쓰기 요청 마무리"],
-  [1.9, "원본 DB 앱 계정의 쓰기 권한 회수 (이 시점부터 원복은 원본으로 즉시 가능)"],
-  [4.5, "마지막 변경 반영, 시퀀스 맞춤 완료"],
-  [6.6, "파일 마지막 복사 3개, 행 수와 해시 일치"],
-  [6.8, "게이트웨이 전환, 보류한 쓰기 112건 전달 (대상이 쓰기를 받기 시작)"],
-  [13.6, "전환 완료 13.6초, 실패 0건"],
-];
-export const CL_ITEMS: [string, string, number, number][] = [
-  ["원본으로 가는 요청 0건 확인", "20초 관찰", 0, 20],
-  ["원본 차단 테스트", "Tailscale 경로를 끊고 스모크 테스트", 20, 32],
-  ["원본 축소", "Deployment 0개, DB와 버킷은 읽기 전용으로 보존", 32, 36],
-  ["이전 리포트 생성", "", 36, CL_END],
-];
-export const CL_LOG: LogEntry[] = [
-  [0, "원본 정리 시작"],
-  [20, "원본으로 가는 요청 0건 확인"],
-  [32, "Tailscale 경로 해제 후 스모크 테스트 12/12 통과"],
-  [36, "원본 Deployment 0개로 축소, DB와 버킷은 읽기 전용"],
-  [40, "이전 리포트 생성, 이전 완료"],
 ];

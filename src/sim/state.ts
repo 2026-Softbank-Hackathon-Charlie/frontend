@@ -1,37 +1,10 @@
 // Demo simulation state machine. Time advances in tick() (called every 100ms);
-// deploy, onboarding, AI plan, rehearsal, migration prep and cleanup advance 1 simulated second per tick,
-// switchover 0.2s per tick (the banner says it's faster than real).
-import {
-  CL_END,
-  CL_LOG,
-  DEP_LOG,
-  DEP_READY,
-  ENV,
-  ENV_ORDER,
-  FILE_RATE,
-  ONB_END,
-  ONB_LOG,
-  PLAN_END,
-  PREP_END,
-  RATE,
-  REH_END,
-  REPOS,
-  SAMPLE,
-  SW_CATCHUP,
-  SW_END,
-  SW_FLIP,
-  SW_HOLD_START,
-  SW_LOG,
-  planLog,
-  prepLog,
-  rehLog,
-  routeKey,
-  type EnvKey,
-  onbFinishLog,
-  type LogEntry,
-  type OnbStep,
-} from "./data";
+// deploy, onboarding, AI plan and rehearsal advance 1 simulated second per tick.
+// The migration itself lives in mig.ts and produces the same shapes as the platform API.
+import { DEP_LOG, DEP_READY, ENV, ENV_ORDER, ONB_END, ONB_LOG, REPOS, SAMPLE, onbFinishLog, type EnvKey, type LogEntry, type OnbStep } from "./data";
 import { dur, fmt, mmss } from "./format";
+import * as mig from "./mig";
+import type { Run } from "../api/types";
 
 /** [mm:ss, message] */
 export type LogLine = [string, string];
@@ -73,36 +46,6 @@ export interface OnbState extends Feed {
   approved: boolean;
 }
 
-export type MigPhase = "idle" | "plan" | "rehearse" | "approve" | "prep" | "switch" | "cleanup" | "done";
-
-export interface MigState extends Feed {
-  phase: MigPhase;
-  src: EnvKey;
-  tgt: EnvKey;
-  /** AI plan + rehearsal log, separate from the engine's log */
-  ai: Feed;
-  tPrep: number;
-  tSw: number;
-  tCl: number;
-  ok: number;
-  held: number;
-  heldDone: number;
-  flipped: boolean;
-  files: number;
-  del: boolean;
-}
-
-export interface RouteResult {
-  total: number;
-  sw: number;
-  hold: number;
-  failed: number;
-  ok: number;
-  lostRows: number;
-  lostFiles: number;
-  when: string;
-}
-
 export interface SimState {
   apps: Record<string, App>;
   appOrder: string[];
@@ -110,16 +53,9 @@ export interface SimState {
   act: [string, string][];
   dep: DepState;
   onb: OnbState;
-  mig: MigState;
-  results: Record<string, RouteResult>;
-}
-
-function freshMig(src: EnvKey): MigState {
-  return {
-    phase: "idle", src, tgt: ENV_ORDER.find((k) => k !== src)!, t: 0, log: [], li: 0,
-    ai: { t: 0, log: [], li: 0 },
-    tPrep: 0, tSw: 0, tCl: 0, ok: 0, held: 0, heldDone: 0, flipped: false, files: SAMPLE.files, del: false,
-  };
+  mig: mig.MigSim;
+  /** last message for the migration page (e.g. a stale approval) */
+  migNotice: string;
 }
 
 export function fresh(): SimState {
@@ -145,8 +81,8 @@ export function fresh(): SimState {
     ],
     dep: { phase: "form", repo: "notice-board", envs: { aws: true, gcp: true, onprem: true }, t: 0, log: [], li: 0 },
     onb: { step: 1, run: false, t: 0, log: [], li: 0, env: "aws", done: { 2: false, 3: false, 4: false }, approved: false },
-    mig: freshMig("aws"),
-    results: {},
+    mig: mig.freshMig("aws"),
+    migNotice: "",
   };
 }
 
@@ -211,7 +147,7 @@ function finishOnboard(S: SimState): void {
   };
   S.appOrder.unshift(SAMPLE.id);
   S.act.unshift(["방금", SAMPLE.id + " 가져오기 완료 (PR #14 머지, " + ENV[env].name + "에 배포)"]);
-  if (S.mig.phase === "idle" || S.mig.phase === "done") S.mig = freshMig(env);
+  if (!migActive(S)) S.mig = mig.freshMig(env, S.mig);
 }
 function startOnb(S: SimState): void {
   const o = S.onb;
@@ -237,135 +173,40 @@ function skipOnboard(S: SimState): void {
 
 /* ---------- migration (derived values) ---------- */
 
-export const MIG_LABEL: Record<Exclude<MigPhase, "idle">, string> = {
-  plan: "AI 계획 중",
-  rehearse: "리허설 중",
-  approve: "승인 대기",
-  prep: "복사 중",
-  switch: "전환 중",
-  cleanup: "정리 중",
-  done: "이전 완료",
-};
-
+/** Something is in progress on the migration page (AI work, waiting for approval, or a live run). */
 export function migActive(S: SimState): boolean {
-  return S.mig.phase !== "idle" && S.mig.phase !== "done";
-}
-/** The engine is running against production (load is flowing through the migration). */
-export function migExec(S: SimState): boolean {
-  const p = S.mig.phase;
-  return p === "prep" || p === "switch" || p === "cleanup";
+  const m = S.mig;
+  if (m.stage === "ai" || m.stage === "review") return true;
+  return m.stage === "run" && !!m.run && (m.run.status === "running" || m.run.status === "awaiting_switch");
 }
 export function migLabel(S: SimState): string {
-  return S.mig.phase === "idle" ? "" : MIG_LABEL[S.mig.phase];
+  const m = S.mig;
+  if (m.stage === "ai") return m.aiT < mig.AI_PLAN_END ? "AI 계획 중" : "리허설 중";
+  if (m.stage === "review") return "승인 대기";
+  if (m.stage === "run" && m.run) return mig.statusText(m.run.status, m.run.phase);
+  return "";
 }
 export function routeLabel(s: EnvKey, t: EnvKey): string {
   return ENV[s].name + " → " + ENV[t].name;
 }
 
-/** Share of traffic still going to the source environment, in %. */
-export function oldShare(S: SimState): number {
-  const m = S.mig;
-  if (m.phase === "switch") return m.t >= SW_FLIP - 1e-9 ? 0 : 100;
-  return m.phase === "cleanup" || m.phase === "done" ? 0 : 100;
-}
-/** Has the target started accepting writes? After this, failures halt instead of rolling back. */
-export function pastPointOfNoReturn(S: SimState): boolean {
-  const m = S.mig;
-  return (m.phase === "switch" && m.flipped) || m.phase === "cleanup" || m.phase === "done";
-}
-function lagN(): number {
-  return Math.round(RATE * 0.4);
-}
-/** Writes replicated to the target DB. */
-export function rep(S: SimState): number {
-  const m = S.mig;
-  switch (m.phase) {
-    case "prep":
-      if (m.t < 20) return 0;
-      if (m.t < 50) return Math.round((m.ok * (m.t - 20)) / 30);
-      return Math.max(0, m.ok - lagN());
-    case "switch":
-      if (m.t >= SW_CATCHUP) return m.ok;
-      if (m.t < SW_HOLD_START) return m.ok - lagN();
-      return m.ok - Math.round((lagN() * (SW_CATCHUP - m.t)) / 3.3);
-    case "cleanup":
-    case "done":
-      return m.ok;
-    default:
-      return 0;
-  }
-}
-export function lagText(S: SimState): string {
-  const m = S.mig;
-  switch (m.phase) {
-    case "prep":
-      if (m.t < 20) return "시작 전";
-      if (m.t < 50) return "초기 복사 중";
-      return (0.4 + ((Math.floor(m.t) % 3) - 1) * 0.1).toFixed(1) + "초";
-    case "switch":
-      return m.t >= SW_CATCHUP ? "0초" : "0.4초";
-    case "cleanup":
-    case "done":
-      return "새 DB가 기준";
-    default:
-      return "시작 전";
-  }
-}
-export function filesTotal(S: SimState): number {
-  return Math.floor(S.mig.files + 1e-9);
-}
-export function filesCopied(S: SimState): number {
-  const m = S.mig;
-  const tot = filesTotal(S);
-  if (m.phase === "prep") {
-    if (m.t < 15) return 0;
-    if (m.t < 70) return Math.min(tot, Math.floor((SAMPLE.files * (m.t - 15)) / 55));
-    return tot - (Math.floor(m.t) % 5 === 0 ? 1 : 0);
-  }
-  return migExec(S) || m.phase === "done" ? tot : 0;
-}
-/** Seconds writes have been held at the gateway. */
-export function holdT(S: SimState): number {
-  const m = S.mig;
-  if (m.phase === "switch") return m.t < SW_HOLD_START ? 0 : Math.min(SW_FLIP - SW_HOLD_START, m.t - SW_HOLD_START);
-  return m.flipped ? SW_FLIP - SW_HOLD_START : 0;
-}
-/** Engine time so far: prep + switch + cleanup. */
-export function execT(S: SimState): number {
-  return S.mig.tPrep + S.mig.tSw + S.mig.tCl;
-}
-
-function startPhase(m: MigState, phase: MigPhase): void {
-  m.phase = phase;
-  m.t = 0;
-  m.li = 0;
-}
-function startAi(m: MigState, phase: "plan" | "rehearse"): void {
-  m.phase = phase;
-  m.ai.t = 0;
-  m.ai.li = 0;
-  if (phase === "plan") m.ai.log = [];
-  feed(m.ai, phase === "plan" ? planLog(m.src, m.tgt) : rehLog(m.src, m.tgt), 0, phase === "plan" ? 0 : PLAN_END);
-}
-function finishMigration(S: SimState): void {
+function finishMigration(S: SimState, r: Run): void {
   const m = S.mig;
   const shop = S.apps[SAMPLE.id];
   if (!shop) return;
   const tg = ENV[m.tgt];
-  const total = PREP_END + SW_END + CL_END;
-  S.results[routeKey(m.src, m.tgt)] = {
-    total, sw: SW_END, hold: SW_FLIP - SW_HOLD_START, failed: 0, ok: Math.round(m.ok), lostRows: 0, lostFiles: 0, when: "방금",
-  };
+  const total = (r.result.durationMillis ?? 0) / 1000;
   shop.prev = m.src;
   shop.loc = m.tgt;
   shop.res = [
     shop.res[0],
     ["PostgreSQL", SAMPLE.db, "CloudNativePG, " + tg.name],
-    ["파일 저장소", SAMPLE.bucket, tg.storage + ", 파일 " + fmt(filesTotal(S)) + "개"],
-    ["원본 (" + ENV[m.src].name + ")", SAMPLE.db + ", " + SAMPLE.bucket, "읽기 전용 보존, 삭제는 운영자 승인 후"],
+    ["파일 저장소", SAMPLE.bucket, tg.storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
+    ["원본 (" + ENV[m.src].name + ")", SAMPLE.db + ", " + SAMPLE.bucket, "읽기 전용 보존"],
   ];
-  shop.deploys.unshift(["b7e21c4", "이전: " + routeLabel(m.src, m.tgt), "방금", dur(total)]);
-  S.act.unshift(["방금", SAMPLE.id + " 이전 완료 (" + routeLabel(m.src, m.tgt) + ", " + dur(total) + ", 실패 0건, 누락 0건)"]);
+  const what = r.rollbackOf ? "롤백" : "이전";
+  shop.deploys.unshift([r.runId, what + ": " + routeLabel(m.src, m.tgt), "방금", dur(total)]);
+  S.act.unshift(["방금", SAMPLE.id + " " + what + " 완료 (" + routeLabel(m.src, m.tgt) + ", " + dur(total) + ", 실패 0건, 누락 0건)"]);
 }
 
 /* ---------- overview helpers ---------- */
@@ -395,7 +236,6 @@ export function running(S: SimState): [string, string][] {
 export function tick(S: SimState): void {
   const d = S.dep;
   const o = S.onb;
-  const m = S.mig;
   if (o.run) {
     const step = o.step as 2 | 3 | 4;
     o.t += 1;
@@ -414,63 +254,8 @@ export function tick(S: SimState): void {
       finishDeploy(S);
     }
   }
-  if (migExec(S)) {
-    // k6: successful writes keep arriving; during the hold they queue at the gateway.
-    const dt = m.phase === "switch" ? 0.2 : 1;
-    const holding = m.phase === "switch" && m.t >= SW_HOLD_START - 1e-9 && m.t < SW_FLIP - 1e-9;
-    if (holding) m.held += RATE * dt;
-    else {
-      m.ok += RATE * dt;
-      m.files += FILE_RATE * dt;
-    }
-  }
-  switch (m.phase) {
-    case "plan":
-      m.ai.t += 1;
-      feed(m.ai, planLog(m.src, m.tgt), m.ai.t);
-      if (m.ai.t >= PLAN_END) startAi(m, "rehearse");
-      break;
-    case "rehearse":
-      m.ai.t += 1;
-      feed(m.ai, rehLog(m.src, m.tgt), m.ai.t, PLAN_END);
-      if (m.ai.t >= REH_END) m.phase = "approve";
-      break;
-    case "prep":
-      m.t += 1;
-      m.tPrep = Math.min(m.t, PREP_END);
-      feed(m, prepLog(m.src, m.tgt), m.t);
-      if (m.t >= PREP_END) {
-        startPhase(m, "switch");
-        m.held = 0;
-        m.flipped = false;
-        feed(m, SW_LOG, 0, PREP_END);
-      }
-      break;
-    case "switch":
-      m.t = Math.round((m.t + 0.2) * 10) / 10;
-      m.tSw = Math.min(m.t, SW_END);
-      feed(m, SW_LOG, m.t, PREP_END);
-      if (m.t >= SW_FLIP - 1e-9 && !m.flipped) {
-        m.flipped = true;
-        m.ok += m.held;
-        m.heldDone = m.held;
-        m.held = 0;
-      }
-      if (m.t >= SW_END - 1e-9) {
-        startPhase(m, "cleanup");
-        feed(m, CL_LOG, 0, PREP_END + SW_END);
-      }
-      break;
-    case "cleanup":
-      m.t += 1;
-      m.tCl = Math.min(m.t, CL_END);
-      feed(m, CL_LOG, m.t, PREP_END + SW_END);
-      if (m.t >= CL_END) {
-        m.phase = "done";
-        finishMigration(S);
-      }
-      break;
-  }
+  const ended = mig.migTick(S.mig);
+  if (ended) finishMigration(S, ended);
 }
 
 /* ---------- actions ---------- */
@@ -488,9 +273,12 @@ export type Action =
   | { type: "onb-env"; env: EnvKey }
   | { type: "mig-target"; env: EnvKey }
   | { type: "mig-plan" }
-  | { type: "mig-approve" }
-  | { type: "mig-reject" }
-  | { type: "mig-del" }
+  | { type: "mig-approve"; revision: number }
+  | { type: "mig-reject"; comment?: string }
+  | { type: "mig-switch" }
+  | { type: "mig-abort" }
+  | { type: "mig-resume" }
+  | { type: "mig-rollback" }
   | { type: "mig-new" };
 
 export function apply(S: SimState, a: Action): void {
@@ -539,37 +327,48 @@ export function apply(S: SimState, a: Action): void {
       S.onb.env = a.env;
       break;
     case "mig-target":
-      if (a.env !== m.src) m.tgt = a.env;
+      if (a.env !== m.src && m.stage === "setup") m.tgt = a.env;
       break;
     case "mig-plan":
-      if (!S.apps[SAMPLE.id]) break;
-      startAi(m, "plan");
+      if (!S.apps[SAMPLE.id] || m.stage !== "setup") break;
+      S.migNotice = "";
+      mig.startAi(m);
       break;
-    case "mig-approve":
-      if (m.phase !== "approve") break;
-      startPhase(m, "prep");
-      m.log = [];
-      m.ok = 0;
-      m.files = SAMPLE.files;
-      m.tPrep = 0;
-      m.tSw = 0;
-      m.tCl = 0;
-      m.heldDone = 0;
-      m.flipped = false;
-      feed(m, prepLog(m.src, m.tgt), 0);
-      S.act.unshift(["방금", "운영자가 Plan 승인 (" + routeLabel(m.src, m.tgt) + ")"]);
+    case "mig-approve": {
+      const r = mig.approve(m, a.revision);
+      if (r === "stale") {
+        S.migNotice = "보고 있던 Plan(revision " + a.revision + ")이 그사이 바뀌었습니다. 다시 확인하고 승인하세요.";
+        break;
+      }
+      if (r !== "ok") break;
+      S.migNotice = "";
+      mig.start(m);
+      S.act.unshift(["방금", "운영자가 Plan " + m.plan!.ref + " 승인, 이전 시작 (" + routeLabel(m.src, m.tgt) + ")"]);
       break;
+    }
     case "mig-reject":
-      if (m.phase !== "approve") break;
-      S.act.unshift(["방금", "운영자가 Plan 반려 (" + routeLabel(m.src, m.tgt) + ")"]);
-      S.mig = freshMig(m.src);
+      if (!m.plan) break;
+      mig.reject(m, a.comment);
+      S.act.unshift(["방금", "운영자가 Plan " + m.plan.ref + " 반려 (" + routeLabel(m.src, m.tgt) + ")"]);
+      S.mig = mig.freshMig(m.src, m);
       S.mig.tgt = m.tgt;
       break;
-    case "mig-del":
-      m.del = true;
+    case "mig-switch":
+      mig.doSwitch(m);
+      break;
+    case "mig-abort":
+      mig.abort(m);
+      break;
+    case "mig-resume":
+      mig.resume(m);
+      break;
+    case "mig-rollback":
+      mig.rollback(m);
+      S.act.unshift(["방금", SAMPLE.id + " 롤백 시작 (" + routeLabel(m.src, m.tgt) + ")"]);
       break;
     case "mig-new":
-      S.mig = freshMig(S.apps[SAMPLE.id]?.loc ?? "aws");
+      S.mig = mig.freshMig(S.apps[SAMPLE.id]?.loc ?? "aws", m);
+      S.migNotice = "";
       break;
   }
 }

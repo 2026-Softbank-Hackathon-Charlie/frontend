@@ -174,12 +174,14 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--fg); }
 }
 
 /* HopCharlie migration order: six steps in one strip */
-.steps6 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--hairline); }
-@media (max-width: 900px) { .steps6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .steps6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.steps6 > div { padding: 10px 12px; font-size: 13px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); margin-bottom: -1px; display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
-.steps6 > div:last-child { border-right: 0; }
-.steps6 small { display: block; font-size: 12px; color: var(--muted); }
+.steps6, .steps9 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--hairline); }
+.steps9 { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .steps9 { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .steps6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .steps9 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .steps6, .steps9 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.steps6 > div, .steps9 > div { padding: 10px 12px; font-size: 13px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); margin-bottom: -1px; display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.steps6 > div:last-child, .steps9 > div:last-child { border-right: 0; }
+.steps6 small, .steps9 small { display: block; font-size: 12px; color: var(--muted); }
 .fold > summary { cursor: pointer; list-style: none; border-bottom: 0; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold[open] > summary { border-bottom: 1px solid var(--hairline); }
@@ -199,3 +201,16 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--fg); }
 .ds-rad { display: block; width: 40px; height: 24px; border: 1px solid var(--fg); background: var(--fill); }
 .ds-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1100px) { .ds-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ds-wide { grid-column: 1 / -1; } }
+
+/* two gateway bars (reads, writes) on the run view */
+.trafficrow { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: center; margin-bottom: 10px; }
+.trafficrow .tl { font-size: 13px; color: var(--heading); display: grid; gap: 4px; }
+.trafficrow .traffic { height: 32px; }
+small.block { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+/* API connection panel in the header */
+.connect { position: relative; }
+.connectpanel { position: absolute; right: 0; top: calc(100% + 6px); width: min(360px, 90vw); z-index: 20; background: var(--canvas); }
+.connectpanel .field { margin: 8px 0; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.chips .btn[aria-pressed="true"], .tbl .btn[aria-pressed="true"] { border-color: var(--heading); color: var(--heading); font-weight: 600; }

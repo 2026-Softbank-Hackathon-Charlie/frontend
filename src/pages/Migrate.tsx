@@ -1,46 +1,40 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import type { Run, RunStatus } from "../api/types";
+import { BlockedTable, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
-import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td } from "../components/ui";
-import {
-  BLOCKED,
-  CL_END,
-  CL_ITEMS,
-  ENV,
-  ENV_ORDER,
-  HOLD_MAX,
-  PLAN_END,
-  PREP_END,
-  SAMPLE,
-  SANDBOX,
-  STEPS,
-  SW_END,
-  SW_ITEMS,
-  TARGET_SEC,
-  planChecks,
-  planJson,
-  prepItems,
-  type EnvKey,
-} from "../sim/data";
-import { dur, fmt, mmss, ST, stOf, type StepState } from "../sim/format";
-import {
-  execT,
-  filesCopied,
-  filesTotal,
-  holdT,
-  lagText,
-  migLabel,
-  oldShare,
-  pastPointOfNoReturn,
-  rep,
-  routeLabel,
-  type SimState,
-} from "../sim/state";
-import { useSim } from "../sim/store";
+import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td, type ChipKind } from "../components/ui";
+import { useLiveMigration, useSimMigration, type MigrationView } from "../data/migration";
+import { useLive } from "../data/live";
+import { dur, fmt, mmss, type StepState } from "../sim/format";
+import { CANARY, ENGINE_STEPS, PHASE_LABEL, statusText, targetReadShare, TARGET_SEC } from "../sim/mig";
+
+const STATUS_KIND: Record<RunStatus, ChipKind> = {
+  running: "run",
+  awaiting_switch: "run",
+  succeeded: "ok",
+  rolled_back: "",
+  halted: "bad",
+  failed: "bad",
+  aborted: "",
+  interrupted: "bad",
+};
+
+export function RunStatusChip({ r }: { r: Pick<Run, "status" | "phase"> }) {
+  return <Chip kind={STATUS_KIND[r.status]}>{statusText(r.status, r.phase)}</Chip>;
+}
 
 export function MigrateList() {
-  const { S } = useSim();
-  const a = S.apps[SAMPLE.id];
-  const m = S.mig;
+  return useLive() ? <LiveList /> : <SimList />;
+}
+function LiveList() {
+  return <MigrateListView v={useLiveMigration()} />;
+}
+function SimList() {
+  return <MigrateListView v={useSimMigration()} />;
+}
+
+function MigrateListView({ v }: { v: MigrationView }) {
+  const live = v.live;
   return (
     <div className="page">
       <PageHead
@@ -52,28 +46,39 @@ export function MigrateList() {
           </a>
         }
       />
-      {!a ? (
-        <EmptyShop />
+      {!v.ready ? (
+        live ? <LiveEmpty notice={v.notice} /> : <EmptyShop />
       ) : (
-      <div className="box">
-        <Table
-          head={["앱", "현재 위치", "상태", ""]}
-          rows={[
-            [
-              td(<a href={"#app-" + SAMPLE.id}>{SAMPLE.id}</a>),
-              td(ENV[a.loc ?? "aws"].name),
-              td(m.phase === "idle" ? <Chip>이전 전</Chip> : m.phase === "done" ? <Chip kind="ok">이전 완료</Chip> : <Chip kind="run">{migLabel(S)}</Chip>),
-              td(
-                <a className="btn ghost" href="#migrate-shop">
-                  {m.phase === "idle" ? "이전 설정" : "열기"}
-                </a>,
-              ),
-            ],
-          ]}
-        />
-      </div>
+        <div className="box">
+          <Table
+            head={["앱", "현재 위치", "상태", ""]}
+            rows={[
+              [
+                td(live ? <b>{v.app}</b> : <a href={"#app-" + v.app}>{v.app}</a>),
+                td(v.srcLabel),
+                td(v.run ? <RunStatusChip r={v.run} /> : v.stage === "review" ? <Chip kind="run">승인 대기</Chip> : v.stage === "ai" ? <Chip kind="run">AI 작업 중</Chip> : <Chip>이전 전</Chip>),
+                td(
+                  <a className="btn ghost" href="#migrate-shop">
+                    {v.stage === "setup" ? "이전 설정" : "열기"}
+                  </a>,
+                ),
+              ],
+            ]}
+          />
+        </div>
       )}
-      <p className="hint">이 시연에서는 {SAMPLE.id}만 이전할 수 있습니다. 한 번 옮긴 뒤 다른 경로로 다시 옮길 수 있습니다.</p>
+      {!live && <p className="hint">이 시연에서는 {v.app}만 이전할 수 있습니다. 한 번 옮긴 뒤 다른 경로로 다시 옮기거나 롤백할 수 있습니다.</p>}
+    </div>
+  );
+}
+
+function LiveEmpty({ notice }: { notice: string }) {
+  return (
+    <div className="box">
+      <div className="empty-state">
+        <b>이전할 수 있는 앱을 불러오지 못했습니다.</b>
+        <p className="hint">{notice || "플랫폼에 등록된 앱(PLATFORM_APPS_FILE)이 없거나 아직 불러오는 중입니다."}</p>
+      </div>
     </div>
   );
 }
@@ -91,14 +96,15 @@ function Metric({ label, value, note, good }: { label: string; value: ReactNode;
 }
 
 const WIZ = ["AI 계획", "리허설", "승인", "실행"];
-function wizStep(S: SimState): number {
-  const p = S.mig.phase;
-  return p === "plan" ? 1 : p === "rehearse" ? 2 : p === "approve" ? 3 : p === "done" ? 5 : 4;
+function wizStep(v: MigrationView): number {
+  if (v.stage === "ai") return v.plan ? 2 : 1;
+  if (v.stage === "review") return 3;
+  if (v.run && !["running", "awaiting_switch"].includes(v.run.status)) return 5;
+  return 4;
 }
 
-function Wizard() {
-  const { S } = useSim();
-  const cur = wizStep(S);
+function Wizard({ v }: { v: MigrationView }) {
+  const cur = wizStep(v);
   return (
     <ol className="wiz">
       {WIZ.map((l, i) => {
@@ -114,23 +120,44 @@ function Wizard() {
   );
 }
 
+function Notice({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <div className="box fillbox" role="alert">
+      <div className="bb">
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
+
 export function Migrate() {
-  const { S, dispatch } = useSim();
-  const m = S.mig;
-  const title = SAMPLE.id + " 이전";
-  if (!S.apps[SAMPLE.id]) {
+  return useLive() ? <LiveMigrate /> : <SimMigrate />;
+}
+function LiveMigrate() {
+  return <MigrateView v={useLiveMigration()} />;
+}
+function SimMigrate() {
+  return <MigrateView v={useSimMigration()} />;
+}
+
+function MigrateView({ v }: { v: MigrationView }) {
+  const live = v.live;
+  const title = (v.app || "앱") + " 이전";
+  if (!v.ready) {
     return (
       <div className="page">
         <PageHead title={title} crumb={crumb} />
-        <EmptyShop />
+        {live ? <LiveEmpty notice={v.notice} /> : <EmptyShop />}
       </div>
     );
   }
 
-  if (m.phase === "idle") {
+  if (v.stage === "setup") {
     return (
       <div className="page">
         <PageHead title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." crumb={crumb} />
+        <Notice text={v.notice} />
         <div className="split">
           <div className="box">
             <div className="bh">
@@ -140,14 +167,14 @@ export function Migrate() {
               <div className="form">
                 <div className="field">
                   <label htmlFor="mig-src">원본</label>
-                  <input id="mig-src" value={ENV[m.src].name + " (게이트웨이 100%)"} readOnly />
+                  <input id="mig-src" value={v.srcLabel + " (지금 쓰기를 받는 곳)"} readOnly />
                 </div>
                 <div className="field">
                   <label htmlFor="mig-target">옮겨 갈 환경</label>
-                  <select id="mig-target" value={m.tgt} onChange={(e) => dispatch({ type: "mig-target", env: e.target.value as EnvKey })}>
-                    {ENV_ORDER.filter((k) => k !== m.src).map((k) => (
-                      <option key={k} value={k}>
-                        {ENV[k].name}
+                  <select id="mig-target" value={v.tgt} onChange={(e) => v.setTarget(e.target.value)}>
+                    {v.targets.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
                       </option>
                     ))}
                   </select>
@@ -160,166 +187,140 @@ export function Migrate() {
               <b>진행 순서</b>
             </div>
             <ul className="prog">
-              <ProgItem st="wait" title="AI 계획" sub="AI가 읽기 전용 도구로 두 클러스터를 조회하고 Plan JSON을 만듭니다. 플랫폼이 스키마와 고정 규칙으로 검사합니다." right="자동" />
-              <ProgItem st="wait" title="리허설" sub={"대상 클러스터의 격리된 샌드박스에서 테스트 데이터로 Plan을 실행합니다. 실패하면 AI가 원인을 진단하고 수정안을 냅니다."} right="자동" />
-              <ProgItem st="wait" title="승인" sub="Plan, 리허설 결과, AI 수정안을 보고 운영자가 승인합니다. 이 단계 전에는 운영 환경을 바꾸지 않습니다." right="운영자" />
-              <ProgItem st="wait" title="실행" sub="미리 복사, 변경분 동기화, 쓰기 경계, 최종 반영 확인, 전환, 원본 정리를 엔진이 순서대로 실행합니다." right="3분 이내" />
+              <ProgItem st="wait" title="AI 계획" sub="AI가 읽기 전용 도구로 두 클러스터를 조회하고 엔진 Plan을 만듭니다. 플랫폼이 검사한 뒤 승인 대기로 올립니다." right="자동" />
+              <ProgItem st="wait" title="리허설" sub="대상 클러스터의 격리된 샌드박스에서 테스트 데이터로 미리 실행합니다. 실패하면 AI가 원인을 진단하고 수정안을 Plan 첨부로 올립니다." right="자동" />
+              <ProgItem st="wait" title="승인" sub="화면에 보이는 Plan revision을 승인합니다. 그사이 첨부가 바뀌면 승인이 거절되고 다시 확인해야 합니다." right="운영자" />
+              <ProgItem
+                st="wait"
+                title="실행"
+                sub={"동기화(사전 확인, 대상 준비, 초기 복사, 변경분) → 읽기 카나리 " + CANARY.weights.join("%, ") + "% → 전환 승인 → 쓰기 보류, 승격, 전환 → 검증"}
+                right="3분 이내"
+              />
             </ul>
           </div>
         </div>
         <div className="actrow">
-          <button type="button" className="btn primary" onClick={() => dispatch({ type: "mig-plan" })}>
-            AI 계획 시작
+          <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+            {live ? "Plan 작성" : "AI 계획 시작"}
           </button>
-          <span className="hint">AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다.</span>
+          <span className="hint">
+            {live ? "플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다." : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
+          </span>
         </div>
       </div>
     );
   }
 
-  const ai = m.phase === "plan" || m.phase === "rehearse" || m.phase === "approve";
   return (
     <div className="page">
-      <PageHead title={title} sub={routeLabel(m.src, m.tgt)} crumb={crumb} />
-      <Wizard />
-      {ai ? <AiView /> : <ExecView />}
+      <PageHead title={title} sub={v.srcLabel + " → " + v.tgtLabel} crumb={crumb} />
+      <Wizard v={v} />
+      <Notice text={v.notice} />
+      {v.stage === "run" && v.run ? <RunView v={v} r={v.run} /> : <AiView v={v} />}
     </div>
   );
 }
 
 /* ---------- AI plan, rehearsal, approval ---------- */
 
-function PlanBox() {
-  const { S } = useSim();
-  const m = S.mig;
-  const t = m.phase === "plan" ? m.ai.t : 999;
-  const checks = planChecks().filter((c) => t >= c[0]);
-  const ready = t >= PLAN_END;
+function PlanBox({ v }: { v: MigrationView }) {
+  const p = v.plan;
+  if (!p) {
+    return (
+      <div className="box">
+        <div className="bh">
+          <b>Plan</b>
+          <Chip kind="run">AI 작성 중</Chip>
+        </div>
+        <div className="bb">
+          <p className="hint">AI가 두 클러스터를 조회하고 있습니다.</p>
+        </div>
+      </div>
+    );
+  }
+  const s = p.summary;
   return (
     <div className="box">
       <div className="bh">
-        <b>Plan</b>
-        {ready ? <Chip kind="ok">검사 통과</Chip> : <Chip kind="run">AI 작성 중</Chip>}
+        <b>Plan {p.ref}</b>
+        <Chip kind={p.status === "pending_approval" ? "run" : p.status === "rejected" ? "bad" : "ok"}>{PLAN_STATUS[p.status]}</Chip>
       </div>
       <div className="bb">
-        {t >= 21 ? <pre className="code">{planJson(m.src, m.tgt)}</pre> : <p className="hint">AI가 두 클러스터를 조회하고 있습니다.</p>}
-        {checks.length > 0 && (
-          <Table head={["플랫폼 검사", "결과"]} rows={checks.map((c) => [td(c[1]), td(c[2] ? <Chip kind="ok">통과</Chip> : <Chip kind="bad">실패, 다시 요청</Chip>)])} />
+        <dl className="kv">
+          <dt>revision</dt>
+          <dd className="m">{p.revision}</dd>
+          <dt>원본</dt>
+          <dd className="m">
+            {s.source.env} / {s.source.namespace} / {s.source.cluster}
+            {s.source.dbHost ? " (" + s.source.dbHost + ")" : ""}
+          </dd>
+          <dt>대상</dt>
+          <dd className="m">
+            {s.target.env} / {s.target.namespace} / {s.target.cluster}
+            {s.target.dbHost ? " (" + s.target.dbHost + ")" : ""}
+          </dd>
+          <dt>파일 이전</dt>
+          <dd>{s.files ? "함께 옮김 (rclone)" : "옮기지 않음"}</dd>
+          <dt>게이트웨이</dt>
+          <dd className="m">{s.gatewayMode}</dd>
+          <dt>쓰기 보류 상한</dt>
+          <dd className="m">{s.maxDowntime}</dd>
+          <dt>첨부</dt>
+          <dd>{p.attachments?.length ? p.attachments.map((a) => a.name + " (" + fmt(a.size) + "B)").join(", ") : "없음"}</dd>
+          <dt>제출</dt>
+          <dd>{p.submittedBy}</dd>
+        </dl>
+        {v.engine && (
+          <details className="fold">
+            <summary>엔진 Plan 원문</summary>
+            <pre className="code">{JSON.stringify(v.engine, null, 2)}</pre>
+          </details>
         )}
       </div>
     </div>
   );
 }
 
-function RehearsalBox() {
-  const { S } = useSim();
-  const m = S.mig;
-  const t = m.phase === "rehearse" ? m.ai.t : m.phase === "plan" ? -1 : 999;
-  if (t < 0) return null;
-  const s = ENV[m.src];
-  const g = ENV[m.tgt];
-  const att = [];
-  if (t >= 10) att.push([td("1차", "m"), td(t >= 28 ? <Chip kind="bad">실패</Chip> : <Chip kind="run">진행 중</Chip>), td(t >= 28 ? "대상 DB의 PVC가 Pending. StorageClass " + s.sc + "가 " + g.name + "에 없음" : "Plan 6단계를 테스트 데이터로 실행 중")]);
-  if (t >= 42) att.push([td("2차", "m"), td(t >= 64 ? <Chip kind="ok">통과</Chip> : <Chip kind="run">진행 중</Chip>), td(t >= 64 ? "데이터 10,000/10,000 일치, 스모크 테스트 12/12, 원본 차단 테스트 통과" : "AI 수정안을 적용해 다시 실행 중")]);
-  const blk = BLOCKED.filter((b) => t >= b[0]);
-  return (
-    <div className="split">
-      <div className="sec">
-        <div className="box">
-          <div className="bh">
-            <b>샌드박스</b>
-            {t >= 70 ? <Chip>삭제됨</Chip> : <Chip kind="run">실행 중</Chip>}
-          </div>
-          <div className="bb">
-            <dl className="kv">
-              <dt>네임스페이스</dt>
-              <dd className="m">{SANDBOX.ns}</dd>
-              <dt>위치</dt>
-              <dd>{g.name}</dd>
-              <dt>자원 한도</dt>
-              <dd>{SANDBOX.quota}</dd>
-              <dt>네트워크</dt>
-              <dd>{SANDBOX.net}</dd>
-              <dt>데이터</dt>
-              <dd>{SANDBOX.data}</dd>
-              <dt>자동 삭제</dt>
-              <dd>{SANDBOX.ttl}</dd>
-            </dl>
-          </div>
-        </div>
-        <div className="box">
-          <div className="bh">
-            <b>리허설</b>
-          </div>
-          {att.length ? <Table head={["회차", "결과", "내용"]} rows={att} /> : <div className="bb"><p className="hint">샌드박스를 준비하고 있습니다.</p></div>}
-        </div>
-        <div className="box">
-          <div className="bh">
-            <b>막힌 명령</b>
-            <Chip>{blk.length}건</Chip>
-          </div>
-          {blk.length ? (
-            <Table head={["AI 권한으로 시도한 명령", "막은 장치", ""]} rows={blk.map((b) => [td(b[1], "m"), td(b[2]), td(<Chip kind="bad">차단</Chip>)])} />
-          ) : (
-            <div className="bb">
-              <p className="hint">아직 없습니다.</p>
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="sec">
-        <div className="box">
-          <div className="bh">
-            <b>AI 수정안</b>
-            <span className="hint">운영 클러스터가 아닌 환경 프로필을 고칩니다</span>
-          </div>
-          <div className="bb">
-            {t >= 36 ? (
-              <div className="diff">
-                <div className="f">{"deploy/values-" + m.tgt + ".yaml"}</div>
-                <div className="d">{"-  storageClass: " + s.sc}</div>
-                <div className="a">{"+  storageClass: " + g.sc}</div>
-              </div>
-            ) : (
-              <p className="hint">리허설이 실패하면 AI가 로그를 읽고 수정안을 냅니다.</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const PLAN_STATUS = { pending_approval: "승인 대기", approved: "승인됨", rejected: "반려됨", starting: "시작 중", started: "실행됨" } as const;
 
-function ApproveBox() {
-  const { S, dispatch } = useSim();
-  const m = S.mig;
-  if (m.phase !== "approve") return null;
+function ApproveBox({ v }: { v: MigrationView }) {
+  if (v.stage !== "review" || !v.plan) return null;
+  const blocked = v.sessions.flatMap((s) => v.sessionEvents(s.id)).filter((e) => e.type === "blocked").length;
   return (
     <div className="box fillbox">
       <div className="bb">
-        <b>Plan을 승인할까요?</b>
+        <b>Plan {v.plan.ref} (revision {v.plan.revision})을 승인할까요?</b>
         <dl className="kv">
           <dt>경로</dt>
-          <dd>{routeLabel(m.src, m.tgt)}</dd>
-          <dt>예상 시간</dt>
-          <dd>전체 {dur(PREP_END + SW_END + CL_END)}, 쓰기 보류 약 6초 (최대 {HOLD_MAX}초)</dd>
+          <dd>
+            {v.srcLabel} → {v.tgtLabel}
+          </dd>
+          <dt>실행 방식</dt>
+          <dd>
+            동기화 뒤 읽기 요청 {CANARY.weights.join("%, ")}%를 대상으로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다.
+          </dd>
+          <dt>전환</dt>
+          <dd>데이터가 맞으면 전환 승인을 기다립니다. 전환 버튼을 누르면 쓰기를 잠시 붙잡고 대상을 승격합니다 (상한 {v.plan.summary.maxDowntime}).</dd>
           <dt>확인</dt>
           <dd>
             <div className="chips">
-              <Chip kind="ok">스키마·고정 검사 통과</Chip>
-              <Chip kind="ok">리허설 2차 통과</Chip>
-              <Chip kind="ok">AI 수정안 1건 포함</Chip>
-              <Chip>막힌 명령 2건</Chip>
+              {v.sessions.map((s) => (
+                <Chip key={s.id} kind={s.status === "succeeded" ? "ok" : "run"}>
+                  {s.title.split(" (")[0]}: {s.status === "succeeded" ? "완료" : "진행 중"}
+                </Chip>
+              ))}
+              {v.fix && <Chip kind="ok">AI 수정안 1건 첨부</Chip>}
+              <Chip>막힌 명령 {blocked}건</Chip>
             </div>
           </dd>
           <dt>원복</dt>
-          <dd>대상이 쓰기를 받기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈춥니다.</dd>
+          <dd>대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.</dd>
         </dl>
         <div className="actrow">
-          <button type="button" className="btn primary" onClick={() => dispatch({ type: "mig-approve" })}>
-            승인하고 실행
+          <button type="button" className="btn primary" disabled={v.busy} onClick={v.approve}>
+            승인하고 시작
           </button>
-          <button type="button" className="btn ghost" onClick={() => dispatch({ type: "mig-reject" })}>
+          <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reject}>
             반려
           </button>
         </div>
@@ -328,78 +329,151 @@ function ApproveBox() {
   );
 }
 
-function AiView() {
-  const { S } = useSim();
-  const m = S.mig;
+function AiView({ v }: { v: MigrationView }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const all = v.sessions.flatMap((s) => v.sessionEvents(s.id));
+  const pick = (id: string) => {
+    setPicked(id);
+    v.selectSession(id);
+  };
+  const shown = v.sessions.find((s) => s.id === picked) ?? v.sessions[0];
   return (
     <>
-      <ApproveBox />
+      <ApproveBox v={v} />
       <div className="split">
-        <PlanBox />
+        <PlanBox v={v} />
+        <div className="sec">
+          {shown ? (
+            <SessionFeed s={shown} events={v.sessionEvents(shown.id)} />
+          ) : (
+            <div className="box">
+              <div className="bh">
+                <b>AI 작업 기록</b>
+              </div>
+              <div className="bb">
+                <p className="hint">{v.live ? "이 Plan에 연결된 AI 세션이 아직 없습니다." : "AI 세션을 시작하고 있습니다."}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      {v.sessions.length > 0 && (
+        <section className="sec">
+          <h2>AI 세션</h2>
+          <div className="box">
+            <SessionTable sessions={v.sessions} onPick={pick} picked={shown?.id} />
+          </div>
+        </section>
+      )}
+      <div className="split">
+        <BlockedTable events={all} />
         <div className="box">
           <div className="bh">
-            <b>AI 작업 기록</b>
-            {m.phase === "approve" ? <Chip kind="ok">완료</Chip> : <Chip kind="run">{migLabel(S)}</Chip>}
+            <b>AI 수정안</b>
+            <span className="hint">운영 클러스터가 아닌 환경 프로필 사본을 고칩니다</span>
           </div>
           <div className="bb">
-            <LogBox lines={m.ai.log} />
-            <dl className="kv sm">
-              <dt>운영 클러스터</dt>
-              <dd>읽기 전용</dd>
-              <dt>샌드박스</dt>
-              <dd>자기 네임스페이스 하나만</dd>
-              <dt>DB 관리자 계정</dt>
-              <dd>받지 않음</dd>
-            </dl>
+            {v.fix ? (
+              <div className="diff">
+                <div className="f">{v.fix.file}</div>
+                <div className="d">{"- " + v.fix.minus}</div>
+                <div className="a">{"+ " + v.fix.plus}</div>
+              </div>
+            ) : v.plan?.attachments?.length ? (
+              <p>첨부: {v.plan.attachments.map((a) => a.name).join(", ")}</p>
+            ) : (
+              <p className="hint">리허설이 실패하면 AI가 로그를 읽고 수정안을 냅니다.</p>
+            )}
           </div>
         </div>
       </div>
-      <RehearsalBox />
     </>
   );
 }
 
 /* ---------- engine run ---------- */
 
-function stepState(S: SimState, i: number): StepState {
-  const m = S.mig;
-  const [, , ph, s, e] = STEPS[i];
-  const order = ["prep", "switch", "cleanup"];
-  const cur = m.phase === "done" ? 3 : order.indexOf(m.phase);
-  const mine = order.indexOf(ph);
-  if (cur > mine) return "ok";
-  if (cur < mine) return "wait";
-  return stOf(m.t, s, e);
+function stepState(r: Run, id: string): StepState {
+  const s = r.engine.steps[id]?.status ?? "pending";
+  return s === "succeeded" ? "ok" : s === "running" ? "run" : s === "failed" ? "bad" : "wait";
 }
 
-function ExecView() {
-  const { S } = useSim();
-  const m = S.mig;
-  const sName = ENV[m.src].name;
-  const tName = ENV[m.tgt].name;
-  const old = oldShare(S);
-  const el = execT(S);
+function lastLag(v: MigrationView): number | undefined {
+  for (let i = v.events.length - 1; i >= 0; i--) {
+    const x = v.events[i].data?.lagBytes;
+    if (typeof x === "number") return x;
+  }
+  return undefined;
+}
+
+function RunView({ v, r }: { v: MigrationView; r: Run }) {
+  const ended = !["running", "awaiting_switch"].includes(r.status);
+  const el = r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt);
+  const reads = targetReadShare(r);
+  const writesOnTarget = r.engine.trafficOnTarget;
+  const lag = lastLag(v);
+  const canAbort = (r.status === "running" || r.status === "awaiting_switch") && !r.engine.promoteRequested;
+  const canResume = r.status === "failed" || r.status === "aborted" || r.status === "interrupted";
   return (
     <>
-      <div className="steps6">
-        {STEPS.map((s, i) => {
-          const st = stepState(S, i);
-          return (
-            <div key={s[0]} title={s[1]}>
-              <Ind st={st} />
-              <span>
-                {s[0]}
-                <small>{ST[st]}</small>
-              </span>
-            </div>
-          );
-        })}
+      <div className="box">
+        <div className="bh">
+          <b>
+            {r.rollbackOf ? "롤백" : "이전"} {r.runId}
+          </b>
+          <RunStatusChip r={r} />
+        </div>
+        <div className="bb">
+          <div className="steps9">
+            {ENGINE_STEPS.map((s) => {
+              const st = stepState(r, s.id);
+              return (
+                <div key={s.id} title={s.detail}>
+                  <Ind st={st} />
+                  <span>
+                    {s.label}
+                    <small>{PHASE_LABEL[s.phase]}</small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {r.statusReason && <p className="hint">{r.statusReason}</p>}
+          <div className="actrow">
+            {r.status === "awaiting_switch" && (
+              <button type="button" className="btn primary" disabled={v.busy} onClick={v.doSwitch}>
+                전환
+              </button>
+            )}
+            {canAbort && (
+              <button type="button" className="btn ghost" disabled={v.busy} onClick={v.abort}>
+                중단
+              </button>
+            )}
+            {canResume && (
+              <button type="button" className="btn primary" disabled={v.busy} onClick={v.resume}>
+                이어서 실행
+              </button>
+            )}
+            {r.status === "succeeded" && (
+              <button type="button" className="btn ghost" disabled={v.busy} onClick={v.rollback}>
+                롤백
+              </button>
+            )}
+            {ended && (
+              <button type="button" className="btn ghost" onClick={v.reset}>
+                다른 경로로 이전
+              </button>
+            )}
+            {r.status === "awaiting_switch" && <span className="hint">데이터가 맞춰졌고 카나리 게이트를 모두 통과했습니다. 전환하면 쓰기를 잠시 붙잡고 대상을 승격합니다.</span>}
+          </div>
+        </div>
       </div>
       <div className="split">
         <div className="box">
           <div className="bh">
             <b>이전 경과</b>
-            <span className="hint">목표 {mmss(TARGET_SEC)} 이내</span>
+            <span className="hint">목표 {mmss(TARGET_SEC)} 이내 (시작부터, 전환 승인 대기 포함)</span>
           </div>
           <div className="bb">
             <div className="timer">
@@ -409,9 +483,9 @@ function ExecView() {
               </div>
             </div>
             <p className="hint">
-              {pastPointOfNoReturn(S)
-                ? tName + "가 쓰기를 받고 있습니다. 지금부터 실패하면 원복하지 않고 멈춥니다."
-                : "대상이 쓰기를 받기 전입니다. 실패하면 " + sName + "로 자동 원복합니다."}
+              {r.engine.promoteRequested
+                ? v.tgtLabel + " 승격을 요청했습니다. 지금부터 실패하면 원복하지 않고 멈춥니다(halted)."
+                : "대상 승격 전입니다. 실패하면 " + v.srcLabel + "로 자동 원복합니다(rolled_back)."}
             </p>
           </div>
         </div>
@@ -421,181 +495,117 @@ function ExecView() {
             <span className="hint">게이트웨이 기준</span>
           </div>
           <div className="bb">
-            <div className="traffic" role="img" aria-label={`${sName} ${old}%, ${tName} ${100 - old}%`}>
-              <div className={"seg old" + (old === 0 ? " gone" : "")} style={{ flexBasis: old + "%" }}>
-                {sName}
-              </div>
-              <div className={"seg new" + (old === 100 ? " gone" : "")} style={{ flexBasis: 100 - old + "%" }}>
-                {tName}
-              </div>
-            </div>
-            <div className="legend">
-              <span>
-                <i className="sw" style={{ background: "var(--old)" }} />
-                {sName} <b>{old}%</b>
-              </span>
-              <span>
-                <i className="sw" style={{ background: "var(--fg)" }} />
-                {tName} <b>{100 - old}%</b>
-              </span>
-            </div>
+            <TrafficBar label="읽기" src={v.srcLabel} tgt={v.tgtLabel} tgtShare={reads} />
+            <TrafficBar label="쓰기" src={v.srcLabel} tgt={v.tgtLabel} tgtShare={writesOnTarget ? 100 : 0} held={r.engine.writesHeld} />
           </div>
         </div>
       </div>
       <div className="metrics">
-        <Metric label="성공한 쓰기 (k6)" value={fmt(m.ok)} note="부하 생성기 기준" />
-        <Metric label="새 DB 반영" value={fmt(rep(S))} note={tName} />
-        <Metric label="실패 요청" value="0건" note="전환 중 포함" good />
-        <Metric label="DB 복제 지연" value={lagText(S)} note={sName + " → " + tName} />
-        <Metric label="파일" value={fmt(filesCopied(S)) + " / " + fmt(filesTotal(S))} note="새 저장소 / 원본" />
-        <Metric label="쓰기 보류" value={holdT(S).toFixed(1) + "초"} note={"최대 " + HOLD_MAX + "초"} />
+        {v.counters && <Metric label="성공한 쓰기 (k6)" value={fmt(v.counters.ok)} note="부하 생성기 기준" />}
+        <Metric label="게이트웨이 요청" value={fmt(r.result.requests ?? 0)} note="이번 이전 동안" />
+        <Metric label="실패 요청" value={fmt(r.result.failedRequests ?? 0) + "건"} note="5xx와 프록시 오류" good={(r.result.failedRequests ?? 0) === 0} />
+        <Metric label="복제 지연" value={lag === undefined ? "-" : fmt(lag) + " B"} note={v.srcLabel + " → " + v.tgtLabel} />
+        <Metric
+          label="쓰기 보류"
+          value={r.engine.writesHeld ? "보류 중" : r.result.downtimeMillis !== undefined ? (r.result.downtimeMillis / 1000).toFixed(1) + "초" : "-"}
+          note={v.counters && r.engine.writesHeld ? "보류 중인 쓰기 " + fmt(v.counters.held) + "건" : "상한 " + (v.plan?.summary.maxDowntime ?? "30s")}
+        />
       </div>
-      <Panel />
+      <CanaryBox r={r} />
+      {ended && <ResultBox r={r} v={v} />}
       <section className="sec">
         <h2>엔진 기록</h2>
-        <LogBox lines={m.log} />
+        <LogBox lines={runLines(r.startedAt, v.events)} />
       </section>
-      <details className="box fold">
-        <summary className="bh">
-          <b>AI 계획과 리허설 기록</b>
-          <Chip kind="ok">승인됨</Chip>
-        </summary>
-        <div className="bb">
-          <pre className="code">{planJson(m.src, m.tgt)}</pre>
-          <LogBox lines={m.ai.log} />
-        </div>
-      </details>
-    </>
-  );
-}
-
-function Panel() {
-  const { S, dispatch } = useSim();
-  const m = S.mig;
-  const phs = m.phase;
-
-  if (phs === "prep") {
-    return (
-      <div className="box">
-        <div className="bh">
-          <b>미리 복사, 변경분 동기화</b>
-          <Chip kind="run">진행 중</Chip>
-        </div>
-        <ul className="prog">
-          {prepItems(m.src, m.tgt).map((it) => {
-            const st = stOf(m.t, it[2], it[3]);
-            return <ProgItem key={it[0]} st={st} title={it[0]} sub={it[1]} right={st === "ok" ? mmss(it[3]) : ST[st]} />;
-          })}
-        </ul>
-      </div>
-    );
-  }
-  if (phs === "switch") {
-    let acc = 0;
-    return (
-      <div className="split">
-        <div className="box">
-          <div className="bh">
-            <b>쓰기 경계, 최종 반영 확인, 전환</b>
-            <Chip kind="run">진행 중</Chip>
-          </div>
-          <ul className="prog">
-            {SW_ITEMS.map((it) => {
-              const s = acc;
-              acc = Math.round((acc + it[1]) * 10) / 10;
-              const st = stOf(m.t, s, acc);
-              return <ProgItem key={it[0]} st={st} title={it[0]} right={st === "ok" ? it[1].toFixed(1) + "초" : ST[st]} />;
-            })}
-          </ul>
-        </div>
-        <div className="metrics">
-          <Metric label="보류 중인 쓰기" value={fmt(!m.flipped ? m.held : 0)} note="전환 후 새 환경으로 전달" />
-          <Metric label="전달한 쓰기" value={fmt(m.heldDone)} note="모두 처리됨" />
-        </div>
-      </div>
-    );
-  }
-
-  // cleanup / done
-  const tc = phs === "done" ? 999 : m.t;
-  const tot = PREP_END + SW_END + CL_END;
-  const bars: [number, string][] = [
-    [PREP_END, "복사·동기화 " + dur(PREP_END)],
-    [SW_END, ""],
-    [CL_END, "정리 " + dur(CL_END)],
-  ];
-  return (
-    <>
-      <div className="box">
-        <div className="bh">
-          <b>원본 정리</b>
-          {phs === "done" ? <Chip kind="ok">완료</Chip> : <Chip kind="run">진행 중</Chip>}
-        </div>
-        <ul className="prog">
-          {CL_ITEMS.map((it) => {
-            const st = stOf(tc, it[2], it[3]);
-            return <ProgItem key={it[0]} st={st} title={it[0]} sub={it[1] || undefined} right={st === "ok" ? "완료" : ST[st]} />;
-          })}
-        </ul>
-      </div>
-      {phs === "done" && (
-        <div className="box">
-          <div className="bh">
-            <b>이전 리포트</b>
-            <Chip kind="ok">누락 0건</Chip>
-          </div>
+      {v.sessions.length > 0 && (
+        <details className="box fold">
+          <summary className="bh">
+            <b>AI 계획과 리허설 기록</b>
+            <Chip kind="ok">세션 {v.sessions.length}개</Chip>
+          </summary>
           <div className="bb">
-            <div className="metrics">
-              <Metric label="전체 이전" value={dur(tot)} note={"목표 " + dur(TARGET_SEC) + " 이내"} good />
-              <Metric label="전환" value={SW_END + "초"} note="쓰기 경계부터 응답 확인까지" />
-              <Metric label="쓰기 보류" value={holdT(S).toFixed(1) + "초"} note={"최대 " + HOLD_MAX + "초"} />
-              <Metric label="실패 요청" value="0건" note="k6 기준" good />
-              <Metric label="누락 쓰기" value="0건" note={"성공 " + fmt(m.ok) + " = 새 DB " + fmt(m.ok)} good />
-              <Metric label="누락 파일" value="0개" note={"원본 " + fmt(filesTotal(S)) + " = 새 저장소 " + fmt(filesTotal(S))} good />
-            </div>
-            <div className="durbar" aria-hidden="true">
-              {bars.map((x, i) => (
-                <div key={i} style={{ flex: "0 0 calc(" + (x[0] / tot) * 100 + "% - 2px)" }} />
-              ))}
-            </div>
-            <div className="durlab">
-              {bars.map((x, i) => (
-                <div key={i} style={{ flex: "0 0 calc(" + (x[0] / tot) * 100 + "% - 2px)" }}>
-                  {x[1]}
-                </div>
-              ))}
-            </div>
-            <p className="hint">가운데의 좁은 칸이 전환({SW_END}초)입니다. 막대는 실제 시간 비율대로 그렸습니다.</p>
-            <Table
-              head={["남은 리소스", "상태", ""]}
-              rows={[
-                [
-                  td(ENV[m.src].name + "의 " + SAMPLE.db + ", " + SAMPLE.bucket),
-                  td(<Chip>읽기 전용</Chip>),
-                  td(
-                    m.del ? (
-                      <Chip kind="ok">삭제 예약됨</Chip>
-                    ) : (
-                      <button type="button" className="btn ghost" onClick={() => dispatch({ type: "mig-del" })}>
-                        삭제 승인
-                      </button>
-                    ),
-                  ),
-                ],
-              ]}
-            />
-            <div className="actrow">
-              <button type="button" className="btn primary" onClick={() => dispatch({ type: "mig-new" })}>
-                다른 경로로 이전
-              </button>
-              <a className="btn ghost" href="#routes">
-                경로별 결과
-              </a>
-            </div>
+            <SessionTable sessions={v.sessions} />
+            {v.sessions.map((s) => (
+              <SessionFeed key={s.id} s={s} events={v.sessionEvents(s.id)} />
+            ))}
           </div>
-        </div>
+        </details>
       )}
     </>
   );
 }
 
+function TrafficBar({ label, src, tgt, tgtShare, held }: { label: string; src: string; tgt: string; tgtShare: number; held?: boolean }) {
+  const old = 100 - tgtShare;
+  return (
+    <div className="trafficrow">
+      <span className="tl">
+        {label}
+        {held && <Chip kind="run">보류 중</Chip>}
+      </span>
+      <div className="traffic" role="img" aria-label={`${label}: ${src} ${old}%, ${tgt} ${tgtShare}%`}>
+        <div className={"seg old" + (old === 0 ? " gone" : "")} style={{ flexBasis: old + "%" }}>
+          {src} {old}%
+        </div>
+        <div className={"seg new" + (tgtShare === 0 ? " gone" : "")} style={{ flexBasis: tgtShare + "%" }}>
+          {tgt} {tgtShare}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CanaryBox({ r }: { r: Run }) {
+  const c = r.canary;
+  if (!c) return null;
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>읽기 카나리</b>
+        {c.passed ? <Chip kind="ok">게이트 모두 통과</Chip> : c.steps.length ? <Chip kind="run">진행 중</Chip> : <Chip>동기화 뒤 시작</Chip>}
+      </div>
+      <Table
+        head={["단계", "대상으로 보낸 읽기", "게이트", "요청", "오류율", "p95"]}
+        rows={c.options.weights.map((w, i) => {
+          const s = c.steps[i];
+          const g = s?.gate;
+          return [
+            td(i + 1 + "단계", "m"),
+            td(w + "%", "m"),
+            td(g ? <Chip kind={g.passed ? "ok" : "bad"}>{g.passed ? "통과" : "실패: " + g.reason}</Chip> : s ? <Chip kind="run">관찰 중</Chip> : <Chip>대기</Chip>),
+            td(g ? fmt(g.requests) : "-", "m"),
+            td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "m"),
+            td(g ? g.p95Millis + "ms" : "-", "m"),
+          ];
+        })}
+      />
+    </div>
+  );
+}
+
+function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
+  const x = r.result;
+  const n = (k: number | undefined, unit: string) => (k === undefined ? "측정 안 됨" : fmt(k) + unit);
+  const zero = (k: number | undefined) => k === 0;
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>{r.rollbackOf ? "롤백" : "이전"} 리포트</b>
+        <RunStatusChip r={r} />
+      </div>
+      <div className="bb">
+        <div className="metrics">
+          <Metric label="전체" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note={"목표 " + dur(TARGET_SEC) + " 이내"} good={(x.durationMillis ?? Infinity) <= TARGET_SEC * 1000} />
+          <Metric label="쓰기 보류" value={x.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-"} note="게이트웨이가 쓰기를 붙잡은 시간" />
+          <Metric label="실패 요청" value={n(x.failedRequests, "건")} note={"요청 " + fmt(x.requests ?? 0) + "건 중"} good={zero(x.failedRequests)} />
+          <Metric label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" good={zero(x.missingRows)} />
+          <Metric label="누락 쓰기" value={n(x.missingWrites, "건")} note="k6가 성공 응답을 받은 쓰기 대조" good={zero(x.missingWrites)} />
+          <Metric label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" good={zero(x.missingFiles)} />
+        </div>
+        <p className="hint">
+          {x.verified ? "검증 리포트에 문제가 없습니다." : "검증이 끝나지 않았거나 문제가 있습니다."} {r.status === "succeeded" && "원본은 읽기 전용으로 남아 있고, 롤백하면 같은 방법으로 " + v.srcLabel + "로 되돌립니다."}
+        </p>
+      </div>
+    </div>
+  );
+}

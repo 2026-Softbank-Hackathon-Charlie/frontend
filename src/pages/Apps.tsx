@@ -1,7 +1,9 @@
 import { AppsTable } from "../components/shared";
 import { Chip, PageHead, Table, td, type Cell } from "../components/ui";
+import { useLive } from "../data/live";
 import { ENV } from "../sim/data";
 import { useSim } from "../sim/store";
+import { LiveApps } from "./Overview";
 
 export function Apps() {
   return (
@@ -20,7 +22,7 @@ export function Apps() {
           </>
         }
       />
-      <AppsTable full />
+      {useLive() ? <LiveApps /> : <AppsTable full />}
     </div>
   );
 }

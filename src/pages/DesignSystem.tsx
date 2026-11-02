@@ -182,9 +182,9 @@ export function DesignSystem() {
           <Specimen name="단계 목록" note=".prog / ProgItem">
             <div className="box">
               <ul className="prog">
-                <ProgItem st="ok" title="미리 복사" sub="Argo CD 배포, DB 초기 복사" right="00:50" />
-                <ProgItem st="run" title="변경분 동기화" sub="DB 복제 지연 1초 이내" right="진행 중" />
-                <ProgItem st="wait" title="쓰기 경계" sub="쓰기 요청 보류" right="대기" />
+                <ProgItem st="ok" title="AI 계획" sub="읽기 전용 도구로 조회, Plan 제출" right="자동" />
+                <ProgItem st="run" title="리허설" sub="샌드박스에서 미리 실행" right="진행 중" />
+                <ProgItem st="wait" title="승인" sub="보고 있는 revision을 승인" right="대기" />
               </ul>
             </div>
           </Specimen>
@@ -198,13 +198,13 @@ export function DesignSystem() {
             </ol>
           </Specimen>
 
-          <Specimen name="실행 6단계" note=".steps6" wide>
-            <div className="steps6">
-              {(["ok", "ok", "ok", "run", "wait", "wait"] as const).map((st, i) => (
+          <Specimen name="엔진 9단계" note=".steps9" wide>
+            <div className="steps9">
+              {(["ok", "ok", "ok", "ok", "run", "wait", "wait", "wait", "wait"] as const).map((st, i) => (
                 <div key={i}>
                   <Ind st={st} />
                   <span>
-                    {["미리 복사", "변경분 동기화", "쓰기 경계", "최종 반영 확인", "전환", "원본 정리"][i]}
+                    {["사전 확인", "대상 준비", "초기 복사", "변경분 동기화", "쓰기 보류", "대상 승격", "트래픽 전환", "검증", "마무리"][i]}
                     <small>{st === "ok" ? "완료" : st === "run" ? "진행 중" : "대기"}</small>
                   </span>
                 </div>
@@ -213,13 +213,13 @@ export function DesignSystem() {
           </Specimen>
 
           <Specimen name="트래픽 비율" note=".traffic / .seg">
-            <div className="traffic" role="img" aria-label="AWS EKS 30%, GCP GKE 70%">
-              <div className="seg old" style={{ flexBasis: "30%" }}>AWS EKS</div>
-              <div className="seg new" style={{ flexBasis: "70%" }}>GCP GKE</div>
+            <div className="traffic" role="img" aria-label="AWS EKS 50%, GCP GKE 50%">
+              <div className="seg old" style={{ flexBasis: "50%" }}>AWS EKS 50%</div>
+              <div className="seg new" style={{ flexBasis: "50%" }}>GCP GKE 50%</div>
             </div>
             <div className="legend">
-              <span><i className="sw" style={{ background: "var(--old)" }} />AWS EKS <b>30%</b></span>
-              <span><i className="sw" style={{ background: "var(--fg)" }} />GCP GKE <b>70%</b></span>
+              <span><i className="sw" style={{ background: "var(--old)" }} />AWS EKS <b>50%</b></span>
+              <span><i className="sw" style={{ background: "var(--fg)" }} />GCP GKE <b>50%</b></span>
             </div>
           </Specimen>
 
