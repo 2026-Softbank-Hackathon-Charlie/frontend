@@ -178,7 +178,7 @@ platform #30(GitHub 앱 배포 계약, ADR 0011)을 콘솔에 연결했습니다
 - Actions에서 **Run workflow**를 누를 때만 돕니다(main만).
 - 테스트와 빌드를 통과하면 ECR에 7자리 SHA 태그로 이미지를 올리고, infra의 `images.console`과 `images.lock.json`을 바꾸는 **검토용 PR**을 엽니다. 자동 머지는 하지 않습니다.
 - 실제 반영은 infra PR을 머지한 뒤 관리 EKS의 Argo CD가 동기화해야 끝납니다.
-- 자세한 준비와 순서는 [README의 수동 배포](../README.md#수동-배포-github-actions)에 있습니다.
+- 자세한 준비와 순서는 [README의 수동 배포](../README.md#배포-github-actions)에 있습니다.
 
 ---
 
