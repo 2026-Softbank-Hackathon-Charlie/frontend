@@ -1,6 +1,13 @@
 name: Deploy frontend
 
+# Every push to main tests and builds the console, pushes its image to ECR
+# and pins it in infra main with one direct commit (infra ADR 0024); Argo CD
+# deploys infra main from there. A newer push cancels the older run, so only
+# the latest commit is pinned. Running it by hand publishes main again.
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -9,7 +16,7 @@ permissions:
 
 concurrency:
   group: frontend-production-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -111,9 +118,10 @@ jobs:
               output.write(f'image={image}\n')
           PY
 
-      - name: Open console image PR in infra
+      - name: Pin the console image in infra main
         env:
           GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
           INFRA_REPOSITORY: 2026-Softbank-Hackathon-Charlie/infra
           IMAGE: ${{ steps.image.outputs.image }}
-        run: python3 .github/scripts/open-console-pr.py
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 .github/scripts/pin-console-image.py
