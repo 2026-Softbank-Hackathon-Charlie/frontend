@@ -8,6 +8,7 @@ import { useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type App
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 import { ENV } from "../sim/data";
+import { MAX_INSTANCES } from "../sim/deploy";
 import { dur } from "../sim/format";
 import { useSim } from "../sim/store";
 
@@ -141,11 +142,11 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const deps = m.deployments ?? [];
   const running = deps.find((x) => !isFinalDeploymentStatus(x.status));
 
-  async function redeploy() {
+  async function redeploy(branch?: string) {
     setBusy(true);
     setMsg("");
     setInvalid(undefined);
-    const r = await m.redeploy();
+    const r = await m.redeploy(branch);
     setBusy(false);
     if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
     else if ("validation" in r) setInvalid(r.validation);
@@ -163,7 +164,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const acts = (
     <>
       {d && (
-        <button type="button" className="btn primary" disabled={busy} onClick={redeploy}>
+        <button type="button" className="btn primary" disabled={busy} onClick={() => redeploy()}>
           다시 배포
         </button>
       )}
@@ -192,7 +193,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
           <div className="bb">
             <b>{a.name}을(를) 삭제할까요?</b>
             <p>
-              gitops 저장소에서 apps/{a.name}/을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
+              gitops 저장소에서 {m.instances.map((i) => "apps/" + i.name + "/").join(", ")}을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
             </p>
             <div className="actrow">
               <button type="button" className="btn primary" disabled={busy} onClick={remove}>
@@ -219,7 +220,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
             <div className="actrow">
               <DeployChip s={running.status} />
               <span>
-                배포 {running.id}가 진행 중입니다 ({short(running.commit)}, {ago(running.createdAt, m.now)}).
+                배포 {running.id}가 진행 중입니다 ({running.instance}, {short(running.commit)}, {ago(running.createdAt, m.now)}).
               </span>
               <a className="more" href={"#deploy-" + running.id}>
                 진행 보기
@@ -239,7 +240,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
                   <dd>
                     <ExtLink href={"https://github.com/" + d.repo} />
                   </dd>
-                  <dt>브랜치</dt>
+                  <dt>기본 브랜치</dt>
                   <dd className="m">{d.branch}</dd>
                   <dt>자동 배포</dt>
                   <dd>{d.autoDeploy ? "켜짐: push할 때마다 배포합니다" : "꺼짐: 다시 배포를 눌러야 배포합니다"}</dd>
@@ -257,6 +258,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
               </div>
             </div>
           </section>
+          <Instances m={m} busy={busy} deploy={redeploy} />
           <section className="sec">
             <h2>환경별 상태</h2>
             <div className="box">
@@ -290,9 +292,10 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
                 </div>
               ) : (
                 <Table
-                  head={["배포", "상태", "트리거", "커밋", "환경", "시작", "소요"]}
+                  head={["배포", "브랜치", "상태", "트리거", "커밋", "환경", "시작", "소요"]}
                   rows={deps.map((x) => [
                     td(<a href={"#deploy-" + x.id}>{x.id}</a>, "m"),
+                    td(x.branch, "m"),
                     td(<DeployChip s={x.status} />),
                     td(TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : ""), "nw"),
                     td(x.ref + " " + short(x.commit), "m"),
@@ -318,6 +321,167 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
         </section>
       )}
     </div>
+  );
+}
+
+/** One row per instance (ADR 0015), the form that adds a branch, and the typed confirmation that removes one. */
+function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (branch: string) => void }) {
+  const [branch, setBranch] = useState("");
+  const [autoDeploy, setAutoDeploy] = useState(true);
+  const [working, setWorking] = useState(false);
+  /** what the last add got back instead of a deployment */
+  const [refused, setRefused] = useState<{ validation?: AppSpecValidation; error?: string }>();
+  /** the instance whose removal is being confirmed */
+  const [removing, setRemoving] = useState("");
+  const [typed, setTyped] = useState("");
+  const [removeError, setRemoveError] = useState("");
+  const full = m.instances.length >= MAX_INSTANCES;
+  const off = busy || working;
+
+  async function add() {
+    setWorking(true);
+    setRefused(undefined);
+    const r = await m.addBranch(branch, autoDeploy);
+    setWorking(false);
+    if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
+    else setRefused(r);
+  }
+  function confirm(name: string) {
+    setRemoving(name);
+    setTyped("");
+    setRemoveError("");
+  }
+  async function remove() {
+    setWorking(true);
+    setRemoveError("");
+    const err = await m.removeInstance(removing);
+    setWorking(false);
+    if (err) setRemoveError(err);
+    else setRemoving("");
+  }
+
+  return (
+    <section className="sec">
+      <h2>브랜치별 인스턴스</h2>
+      <p className="hint">
+        기본 브랜치 외에는 운영자가 추가한 브랜치만 배포합니다. 브랜치마다 주소, 네임스페이스, DB, 버킷이 따로 생기고, 기본 인스턴스를 포함해 {MAX_INSTANCES}개까지 둘 수 있습니다.
+      </p>
+      <div className="box">
+        <Table
+          head={["브랜치", "인스턴스", "주소", "환경별 상태", "마지막 배포", "자동 배포", ""]}
+          rows={m.instances.map((i) => [
+            td(
+              <span className="chips">
+                <span className="m">{i.branch}</span>
+                {i.default && <Chip>기본</Chip>}
+              </span>,
+            ),
+            td(i.name, "m"),
+            td(i.url ? <ExtLink href={i.url} /> : "-", "nw"),
+            td(
+              <div className="chips">
+                {i.status.map((s) => (
+                  <EnvChip key={s.env} s={s.status} env={s.env} />
+                ))}
+              </div>,
+            ),
+            td(
+              i.lastDeployment ? (
+                <span className="chips">
+                  <a href={"#deploy-" + i.lastDeployment.id} aria-label={i.name + " 마지막 배포"}>
+                    <DeployChip s={i.lastDeployment.status} />
+                  </a>
+                  <span className="hint">{ago(i.lastDeployment.createdAt, m.now)}</span>
+                </span>
+              ) : (
+                "-"
+              ),
+              "nw",
+            ),
+            td(i.autoDeploy ? "켜짐" : "꺼짐", "nw"),
+            td(
+              <div className="actrow">
+                <button type="button" className="btn ghost" aria-label={i.name + " 배포"} disabled={off} onClick={() => deploy(i.branch)}>
+                  배포
+                </button>
+                {!i.default && (
+                  <button type="button" className="btn ghost" aria-label={i.name + " 삭제"} disabled={off || removing === i.name} onClick={() => confirm(i.name)}>
+                    삭제
+                  </button>
+                )}
+              </div>,
+              "nw",
+            ),
+          ])}
+        />
+      </div>
+      {removing && (
+        <div className="box badbox" role="group" aria-label="인스턴스 삭제 확인">
+          <div className="bb">
+            <b>{removing}을(를) 삭제할까요?</b>
+            <p>gitops 저장소에서 apps/{removing}/을 지우고, Argo CD가 이 인스턴스의 네임스페이스와 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 인스턴스는 그대로 둡니다.</p>
+            <div className="field">
+              <label htmlFor="inst-confirm">확인하려면 인스턴스 이름 {removing}을(를) 입력하세요</label>
+              <input id="inst-confirm" value={typed} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setTyped(e.target.value)} />
+            </div>
+            {removeError && <p role="alert">인스턴스를 지우지 못했습니다: {removeError}</p>}
+            <div className="actrow">
+              <button type="button" className="btn primary" disabled={working || typed !== removing} onClick={remove}>
+                {working ? "삭제하는 중" : "삭제"}
+              </button>
+              <button type="button" className="btn ghost" disabled={working} onClick={() => setRemoving("")}>
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="box">
+        <div className="bh">
+          <b>브랜치 추가</b>
+          <span className="hint">
+            인스턴스 {m.instances.length}/{MAX_INSTANCES}개
+          </span>
+        </div>
+        <div className="bb">
+          {full && <p>인스턴스가 {MAX_INSTANCES}개라 브랜치를 더 추가할 수 없습니다. 다른 브랜치를 배포하려면 추가한 인스턴스를 하나 삭제하세요.</p>}
+          <div className="form">
+            <div className="field">
+              <label htmlFor="inst-branch">추가할 브랜치</label>
+              <input
+                id="inst-branch"
+                value={branch}
+                disabled={full}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(e) => {
+                  setBranch(e.target.value.trim());
+                  setRefused(undefined);
+                }}
+              />
+              <small>이 브랜치의 head에서 platform.yaml을 읽어 {m.app?.name}--(브랜치 이름) 인스턴스로 배포합니다. platform.yaml의 name은 앱 이름과 같아야 합니다.</small>
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={autoDeploy} disabled={full} onChange={(e) => setAutoDeploy(e.target.checked)} /> push할 때마다 자동으로 배포
+            </label>
+          </div>
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={full || off || !branch} onClick={add}>
+              {working ? "추가하는 중" : "브랜치 추가"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {refused?.error && (
+        <div className="box badbox" role="alert">
+          <div className="bb">
+            <b>브랜치를 추가하지 못했습니다.</b>
+            <p>{refused.error}</p>
+          </div>
+        </div>
+      )}
+      {refused?.validation && <SpecResult check={{ data: refused.validation, error: undefined, loading: false, reload: () => setRefused(undefined) }} />}
+    </section>
   );
 }
 

@@ -169,7 +169,7 @@ export function appsIn(S: SimState, k: EnvKey): number {
 /** Work in progress, as [label, href]. */
 export function running(S: SimState): [string, string][] {
   const l: [string, string][] = [];
-  for (const d of dep.activeDeployments(S.deploy)) l.push([d.app + " 배포 중", "#deploy-" + d.id]);
+  for (const d of dep.activeDeployments(S.deploy)) l.push([d.instance + " 배포 중", "#deploy-" + d.id]);
   if (S.onb.run) l.push(["기존 앱 가져오기: " + ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"][S.onb.step], "#onboard"]);
   else if (S.onb.step === 4 && !S.onb.approved) l.push(["기존 앱 가져오기: PR 승인 대기", "#onboard"]);
   if (migActive(S)) l.push([SAMPLE.id + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-shop"]);
@@ -199,8 +199,10 @@ export function tick(S: SimState): void {
 
 export type Action =
   | { type: "app-create"; req: AppCreateRequest }
-  | { type: "app-redeploy"; name: string }
+  | { type: "app-redeploy"; name: string; branch?: string }
   | { type: "app-delete"; name: string }
+  | { type: "instance-create"; name: string; branch: string; autoDeploy: boolean }
+  | { type: "instance-delete"; name: string; instance: string }
   | { type: "onb-start" }
   | { type: "onb-sbx" }
   | { type: "onb-pr" }
@@ -224,10 +226,18 @@ export function apply(S: SimState, a: Action): void {
       dep.createApp(S.deploy, a.req);
       break;
     case "app-redeploy":
-      dep.redeploy(S.deploy, a.name);
+      dep.redeploy(S.deploy, a.name, a.branch);
       break;
-    case "app-delete":
-      if (dep.deleteApp(S.deploy, a.name)) S.act.unshift(["방금", a.name + " 삭제 (gitops에서 apps/" + a.name + "/ 제거)"]);
+    case "app-delete": {
+      const dirs = (S.deploy.apps.find((x) => x.name === a.name)?.deploy?.instances ?? []).map((i) => "apps/" + i.name + "/").join(", ");
+      if (dep.deleteApp(S.deploy, a.name)) S.act.unshift(["방금", a.name + " 삭제 (gitops에서 " + dirs + " 제거)"]);
+      break;
+    }
+    case "instance-create":
+      if (dep.addInstance(S.deploy, a.name, a.branch, a.autoDeploy)) S.act.unshift(["방금", a.name + "에 " + a.branch + " 브랜치 추가 (인스턴스 " + dep.instanceName(a.name, a.branch) + ")"]);
+      break;
+    case "instance-delete":
+      if (dep.removeInstance(S.deploy, a.name, a.instance)) S.act.unshift(["방금", a.instance + " 삭제 (gitops에서 apps/" + a.instance + "/ 제거)"]);
       break;
     case "onb-start":
       S.onb.step = 2;

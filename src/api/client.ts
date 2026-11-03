@@ -12,6 +12,8 @@ import type {
   App,
   AppCreated,
   AppCreateRequest,
+  AppInstanceCreated,
+  AppInstanceCreateRequest,
   AppList,
   AppSpecValidateRequest,
   AppSpecValidation,
@@ -371,12 +373,30 @@ export const deleteApp = (name: string, o?: RequestOptions) =>
 /** Check platform.yaml at the head of a branch (`repo`, `branch`) or given as `spec`. Always 200; `valid` says whether it passed. */
 export const validateAppSpec = (req: AppSpecValidateRequest, o?: RequestOptions) =>
   request<AppSpecValidation>("POST", "/v1/apps/validate", { ...o, body: req });
-/** Deploy a registered app now (trigger manual): `ref` defaults to its branch, `environments` to all of its own. 422 as for createApp. */
+/**
+ * Deploy a registered app now (trigger manual). `branch` picks the instance
+ * (default: the app's own branch, the default instance), `ref` defaults to
+ * that branch, `environments` to all of the app's. 400 for a branch the app
+ * does not deploy; 422 as for createApp.
+ */
 export const createDeployment = (name: string, req?: DeploymentCreateRequest, o?: RequestOptions) =>
   request<Deployment>("POST", `/v1/apps/${seg(name)}/deployments`, { ...o, body: req });
-/** Newest first; `limit` 1 to 200 (server default 20). */
-export const listDeployments = (name: string, q: { limit?: number } = {}, o?: RequestOptions) =>
+/** Newest first, of every instance; `branch` keeps one branch's instance, `limit` 1 to 200 (server default 20) counts those alone. */
+export const listDeployments = (name: string, q: { branch?: string; limit?: number } = {}, o?: RequestOptions) =>
   request<DeploymentList>("GET", `/v1/apps/${seg(name)}/deployments`, { ...o, query: q });
+/**
+ * Deploy another branch of a registered app as its own instance
+ * `<app>--<slug>` (ADR 0015) and queue its first deployment (trigger
+ * register). 409 branch_exists (the app's branch or one already added),
+ * instance_exists (another branch has the same instance name) or
+ * instance_limit (3 instances, the default one included); 422 as for
+ * createApp. Role operator.
+ */
+export const createAppInstance = (name: string, req: AppInstanceCreateRequest, o?: RequestOptions) =>
+  request<AppInstanceCreated>("POST", `/v1/apps/${seg(name)}/instances`, { ...o, body: req });
+/** Remove an added instance with its namespace and data; 202 like deleteApp. The default instance is a 409 default_instance. Role operator. */
+export const deleteAppInstance = (name: string, instance: string, o?: RequestOptions) =>
+  request<void>("DELETE", `/v1/apps/${seg(name)}/instances/${seg(instance)}`, { ...o, noContent: true });
 export const getDeployment = (id: string, o?: RequestOptions) =>
   request<Deployment>("GET", `/v1/deployments/${seg(id)}`, o);
 /** The repositories the GitHub App installation can see, by full name. */

@@ -2,10 +2,10 @@
 // Both sides hand over contract types (App, Deployment, DeploymentEvent, AppSpecValidation, GitHubRepo),
 // so every page has one code path. Pages mount a live hook only in live mode: it fetches as soon as it mounts.
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, createApp, createDeployment, deleteApp, specInvalid } from "../api/client";
+import { ApiError, createApp, createAppInstance, createDeployment, deleteApp, deleteAppInstance, specInvalid } from "../api/client";
 import { useApp, useApps, useAppSpecValidation, useDeployment, useDeployments, useEnvironments, useGitHubRepos, type SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { App, AppCreateRequest, AppSpecValidation, Deployment, DeploymentEvent, GitHubRepo } from "../api/types";
+import type { App, AppCreateRequest, AppInstance, AppSpecValidation, Deployment, DeploymentEvent, GitHubRepo } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE } from "../sim/data";
 import * as dep from "../sim/deploy";
 import { iso } from "../sim/mig";
@@ -44,12 +44,19 @@ export interface AppsModel {
 export interface AppModel {
   live: boolean;
   app: App | undefined;
+  /** the app's instances, the default one first (instancesOf) */
+  instances: AppInstance[];
   error: string;
   notFound: boolean;
-  /** newest first */
+  /** newest first, of every instance */
   deployments: Deployment[] | undefined;
   now: number;
-  redeploy(): Promise<SubmitResult>;
+  /** Deploys the head of `branch` into its instance; without one, the app's own branch (the default instance). */
+  redeploy(branch?: string): Promise<SubmitResult>;
+  /** Deploys another branch as its own instance; the result is its first deployment. */
+  addBranch(branch: string, autoDeploy: boolean): Promise<SubmitResult>;
+  /** Resolves with an error message, or "" once the instance is removed. */
+  removeInstance(instance: string): Promise<string>;
   /** Resolves with an error message, or "" once the app is unregistered. */
   remove(): Promise<string>;
 }
@@ -75,8 +82,25 @@ export function deployErrorText(e: unknown): string {
     if (e.code === "app_not_registered") return "PLATFORM_APPS_FILE에만 있는 앱이라 여기서 배포하거나 지울 수 없습니다";
     if (e.code === "github_not_configured") return "서버에 GitHub App이 설정되어 있지 않습니다";
     if (e.code === "github_unreachable") return "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요";
+    if (e.code === "branch_exists") return "이 브랜치는 이미 배포하고 있습니다. 앱의 기본 브랜치이거나 이미 추가한 브랜치입니다";
+    if (e.code === "instance_exists") return "다른 브랜치가 같은 인스턴스 이름을 쓰고 있습니다. 슬러그가 같은 브랜치는 하나만 추가할 수 있습니다: " + e.message;
+    if (e.code === "instance_limit") return "앱 하나에 인스턴스는 기본 인스턴스를 포함해 " + dep.MAX_INSTANCES + "개까지입니다. 인스턴스를 하나 지운 뒤 추가하세요";
+    if (e.code === "default_instance") return "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다";
   }
   return errorText(e);
+}
+
+/**
+ * A registered app's instances, the default one first. A server from before
+ * ADR 0015 sends no `instances`; the app then has only its default instance,
+ * which the top-level deploy fields describe.
+ */
+export function instancesOf(a: App | undefined): AppInstance[] {
+  const d = a?.deploy;
+  if (!d) return [];
+  if (d.instances?.length) return d.instances;
+  const { branch, autoDeploy, spec, specCommit, url, createdAt, createdBy, lastDeployment, status } = d;
+  return [{ name: a.name, branch, default: true, autoDeploy, spec, specCommit, url, createdAt, createdBy, lastDeployment, status }];
 }
 
 function registeredRepos(apps: App[] | undefined): Record<string, string> {
@@ -163,14 +187,28 @@ export function useSimApp(name: string): AppModel {
   return {
     live: false,
     app,
+    instances: instancesOf(app),
     error: "",
     notFound: !app,
     deployments: S.deploy.deployments.filter((d) => d.app === name),
     now: simNow(S),
-    redeploy: async () => {
+    redeploy: async (branch) => {
       if (!app) return { error: "앱을 찾을 수 없습니다" };
-      dispatch({ type: "app-redeploy", name });
+      dispatch({ type: "app-redeploy", name, branch });
       return { deploymentId: S.deploy.deployments[0].id };
+    },
+    addBranch: async (branch, autoDeploy) => {
+      const refused = dep.checkAddInstance(S.deploy, name, branch);
+      if (refused) return refused;
+      dispatch({ type: "instance-create", name, branch, autoDeploy });
+      return { deploymentId: S.deploy.deployments[0].id };
+    },
+    removeInstance: async (instance) => {
+      const inst = instancesOf(app).find((i) => i.name === instance);
+      if (!inst) return "인스턴스를 찾을 수 없습니다";
+      if (inst.default) return "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다";
+      dispatch({ type: "instance-delete", name, instance });
+      return "";
     },
     remove: async () => {
       dispatch({ type: "app-delete", name });
@@ -228,16 +266,28 @@ export function useLiveApp(name: string): AppModel {
   return {
     live: true,
     app: app.data,
+    instances: instancesOf(app.data),
     error: app.error && !app.data ? errorText(app.error) : "",
     notFound: app.error?.status === 404,
     deployments: deployments.data,
     now,
-    redeploy: () =>
+    redeploy: (branch) =>
       submitting(async () => {
-        const d = await createDeployment(name);
+        const d = await createDeployment(name, branch ? { branch } : undefined);
         deployments.reload();
         return d;
       }),
+    addBranch: (branch, autoDeploy) => submitting(async () => (await createAppInstance(name, { branch, autoDeploy })).deployment),
+    removeInstance: async (instance) => {
+      try {
+        await deleteAppInstance(name, instance);
+        app.reload();
+        deployments.reload();
+        return "";
+      } catch (e) {
+        return deployErrorText(e);
+      }
+    },
     remove: async () => {
       try {
         await deleteApp(name);

@@ -73,7 +73,19 @@ export interface paths {
      * rollback by itself (`observe.autoRollback`). Send the same `Idempotency-Key` to get the original run back on
      * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
      * once the stream has records (400 `invalid_request` before that). A plan
-     * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.
+     * with `rollbackOf` gives the run the same `rollbackOf`. When the server
+     * has a residency policy, the source's databases are listed and the
+     * whole physical copy is checked against it before the run exists; a
+     * denial is 409 `residency_denied` (reason codes and `db.schema.table`
+     * in the message) and the plan stays approved. A plan's `files` copy is
+     * allowed only between buckets the policy registers, and only when the
+     * source bucket's classification allows the target bucket's country.
+     * Rollback plans (`rollbackOf`) are exempt. When the server measures
+     * capacity, it reads the source and target for a few seconds first and
+     * answers 409 `capacity_insufficient` (measured numbers in the message)
+     * if the target accepts too few connections or the replica cannot catch
+     * up within `thresholds.catchupTimeout`; values it cannot measure never
+     * refuse. Rollback plans are exempt here too. Role operator.
      */
     post: operations["startMigration"];
   };
@@ -192,6 +204,21 @@ export interface paths {
      * `summary`. Error codes: invalid_request (400), security_not_configured (503).
      */
     get: operations["getSecurity"];
+  };
+  "/v1/security/ocsf": {
+    /**
+     * @description The findings of `GET /v1/security` (same collection, cache and
+     * filters) as Open Cybersecurity Schema Framework events, for tools that
+     * read OCSF. A threat detection is a Detection Finding (class 2004); a
+     * configuration check is a Compliance Finding (class 2003) whose
+     * `compliance.status_id` is Fail, or Warning for an informational one.
+     * Every event declares `metadata.version` and the `cloud` profile and
+     * follows the official class schema of that version; the platform's
+     * tests validate the mapping against it. Nothing new is read: each value
+     * comes from the matching `SecurityFinding`. Error codes as for
+     * `/v1/security`.
+     */
+    get: operations["getSecurityOCSF"];
   };
   "/v1/agent/sessions": {
     get: operations["listAgentSessions"];
@@ -329,8 +356,10 @@ export interface paths {
      * deploys as well (`POST /v1/webhooks/github`).
      *
      * A deployment builds one image per service, commits
-     * `apps/<name>/<env>.yaml` to the gitops repository and lets Argo CD
-     * sync the Application `<name>-<env>` into namespace `<name>`.
+     * `apps/<instance>/<env>.yaml` to the gitops repository and lets Argo CD
+     * sync the Application `<instance>-<env>` into namespace `<instance>`.
+     * `branch` is the app's default instance, named after the app; more
+     * branches are added with `POST /v1/apps/{name}/instances`.
      *
      * Error codes: invalid_request (400: an environment that is not in
      * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
@@ -400,10 +429,11 @@ export interface paths {
     get: operations["getApp"];
     /**
      * @description Unregister an app. The platform supersedes the app's unfinished
-     * deployments, commits the removal of `apps/<name>/` from the gitops
-     * repository, and forgets the app with its deployments. Argo CD then
-     * deletes the Applications and the resources they created, so the
-     * app's data goes with them; 202 means that is under way.
+     * deployments, commits the removal of `apps/<name>/` and of every added
+     * instance's `apps/<instance>/` from the gitops repository, and forgets
+     * the app with its instances and deployments. Argo CD then deletes the
+     * Applications and the resources they created, so the app's data goes
+     * with them; 202 means that is under way.
      *
      * Only registered apps can be deleted. Error codes: app_not_found (404),
      * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
@@ -417,21 +447,75 @@ export interface paths {
       };
     };
   };
+  "/v1/apps/{name}/instances": {
+    /**
+     * @description Deploy another branch of a registered app as its own instance (ADR
+     * 0015). The platform reads `platform.yaml` at the head of `branch`
+     * through the GitHub App and checks it as registration does (its `name`
+     * must be the app's name), stores the branch under the instance name
+     * `<app>--<slug>` (`appspec.InstanceName`), and queues the instance's
+     * first deployment (trigger `register`) to all the app's environments.
+     * With `autoDeploy`, every later push to `branch` deploys the instance
+     * as well.
+     *
+     * Error codes: invalid_request (400: a branch that is not a git branch
+     * name, or whose slug is empty), app_not_found (404),
+     * app_not_registered (409: the app is only in PLATFORM_APPS_FILE),
+     * branch_exists (409: the app's own branch, or a branch already added),
+     * instance_exists (409: another branch has the same instance name),
+     * instance_limit (409: the app already has 3 instances, the default one
+     * included), invalid_app_spec (422: the branch or platform.yaml could
+     * not be read, or platform.yaml breaks a rule), github_unreachable
+     * (502), github_not_configured (503). Role operator.
+     */
+    post: operations["createAppInstance"];
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+  };
+  "/v1/apps/{name}/instances/{instance}": {
+    /**
+     * @description Remove an added instance. The platform supersedes the instance's
+     * unfinished deployments, commits the removal of `apps/<instance>/`
+     * from the gitops repository, removes the instance from the traffic
+     * gateway, and forgets the branch with its deployments. Argo CD then
+     * deletes the namespace and its data; 202 means that is under way.
+     *
+     * Error codes: app_not_found and instance_not_found (404),
+     * app_not_registered (409: the app is only in PLATFORM_APPS_FILE),
+     * default_instance (409: the default instance goes only with the app,
+     * `DELETE /v1/apps/{name}`), cluster_busy (409: the traffic gateway
+     * holds the instance's writes), github_unreachable (502: the gitops
+     * repository), gateway_unreachable (502), github_not_configured (503).
+     * Role operator.
+     */
+    delete: operations["deleteAppInstance"];
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+        instance: components["parameters"]["InstanceName"];
+      };
+    };
+  };
   "/v1/apps/{name}/deployments": {
-    /** @description The app's deployments, newest first. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: app_not_found (404). */
+    /** @description The app's deployments to all its instances, newest first; with `branch`, only that branch's, `limit` counting those alone. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: invalid_request (400: a limit out of range, or a `branch` the app does not deploy), app_not_found (404). */
     get: operations["listDeployments"];
     /**
-     * @description Deploy a registered app now (trigger `manual`). `ref` is resolved to
-     * a commit, and `platform.yaml` there is checked as for registration
+     * @description Deploy a registered app now (trigger `manual`). `branch` picks the
+     * instance: the app's own branch (the default instance) or a branch
+     * added with `POST /v1/apps/{name}/instances`. `ref` is resolved to a
+     * commit, and `platform.yaml` there is checked as for registration
      * before the deployment is created; its `name` must still be the app's
      * name. The deployment is queued and 202 returns at once; follow it
      * with `GET /v1/deployments/{id}/events`.
      *
-     * Error codes: invalid_request (400: an environment the app is not
-     * registered for, or a ref the repository does not have), app_not_found
-     * (404), app_not_registered (409: the app is only in
-     * PLATFORM_APPS_FILE), invalid_app_spec (422), github_unreachable (502),
-     * github_not_configured (503). Role operator.
+     * Error codes: invalid_request (400: a `branch` the app does not
+     * deploy, an environment the app is not registered for, or a ref the
+     * repository does not have), app_not_found (404), app_not_registered
+     * (409: the app is only in PLATFORM_APPS_FILE), invalid_app_spec (422),
+     * github_unreachable (502), github_not_configured (503). Role operator.
      */
     post: operations["createDeployment"];
     parameters: {
@@ -488,17 +572,19 @@ export interface paths {
      * raw body with the App's webhook secret, and it is checked before
      * anything else.
      *
-     * Only `push` events act. A push to the `branch` of a registered app
-     * with `autoDeploy` queues one deployment of the pushed head commit
-     * (`after`) to all of the app's environments, with trigger `push` and
-     * `triggeredBy` `github:<sender login>`, and the answer is 202 with
-     * the queued deployments (one per such app). The deployer reads
+     * Only `push` events act. A push to a branch a registered app deploys
+     * (its own `branch`, or a branch added as an instance) whose
+     * `autoDeploy` is on queues one deployment of the pushed head commit
+     * (`after`) into that branch's instance, to all of the app's
+     * environments, with trigger `push` and `triggeredBy`
+     * `github:<sender login>`, and the answer is 202 with the queued
+     * deployments (one per such instance). The deployer reads
      * platform.yaml at that commit; one that breaks a rule fails the
      * deployment (`error` says why). Everything else is 204 and
      * changes nothing: `ping` and other events, pushes to other branches,
-     * tags, deleted branches, repositories with no registered app, apps
-     * without `autoDeploy`, and a delivery (`X-GitHub-Delivery`) that was
-     * already handled.
+     * tags, deleted branches, repositories with no registered app,
+     * branches without `autoDeploy`, and a delivery (`X-GitHub-Delivery`)
+     * that was already handled.
      *
      * Error codes: invalid_signature (401), invalid_request (400: a signed
      * body that is not a push payload), github_not_configured (503: the
@@ -1186,6 +1272,27 @@ export interface components {
         [key: string]: components["schemas"]["SeverityCounts"];
       };
     };
+    SecurityOCSFExport: {
+      /**
+       * @description OCSF version the events follow
+       * @example 1.9.0
+       */
+      ocsfVersion: string;
+      /**
+       * Format: date-time
+       * @description when the sources were read (as `SecurityReport.generatedAt`)
+       */
+      generatedAt: string;
+      /**
+       * @description OCSF Detection Finding (2004) and Compliance Finding (2003) events,
+       * as the OCSF schema defines them (snake_case keys, `time` in epoch
+       * milliseconds). Their shape is the OCSF standard's, not this API's,
+       * so it is not repeated here.
+       */
+      findings: {
+          [key: string]: unknown;
+        }[];
+    };
     SecurityReport: {
       /**
        * Format: date-time
@@ -1437,10 +1544,15 @@ export interface components {
       deployment: components["schemas"]["Deployment"];
     };
     /**
-     * @description How the platform deploys a registered app from GitHub. `spec` is the
-     * newest platform.yaml that passed the check, read at `specCommit`: at
-     * registration, and again by every deployment. `lastDeployment` is the
-     * newest deployment, finished or not.
+     * @description How the platform deploys a registered app from GitHub. The app
+     * deploys its own `branch` as the default instance, named after the
+     * app, and every branch added with `POST /v1/apps/{name}/instances` as
+     * another instance; `instances` lists them all. The other fields
+     * except `repo`, `environments`, `createdAt` and `createdBy` describe
+     * the default instance. `spec` is the newest platform.yaml on `branch`
+     * that passed the check, read at `specCommit`: at registration, and
+     * again by every deployment. `lastDeployment` is the default
+     * instance's newest deployment, finished or not.
      */
     AppDeploy: {
       /** @example 2026-Softbank-Hackathon-Charlie/moimroom */
@@ -1472,10 +1584,65 @@ export interface components {
       lastDeployment?: components["schemas"]["Deployment"];
       /** @description One entry per environment in `environments`, in that order. */
       status: components["schemas"]["AppEnvironmentStatus"][];
+      /** @description Every instance of the app, the default one first, then the others by branch name. */
+      instances: components["schemas"]["AppInstance"][];
     };
     /**
-     * @description The app's live state in one environment, from the Argo CD Application
-     * `<app>-<env>`. `pending` until a deployment reaches the environment.
+     * @description One deployed branch of a registered app (ADR 0015). The default
+     * instance deploys the app's `branch` and is named after the app; the
+     * other instances deploy a branch the operator added and are named
+     * `<app>--<slug>`. The name is the namespace, the gitops directory
+     * `apps/<instance>/`, the Argo CD Applications `<instance>-<env>` and
+     * the host `<instance>.<app domain>`. `spec` is the newest
+     * platform.yaml on the branch that passed the check, read at
+     * `specCommit`.
+     */
+    AppInstance: {
+      /** @example moimroom--dev */
+      name: string;
+      /** @example dev */
+      branch: string;
+      /** @description the app's own branch; the instance is deleted only with the app */
+      default: boolean;
+      /** @description every push to branch deploys the instance */
+      autoDeploy: boolean;
+      spec: components["schemas"]["AppSpec"];
+      /** @example 9fceb02d0ae598e95dc970b74767f19372d61af8 */
+      specCommit: string;
+      /**
+       * @description `https://<instance>.<domain>`, where the public service answers through the traffic gateway. Absent when no service is public.
+       * @example https://moimroom--dev.hopcharlie.dev
+       */
+      url?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** @description the token name that registered the app (default instance) or added the branch */
+      createdBy: string;
+      lastDeployment?: components["schemas"]["Deployment"];
+      /** @description One entry per environment of the app, in the app's order. */
+      status: components["schemas"]["AppEnvironmentStatus"][];
+    };
+    AppInstanceCreateRequest: {
+      /**
+       * @description A branch of the app's repository; not the app's own branch.
+       * @example dev
+       */
+      branch: string;
+      /**
+       * @description deploy every push to branch
+       * @default true
+       */
+      autoDeploy?: boolean;
+    };
+    /** @description The added instance and its first deployment (trigger register), queued. */
+    AppInstanceCreated: {
+      instance: components["schemas"]["AppInstance"];
+      deployment: components["schemas"]["Deployment"];
+    };
+    /**
+     * @description An instance's live state in one environment, from the Argo CD
+     * Application `<instance>-<env>`. `pending` until a deployment reaches
+     * the environment.
      */
     AppEnvironmentStatus: {
       /** @example eks */
@@ -1503,10 +1670,13 @@ export interface components {
      * applied. pkg/appspec parses it strictly (unknown keys are an error)
      * and checks these rules:
      *
-     * - `name` matches `^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`. It names the
-     *   namespace, the Argo CD Applications `<name>-<env>`, the images
-     *   `<registry>/hopcharlie/apps/<name>/<service>` and the public URL
-     *   `https://<name>.hopcharlie.dev`.
+     * - `name` matches `^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$` (3 to 32
+     *   characters) and has no `--`, which separates the app from the
+     *   branch in instance names (`<name>--<branch slug>`). It names the
+     *   default instance (the namespace, the Argo CD Applications
+     *   `<name>-<env>` and the public URL `https://<name>.hopcharlie.dev`)
+     *   and the images `<registry>/hopcharlie/apps/<name>/<service>`,
+     *   which every instance shares.
      * - 1 to 5 services and at most one resource per type. Service names,
      *   and resource names, match `^[a-z]([a-z0-9-]{0,22}[a-z0-9])?$` and
      *   are unique.
@@ -1654,8 +1824,8 @@ export interface components {
       validation: components["schemas"]["AppSpecValidation"];
     };
     /**
-     * @description register: the first deployment, created by POST /v1/apps.
-     * push: a push to the app's branch (the GitHub webhook).
+     * @description register: the first deployment of an app (POST /v1/apps) or of an added instance (POST /v1/apps/{name}/instances).
+     * push: a push to a branch the app deploys (the GitHub webhook).
      * manual: POST /v1/apps/{name}/deployments.
      *
      * @enum {string}
@@ -1664,11 +1834,11 @@ export interface components {
     /**
      * @description queued: waiting for the deployer. A server without a deployer leaves deployments queued.
      * building: building and pushing one image per service.
-     * committing: writing apps/<app>/<env>.yaml to the gitops repository.
+     * committing: writing apps/<instance>/<env>.yaml to the gitops repository.
      * syncing: Argo CD is applying the commit; waiting for every environment to be healthy.
      * healthy: every environment is synced and healthy. Final.
      * failed: the deployment stopped; `error` says why. Final.
-     * superseded: a newer deployment of the app to the same environments (or more) was created
+     * superseded: a newer deployment of the same instance to the same environments (or more) was created
      *   before this one finished. This one stopped, and writes nothing to the gitops repository
      *   after that. Final.
      *
@@ -1677,22 +1847,32 @@ export interface components {
     DeploymentStatus: "queued" | "building" | "committing" | "syncing" | "healthy" | "failed" | "superseded";
     /**
      * @description pending: nothing deployed to the environment yet.
-     * syncing: apps/<app>/<env>.yaml is committed and Argo CD is applying it.
+     * syncing: apps/<instance>/<env>.yaml is committed and Argo CD is applying it.
      * healthy: Argo CD reports Synced and Healthy for the commit.
-     * degraded: synced, but Argo CD reports the Application Degraded.
+     * degraded: synced, but Argo CD reports the Application <instance>-<env> Degraded.
      * failed: the sync failed, or the environment did not become healthy in time.
      *
      * @enum {string}
      */
     DeploymentEnvironmentStatus: "pending" | "syncing" | "healthy" | "degraded" | "failed";
-    /** @description One deployment of an app's commit to one or more environments. */
+    /** @description One deployment of an app's commit into one of its instances, in one or more environments. */
     Deployment: {
       /** @example dep_3f9c1a0b2d4e */
       id: string;
       /** @example moimroom */
       app: string;
       /**
-       * @description what was asked for: a branch or a commit sha
+       * @description the branch whose instance this deploys: the app's branch or an added one
+       * @example main
+       */
+      branch: string;
+      /**
+       * @description the instance it deploys (AppInstance name)
+       * @example moimroom
+       */
+      instance: string;
+      /**
+       * @description what was asked for: a branch, tag or commit sha
        * @example main
        */
       ref: string;
@@ -1744,12 +1924,12 @@ export interface components {
       env: string;
       status: components["schemas"]["DeploymentEnvironmentStatus"];
       /**
-       * @description Argo CD sync status of the Application <app>-<env>
+       * @description Argo CD sync status of the Application <instance>-<env>
        * @example Synced
        */
       syncStatus?: string;
       /**
-       * @description Argo CD health status of the Application <app>-<env>
+       * @description Argo CD health status of the Application <instance>-<env>
        * @example Healthy
        */
       healthStatus?: string;
@@ -1763,7 +1943,12 @@ export interface components {
     };
     DeploymentCreateRequest: {
       /**
-       * @description a branch or a commit sha of the app's repository; defaults to the app's branch
+       * @description A branch the app deploys: its own branch or one added with POST /v1/apps/{name}/instances. It picks the instance; defaults to the app's branch.
+       * @example dev
+       */
+      branch?: string;
+      /**
+       * @description a branch, tag or commit sha of the app's repository to deploy into that instance; defaults to branch
        * @example main
        */
       ref?: string;
@@ -1822,13 +2007,13 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, deployment_not_found */
+    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found */
     NotFound: {
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -1870,6 +2055,7 @@ export interface components {
     RunId: string;
     EnvName: string;
     AppName: string;
+    InstanceName: string;
     DeploymentId: string;
   };
   requestBodies: never;
@@ -2061,7 +2247,19 @@ export interface operations {
    * rollback by itself (`observe.autoRollback`). Send the same `Idempotency-Key` to get the original run back on
    * a retry. A plan with `verify.writtenRecords: "stream:<name>"` starts only
    * once the stream has records (400 `invalid_request` before that). A plan
-   * with `rollbackOf` gives the run the same `rollbackOf`. Role operator.
+   * with `rollbackOf` gives the run the same `rollbackOf`. When the server
+   * has a residency policy, the source's databases are listed and the
+   * whole physical copy is checked against it before the run exists; a
+   * denial is 409 `residency_denied` (reason codes and `db.schema.table`
+   * in the message) and the plan stays approved. A plan's `files` copy is
+   * allowed only between buckets the policy registers, and only when the
+   * source bucket's classification allows the target bucket's country.
+   * Rollback plans (`rollbackOf`) are exempt. When the server measures
+   * capacity, it reads the source and target for a few seconds first and
+   * answers 409 `capacity_insufficient` (measured numbers in the message)
+   * if the target accepts too few connections or the replica cannot catch
+   * up within `thresholds.catchupTimeout`; values it cannot measure never
+   * refuse. Rollback plans are exempt here too. Role operator.
    */
   startMigration: {
     parameters: {
@@ -2362,6 +2560,39 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["SecurityReport"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description The findings of `GET /v1/security` (same collection, cache and
+   * filters) as Open Cybersecurity Schema Framework events, for tools that
+   * read OCSF. A threat detection is a Detection Finding (class 2004); a
+   * configuration check is a Compliance Finding (class 2003) whose
+   * `compliance.status_id` is Fail, or Warning for an informational one.
+   * Every event declares `metadata.version` and the `cloud` profile and
+   * follows the official class schema of that version; the platform's
+   * tests validate the mapping against it. Nothing new is read: each value
+   * comes from the matching `SecurityFinding`. Error codes as for
+   * `/v1/security`.
+   */
+  getSecurityOCSF: {
+    parameters: {
+      query?: {
+        environment?: string;
+        severity?: components["schemas"]["SecuritySeverity"];
+        refresh?: boolean;
+      };
+    };
+    responses: {
+      /** @description OCSF events, most severe first. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityOCSFExport"];
         };
       };
       400: components["responses"]["BadRequest"];
@@ -2711,8 +2942,10 @@ export interface operations {
    * deploys as well (`POST /v1/webhooks/github`).
    *
    * A deployment builds one image per service, commits
-   * `apps/<name>/<env>.yaml` to the gitops repository and lets Argo CD
-   * sync the Application `<name>-<env>` into namespace `<name>`.
+   * `apps/<instance>/<env>.yaml` to the gitops repository and lets Argo CD
+   * sync the Application `<instance>-<env>` into namespace `<instance>`.
+   * `branch` is the app's default instance, named after the app; more
+   * branches are added with `POST /v1/apps/{name}/instances`.
    *
    * Error codes: invalid_request (400: an environment that is not in
    * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
@@ -2879,10 +3112,11 @@ export interface operations {
   };
   /**
    * @description Unregister an app. The platform supersedes the app's unfinished
-   * deployments, commits the removal of `apps/<name>/` from the gitops
-   * repository, and forgets the app with its deployments. Argo CD then
-   * deletes the Applications and the resources they created, so the
-   * app's data goes with them; 202 means that is under way.
+   * deployments, commits the removal of `apps/<name>/` and of every added
+   * instance's `apps/<instance>/` from the gitops repository, and forgets
+   * the app with its instances and deployments. Argo CD then deletes the
+   * Applications and the resources they created, so the app's data goes
+   * with them; 202 means that is under way.
    *
    * Only registered apps can be deleted. Error codes: app_not_found (404),
    * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
@@ -2909,11 +3143,102 @@ export interface operations {
       default: components["responses"]["Internal"];
     };
   };
-  /** @description The app's deployments, newest first. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: app_not_found (404). */
+  /**
+   * @description Deploy another branch of a registered app as its own instance (ADR
+   * 0015). The platform reads `platform.yaml` at the head of `branch`
+   * through the GitHub App and checks it as registration does (its `name`
+   * must be the app's name), stores the branch under the instance name
+   * `<app>--<slug>` (`appspec.InstanceName`), and queues the instance's
+   * first deployment (trigger `register`) to all the app's environments.
+   * With `autoDeploy`, every later push to `branch` deploys the instance
+   * as well.
+   *
+   * Error codes: invalid_request (400: a branch that is not a git branch
+   * name, or whose slug is empty), app_not_found (404),
+   * app_not_registered (409: the app is only in PLATFORM_APPS_FILE),
+   * branch_exists (409: the app's own branch, or a branch already added),
+   * instance_exists (409: another branch has the same instance name),
+   * instance_limit (409: the app already has 3 instances, the default one
+   * included), invalid_app_spec (422: the branch or platform.yaml could
+   * not be read, or platform.yaml breaks a rule), github_unreachable
+   * (502), github_not_configured (503). Role operator.
+   */
+  createAppInstance: {
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AppInstanceCreateRequest"];
+      };
+    };
+    responses: {
+      /** @description Added; the instance's first deployment is queued. */
+      201: {
+        headers: {
+          /** @description /v1/apps/{name}, which lists the instance in deploy.instances */
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["AppInstanceCreated"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["AppSpecInvalid"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Remove an added instance. The platform supersedes the instance's
+   * unfinished deployments, commits the removal of `apps/<instance>/`
+   * from the gitops repository, removes the instance from the traffic
+   * gateway, and forgets the branch with its deployments. Argo CD then
+   * deletes the namespace and its data; 202 means that is under way.
+   *
+   * Error codes: app_not_found and instance_not_found (404),
+   * app_not_registered (409: the app is only in PLATFORM_APPS_FILE),
+   * default_instance (409: the default instance goes only with the app,
+   * `DELETE /v1/apps/{name}`), cluster_busy (409: the traffic gateway
+   * holds the instance's writes), github_unreachable (502: the gitops
+   * repository), gateway_unreachable (502), github_not_configured (503).
+   * Role operator.
+   */
+  deleteAppInstance: {
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+        instance: components["parameters"]["InstanceName"];
+      };
+    };
+    responses: {
+      /** @description Removed; Argo CD is removing the workloads. */
+      202: {
+        content: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description The app's deployments to all its instances, newest first; with `branch`, only that branch's, `limit` counting those alone. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: invalid_request (400: a limit out of range, or a `branch` the app does not deploy), app_not_found (404). */
   listDeployments: {
     parameters: {
       query?: {
         limit?: number;
+        /** @description Only the deployments of this branch's instance. It must be a branch the app deploys. */
+        branch?: string;
       };
       path: {
         name: components["parameters"]["AppName"];
@@ -2933,17 +3258,19 @@ export interface operations {
     };
   };
   /**
-   * @description Deploy a registered app now (trigger `manual`). `ref` is resolved to
-   * a commit, and `platform.yaml` there is checked as for registration
+   * @description Deploy a registered app now (trigger `manual`). `branch` picks the
+   * instance: the app's own branch (the default instance) or a branch
+   * added with `POST /v1/apps/{name}/instances`. `ref` is resolved to a
+   * commit, and `platform.yaml` there is checked as for registration
    * before the deployment is created; its `name` must still be the app's
    * name. The deployment is queued and 202 returns at once; follow it
    * with `GET /v1/deployments/{id}/events`.
    *
-   * Error codes: invalid_request (400: an environment the app is not
-   * registered for, or a ref the repository does not have), app_not_found
-   * (404), app_not_registered (409: the app is only in
-   * PLATFORM_APPS_FILE), invalid_app_spec (422), github_unreachable (502),
-   * github_not_configured (503). Role operator.
+   * Error codes: invalid_request (400: a `branch` the app does not
+   * deploy, an environment the app is not registered for, or a ref the
+   * repository does not have), app_not_found (404), app_not_registered
+   * (409: the app is only in PLATFORM_APPS_FILE), invalid_app_spec (422),
+   * github_unreachable (502), github_not_configured (503). Role operator.
    */
   createDeployment: {
     parameters: {
@@ -3064,17 +3391,19 @@ export interface operations {
    * raw body with the App's webhook secret, and it is checked before
    * anything else.
    *
-   * Only `push` events act. A push to the `branch` of a registered app
-   * with `autoDeploy` queues one deployment of the pushed head commit
-   * (`after`) to all of the app's environments, with trigger `push` and
-   * `triggeredBy` `github:<sender login>`, and the answer is 202 with
-   * the queued deployments (one per such app). The deployer reads
+   * Only `push` events act. A push to a branch a registered app deploys
+   * (its own `branch`, or a branch added as an instance) whose
+   * `autoDeploy` is on queues one deployment of the pushed head commit
+   * (`after`) into that branch's instance, to all of the app's
+   * environments, with trigger `push` and `triggeredBy`
+   * `github:<sender login>`, and the answer is 202 with the queued
+   * deployments (one per such instance). The deployer reads
    * platform.yaml at that commit; one that breaks a rule fails the
    * deployment (`error` says why). Everything else is 204 and
    * changes nothing: `ping` and other events, pushes to other branches,
-   * tags, deleted branches, repositories with no registered app, apps
-   * without `autoDeploy`, and a delivery (`X-GitHub-Delivery`) that was
-   * already handled.
+   * tags, deleted branches, repositories with no registered app,
+   * branches without `autoDeploy`, and a delivery (`X-GitHub-Delivery`)
+   * that was already handled.
    *
    * Error codes: invalid_signature (401), invalid_request (400: a signed
    * body that is not a push payload), github_not_configured (503: the
