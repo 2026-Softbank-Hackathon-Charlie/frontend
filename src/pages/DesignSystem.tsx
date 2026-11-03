@@ -100,6 +100,26 @@ export function DesignSystem() {
         </div>
       </Section>
 
+      <Section id="logo" title="로고" sub="흰 바탕에 씁니다. 파일은 public/brand에 있습니다. 헤더 왼쪽은 가로형(lockup-header.png, 높이 40px)을, 탭·홈 화면·앱 설치 아이콘은 앱 아이콘을 줄여서 씁니다(favicon.ico, favicon-16/32, apple-touch-icon, icon-192). 링크 미리보기(og:image)는 가로형입니다.">
+        <div className="ds-logos">
+          <Specimen name="가로형" note="lockup-1200w.png">
+            <div className="ds-logo">
+              <img src="/brand/lockup-1200w.png" alt="HopCharlie, Zero-downtime migration" width={600} height={128} />
+            </div>
+          </Specimen>
+          <Specimen name="심볼" note="mark-1024.png">
+            <div className="ds-logo">
+              <img src="/brand/mark-1024.png" alt="HopCharlie 심볼" width={120} height={120} />
+            </div>
+          </Specimen>
+          <Specimen name="앱 아이콘" note="app-512.png">
+            <div className="ds-logo">
+              <img src="/brand/app-512.png" alt="HopCharlie 앱 아이콘" width={120} height={120} />
+            </div>
+          </Specimen>
+        </div>
+      </Section>
+
       <Section id="color" title="색" sub="모든 색은 tokens.css의 변수로 씁니다. 대비는 WCAG 2 기준입니다.">
         <div className="ds-swatches">
           {COLORS.map(([n, v, use, cr, warn]) => (
