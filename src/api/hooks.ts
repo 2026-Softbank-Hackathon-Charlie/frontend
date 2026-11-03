@@ -3,26 +3,36 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import {
   ApiError,
+  getApp,
+  getDeployment,
   getMatrix,
   getSecurity,
   getTraffic,
   listAgentSessions,
   listApps,
   listAudit,
+  listDeployments,
   listEnvironments,
+  listGitHubRepos,
   listMigrations,
   networkError,
+  validateAppSpec,
   type AgentSessionQuery,
   type SecurityQuery,
 } from "./client";
-import { watchAgentSession, watchRun } from "./sse";
+import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
 import type {
   AgentEvent,
   AgentSession,
   App,
+  AppSpecValidation,
   AuditEntry,
   CanaryStepData,
+  Deployment,
+  DeploymentEvent,
+  DeploymentStatus,
   Environment,
+  GitHubRepo,
   GateResultData,
   Matrix,
   MetricData,
@@ -51,11 +61,15 @@ export interface Resource<T> {
   reload(): void;
 }
 
-/** Loads at mount, then `pollMs` after each answer (0: once). `key` names everything `load` depends on. */
-function usePolled<T>(key: string, pollMs: number, load: (signal: AbortSignal) => Promise<T>): Resource<T> {
+/**
+ * Loads at mount, then `pollMs` after each answer (0: once). `key` names
+ * everything `load` depends on; a null key loads nothing.
+ */
+function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSignal) => Promise<T>): Resource<T> {
   const [state, setState] = useState<{ data?: T; error?: ApiError }>({});
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
+    if (key === null) return;
     const ctrl = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
@@ -75,6 +89,7 @@ function usePolled<T>(key: string, pollMs: number, load: (signal: AbortSignal) =
     // `load` is a function of `key`, so `key` stands in for it.
   }, [key, pollMs, nonce]);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
+  if (key === null) return { data: undefined, error: undefined, loading: false, reload };
   return { data: state.data, error: state.error, loading: state.data === undefined && state.error === undefined, reload };
 }
 
@@ -101,9 +116,68 @@ export function useAudit(limit?: number): Resource<AuditEntry[]> {
   return usePolled("audit:" + (limit ?? ""), 0, async (signal) => (await listAudit({ limit }, { signal })).entries);
 }
 
-/** The apps a plan can be drafted for, in configuration order. */
-export function useApps(): Resource<App[]> {
-  return usePolled("apps", 0, async (signal) => (await listApps({ signal })).apps);
+/** Every app: the PLATFORM_APPS_FILE ones (what plans are drafted for) in configuration order, then the other registered ones by name. */
+export function useApps(pollMs = 0): Resource<App[]> {
+  return usePolled("apps", pollMs, async (signal) => (await listApps({ signal })).apps);
+}
+
+/** One app; `deploy` is set when it is registered from GitHub. A falsy `name` loads nothing. */
+export function useApp(name: string | null | undefined, pollMs = 0): Resource<App> {
+  return usePolled(name ? "app:" + name : null, pollMs, (signal) => getApp(name!, { signal }));
+}
+
+/** An app's deployments, newest first (`limit` 1 to 200, server default 20). A falsy `name` loads nothing. */
+export function useDeployments(name: string | null | undefined, pollMs = 0, limit?: number): Resource<Deployment[]> {
+  const key = name ? "deployments:" + JSON.stringify([name, limit]) : null;
+  return usePolled(key, pollMs, async (signal) => (await listDeployments(name!, { limit }, { signal })).deployments);
+}
+
+/** The repositories the GitHub App can see, by full name. */
+export function useGitHubRepos(): Resource<GitHubRepo[]> {
+  return usePolled("github-repos", 0, async (signal) => (await listGitHubRepos({ signal })).repos);
+}
+
+export interface SpecCheck {
+  /** The answer for the current repo and branch. */
+  data: AppSpecValidation | undefined;
+  error: ApiError | undefined;
+  /** A check of the current repo and branch is waiting or under way. */
+  loading: boolean;
+  /** Check again now, after a push to the branch for example. */
+  reload(): void;
+}
+
+/**
+ * Checks platform.yaml at the head of `branch` of `repo` (POST
+ * /v1/apps/validate) `debounceMs` after the last change, so typing a branch
+ * name sends one request. A change cancels the request in flight. An empty
+ * `repo` checks nothing; an empty `branch` lets the server use main.
+ */
+export function useAppSpecValidation(repo: string, branch: string, debounceMs = 400): SpecCheck {
+  const key = repo ? repo + "@" + branch : "";
+  const [state, setState] = useState<{ key: string; data?: AppSpecValidation; error?: ApiError }>({ key: "" });
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    if (!key) return;
+    setState({ key: "" });
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const data = await validateAppSpec({ repo, branch: branch || undefined }, { signal: ctrl.signal });
+        if (!ctrl.signal.aborted) setState({ key, data });
+      } catch (e) {
+        if (!ctrl.signal.aborted) setState({ key, error: toApiError(e) });
+      }
+    }, debounceMs);
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+    };
+    // `key` stands for repo and branch.
+  }, [key, debounceMs, nonce]);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
+  const mine = key && state.key === key ? state : { data: undefined, error: undefined };
+  return { data: mine.data, error: mine.error, loading: !!key && mine.data === undefined && mine.error === undefined, reload };
 }
 
 /** The security report, filtered by `q`. With `refresh` every load reads the sources again instead of the cache. */
@@ -352,5 +426,151 @@ export function useAgentSession(id: string | null | undefined): AgentSessionWatc
     });
     return () => ctrl.abort();
   }, [id]);
+  return s;
+}
+
+// --- one deployment, live ---
+
+const DEPLOY_ORDER: DeploymentStatus[] = ["queued", "building", "committing", "syncing"];
+
+/** How far a status is along queued, building, committing, syncing; every final status is past all of them. */
+export function deploymentRank(s: DeploymentStatus): number {
+  return isFinalDeploymentStatus(s) ? DEPLOY_ORDER.length : DEPLOY_ORDER.indexOf(s);
+}
+
+/**
+ * Applies a deployment event between snapshots. The status only moves forward
+ * (a replayed `phase` event never takes it back) and a final deployment does
+ * not change, so applying an event the deployment already reflects changes
+ * nothing. An `environment` event carries no status, only a message, which
+ * becomes that environment's `message`; useDeployment reads the statuses
+ * again with GET /v1/deployments/{id}.
+ */
+export function applyDeploymentEvent(d: Deployment, ev: DeploymentEvent): Deployment {
+  if (isFinalDeploymentStatus(d.status)) return d;
+  switch (ev.type) {
+    case "phase":
+    case "done": {
+      const p = ev.phase;
+      if (!p || deploymentRank(p) <= deploymentRank(d.status)) return d;
+      const out: Deployment = { ...d, status: p };
+      if (isFinalDeploymentStatus(p)) out.finishedAt = d.finishedAt ?? ev.time;
+      if (p === "failed" && ev.message) out.error = ev.message;
+      return out;
+    }
+    case "environment": {
+      if (!ev.env || !ev.message) return d;
+      return { ...d, environments: d.environments.map((e) => (e.env === ev.env ? { ...e, message: ev.message } : e)) };
+    }
+  }
+  return d;
+}
+
+export interface DeploymentWatch {
+  /** The latest snapshot (or GET) with later events applied. */
+  deployment: Deployment | undefined;
+  /** Every event of the deployment so far, each once, in seq order. */
+  events: DeploymentEvent[];
+  /** The last connection problem (cleared when a stream opens), or the error that stopped the watch. */
+  error: ApiError | undefined;
+  /** A stream is open right now. */
+  connected: boolean;
+}
+
+type DeploymentAction =
+  | { type: "reset" }
+  | { type: "snapshot"; deployment: Deployment }
+  | { type: "fetched"; deployment: Deployment }
+  | { type: "event"; event: DeploymentEvent }
+  | { type: "connected"; value: boolean }
+  | { type: "error"; error: ApiError };
+
+const noDeployment: DeploymentWatch = { deployment: undefined, events: [], error: undefined, connected: false };
+
+function deploymentReducer(s: DeploymentWatch, a: DeploymentAction): DeploymentWatch {
+  switch (a.type) {
+    case "reset":
+      return noDeployment;
+    case "snapshot":
+      return { ...s, deployment: a.deployment };
+    case "fetched":
+      // A GET answered after a later event (a done, say) is older than what is shown.
+      if (s.deployment && deploymentRank(a.deployment.status) < deploymentRank(s.deployment.status)) return s;
+      return { ...s, deployment: a.deployment };
+    case "event":
+      return { ...s, deployment: s.deployment && applyDeploymentEvent(s.deployment, a.event), events: [...s.events, a.event] };
+    case "connected":
+      return { ...s, connected: a.value, error: a.value ? undefined : s.error };
+    case "error":
+      return { ...s, error: a.error };
+  }
+}
+
+/**
+ * Follows one deployment live over SSE until it ends. The stream's events
+ * carry no environment status, so an `environment` event of an unfinished
+ * deployment reads the deployment again (GET /v1/deployments/{id}),
+ * `refetchMs` after the last such event and one request at a time. A falsy
+ * `id` watches nothing.
+ */
+export function useDeployment(id: string | null | undefined, refetchMs = 300): DeploymentWatch {
+  const [s, dispatch] = useReducer(deploymentReducer, noDeployment);
+  useEffect(() => {
+    dispatch({ type: "reset" });
+    if (!id) return;
+    const ctrl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
+    let again = false;
+    let final = false;
+    const refetch = async () => {
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        const deployment = await getDeployment(id, { signal: ctrl.signal });
+        if (!ctrl.signal.aborted) dispatch({ type: "fetched", deployment });
+      } catch {
+        // The next environment event or the final snapshot brings the statuses.
+      }
+      inFlight = false;
+      if (again && !final && !ctrl.signal.aborted) {
+        again = false;
+        void refetch();
+      }
+    };
+    watchDeployment(
+      id,
+      {
+        onSnapshot: (deployment) => {
+          final = isFinalDeploymentStatus(deployment.status);
+          if (final) clearTimeout(timer);
+          dispatch({ type: "snapshot", deployment });
+        },
+        onEvent: (event) => {
+          if (event.type === "done") {
+            final = true;
+            clearTimeout(timer);
+          }
+          dispatch({ type: "event", event });
+          if (event.type === "environment" && !final) {
+            clearTimeout(timer);
+            timer = setTimeout(() => void refetch(), refetchMs);
+          }
+        },
+        onConnection: (value) => dispatch({ type: "connected", value }),
+        onRetry: (error) => dispatch({ type: "error", error }),
+      },
+      { signal: ctrl.signal },
+    ).catch((e: unknown) => {
+      if (!ctrl.signal.aborted) dispatch({ type: "error", error: toApiError(e) });
+    });
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+    };
+  }, [id, refetchMs]);
   return s;
 }

@@ -1,6 +1,6 @@
 // Test doubles for the api tests. Nothing in the app imports this file.
 import { vi } from "vitest";
-import type { AgentEvent, AgentEventType, AgentSession, Run, RunEvent } from "./types";
+import type { AgentEvent, AgentEventType, AgentSession, Deployment, DeploymentEvent, DeploymentEventType, Run, RunEvent } from "./types";
 
 export interface FakeCall {
   url: string;
@@ -127,7 +127,7 @@ export function fakeRun(p: Partial<Run> = {}): Run {
 }
 
 /** A snapshot message as the server writes it: no id. */
-export function snapshotMsg(snapshot: Run | AgentSession): string {
+export function snapshotMsg(snapshot: Run | AgentSession | Deployment): string {
   return `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
 }
 
@@ -153,5 +153,30 @@ export function fakeAgentSession(p: Partial<AgentSession> = {}): AgentSession {
 /** An AgentEvent message as the server writes it: the seq as id, the type as event name. */
 export function agentEventMsg(seq: number, type: AgentEventType = "tool_call", p: Partial<AgentEvent> = {}): string {
   const ev: AgentEvent = { seq, sessionId: "ags_1", time: at(seq), type, ...p };
+  return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify(ev)}\n\n`;
+}
+
+export function fakeDeployment(p: Partial<Deployment> = {}): Deployment {
+  return {
+    id: "dep_1",
+    app: "moimroom",
+    ref: "main",
+    commit: "9fceb02d0ae598e95dc970b74767f19372d61af8",
+    trigger: "register",
+    triggeredBy: "operator",
+    status: "queued",
+    images: [],
+    environments: [
+      { env: "eks", status: "pending" },
+      { env: "gke", status: "pending" },
+    ],
+    createdAt: at(0),
+    ...p,
+  };
+}
+
+/** A DeploymentEvent message as the server writes it: the seq as id, the type as event name. */
+export function deploymentEventMsg(seq: number, type: DeploymentEventType, p: Partial<DeploymentEvent> = {}): string {
+  const ev: DeploymentEvent = { seq, deploymentId: "dep_1", time: at(seq), type, ...p };
   return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify(ev)}\n\n`;
 }

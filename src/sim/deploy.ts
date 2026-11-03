@@ -1,0 +1,431 @@
+// Apps registered from GitHub and their deployments, in the platform's contract
+// shapes (App with deploy, Deployment, DeploymentEvent, AppSpecValidation,
+// GitHubRepo). Time advances 1 simulated second per tick while a deployment
+// is unfinished, like the old deploy demo, so a three-environment deploy
+// takes 2 min 41 s of simulated time.
+import type {
+  App,
+  AppCreateRequest,
+  AppSpec,
+  AppSpecFieldError,
+  AppSpecValidation,
+  Deployment,
+  DeploymentEnvironmentStatus,
+  DeploymentEvent,
+  DeploymentEventType,
+  DeploymentStatus,
+  DeploymentTrigger,
+  GitHubRepo,
+} from "../api/types";
+import { DEP_READY, ENV, ENV_ORDER, envKeyOf } from "./data";
+import { dur } from "./format";
+import { iso } from "./mig";
+
+export const APP_DOMAIN = "hopcharlie.dev";
+/** Names the platform serves itself under the app domain (409 app_exists, ADR 0012). */
+export const RESERVED = ["api", "console", "app"];
+const REGISTRY = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com";
+const ORG = "team-charlie";
+
+/* ---------- repositories ---------- */
+
+interface BranchHead {
+  commit: string;
+  spec?: AppSpec;
+  errors: AppSpecFieldError[];
+  /** the build of this commit fails with this error line */
+  buildError?: string;
+}
+
+interface RepoFixture {
+  repo: GitHubRepo;
+  /** base image and build commands, for the build log */
+  base: string;
+  install: string;
+  build: string;
+  branches: Record<string, BranchHead>;
+}
+
+const gh = (name: string, priv = false): GitHubRepo => ({
+  fullName: ORG + "/" + name,
+  private: priv,
+  defaultBranch: "main",
+  htmlUrl: "https://github.com/" + ORG + "/" + name,
+});
+
+const svc = (name: string, port: number, p: Partial<AppSpec["services"][number]> = {}): AppSpec["services"][number] => ({
+  name,
+  path: ".",
+  dockerfile: "Dockerfile",
+  port,
+  public: false,
+  replicas: 1,
+  ...p,
+});
+
+const photoSpec = (port: number): AppSpec => ({
+  name: "photo-album",
+  services: [svc("web", 8080, { healthCheck: "/healthz", public: true }), svc("worker", port, { path: "worker", env: { QUEUE: "thumbnails" } })],
+  resources: [
+    { name: "db", type: "postgres" },
+    { name: "photos", type: "s3" },
+  ],
+});
+
+// MOCK: 데모용 레포. 실제 화면은 GET /v1/github/repos가 GitHub App 설치에서 보이는 레포를 준다.
+export const REPOS: RepoFixture[] = [
+  {
+    repo: gh("todo-api"),
+    base: "golang:1.25-alpine",
+    install: "go mod download",
+    build: "go build -o /out/api ./cmd/api",
+    branches: {
+      main: {
+        commit: "a41c9e2d8b7f60c3e15a9d4b2f8c7e6a1d0b3f95",
+        spec: { name: "todo-api", services: [svc("api", 8080, { healthCheck: "/healthz", public: true, replicas: 2 })], resources: [{ name: "db", type: "postgres" }] },
+        errors: [],
+      },
+    },
+  },
+  {
+    repo: gh("notice-board"),
+    base: "node:22-alpine",
+    install: "npm ci",
+    build: "npm run build",
+    branches: {
+      main: {
+        commit: "3f9c1a0b2d4e6f8a1c3e5b7d9f0a2c4e6b8d0f13",
+        spec: { name: "notice-board", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "main-db", type: "postgres" }] },
+        errors: [],
+      },
+      // platform.yaml passes, but the build breaks: shows a failed deployment
+      dev: {
+        commit: "8c21e7f4a9b3d5c6e0f1a2b3c4d5e6f7a8b9c0d1",
+        spec: { name: "notice-board", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "main-db", type: "postgres" }] },
+        errors: [],
+        buildError: 'ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2',
+      },
+    },
+  },
+  {
+    repo: gh("photo-album", true),
+    base: "python:3.13-slim",
+    install: "pip install -r requirements.txt",
+    build: "python -m compileall app",
+    branches: {
+      main: {
+        commit: "5d7e9f1a3b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e",
+        spec: photoSpec(70000),
+        errors: [
+          { path: "services[1].port", message: "must be between 1 and 65535" },
+          { path: "services[1].env.WORKERS", message: "must be a string: quote the value 4" },
+        ],
+      },
+      "fix-worker": {
+        commit: "e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2",
+        spec: photoSpec(9000),
+        errors: [],
+      },
+    },
+  },
+  {
+    repo: gh("analytics-worker"),
+    base: "",
+    install: "",
+    build: "",
+    branches: {
+      main: { commit: "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c", errors: [{ path: "", message: "platform.yaml not found at the repository root" }] },
+    },
+  },
+];
+
+const fixture = (repo: string) => REPOS.find((r) => r.repo.fullName === repo);
+
+/** Like POST /v1/apps/validate with repo and branch. */
+export function validate(repo: string, branch: string): AppSpecValidation {
+  const f = fixture(repo);
+  if (!f) return { valid: false, errors: [{ path: "", message: `repository ${repo} is not visible to the GitHub App` }] };
+  const head = f.branches[branch || f.repo.defaultBranch];
+  if (!head) return { valid: false, errors: [{ path: "", message: `branch ${branch} not found` }] };
+  return { valid: head.errors.length === 0, ...(head.spec ? { spec: head.spec } : {}), commit: head.commit, errors: head.errors };
+}
+
+/* ---------- state ---------- */
+
+interface Step {
+  at: number;
+  type: DeploymentEventType;
+  phase?: DeploymentStatus;
+  env?: string;
+  envStatus?: DeploymentEnvironmentStatus;
+  message: string;
+}
+
+interface Active {
+  start: number;
+  steps: Step[];
+  i: number;
+}
+
+export interface DeploySim {
+  /** simulated seconds; moves only while a deployment is unfinished */
+  now: number;
+  /** registered apps by name, with `deploy` */
+  apps: App[];
+  /** every deployment, newest first */
+  deployments: Deployment[];
+  events: Record<string, DeploymentEvent[]>;
+  active: Record<string, Active>;
+  seq: number;
+  nextId: number;
+}
+
+/** Deterministic hex for ids, digests and commits. */
+function hex(seed: string, n: number): string {
+  let out = "";
+  let h = 0x811c9dc5;
+  while (out.length < n) {
+    for (const c of seed + out.length) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+    out += h.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, n);
+}
+
+const envOrder = (envs: string[]) => ENV_ORDER.map((k) => ENV[k].id).filter((e) => envs.includes(e));
+const ready = (env: string) => DEP_READY[envKeyOf(env) ?? "aws"];
+
+export function isFinal(s: DeploymentStatus): boolean {
+  return s === "healthy" || s === "failed" || s === "superseded";
+}
+
+function steps(f: RepoFixture | undefined, spec: AppSpec, commit: string, envs: string[], trigger: DeploymentTrigger): Step[] {
+  const c7 = commit.slice(0, 7);
+  const s: Step[] = [{ at: 0, type: "phase", phase: "queued", message: "대기열에 들어갔습니다 (trigger " + trigger + ")" }];
+  s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
+  const broken = Object.values(f?.branches ?? {}).find((b) => b.commit === commit)?.buildError;
+  if (broken) {
+    const v = spec.services[0];
+    const p = (at: number, message: string) => s.push({ at, type: "log", phase: "building", message: "[" + v.name + "] " + message });
+    p(3, "#1 [internal] load build definition from " + v.dockerfile);
+    p(4, "#2 [internal] load metadata for docker.io/library/" + (f?.base || "alpine:3.22"));
+    p(7, "#5 [build 2/3] RUN " + (f?.install || "make deps"));
+    p(31, "#5 DONE 24.1s");
+    p(33, "#6 [build 3/3] RUN " + (f?.build || "make"));
+    p(36, "#6 src/pages/Board.tsx(14,7): error TS2304: Cannot find name 'useBoard'.");
+    p(37, "#6 " + broken);
+    s.push({ at: 38, type: "done", phase: "failed", message: v.name + ": " + broken });
+    return s;
+  }
+  spec.services.forEach((v, i) => {
+    const o = 2 + i; // services build side by side
+    const p = (at: number, message: string) => s.push({ at: o + at, type: "log", phase: "building", message: "[" + v.name + "] " + message });
+    p(1, "#1 [internal] load build definition from " + (v.path === "." ? "" : v.path + "/") + v.dockerfile);
+    p(2, "#2 [internal] load metadata for docker.io/library/" + (f?.base || "alpine:3.22"));
+    p(4, "#4 [build 1/3] COPY . .");
+    p(5, "#5 [build 2/3] RUN " + (f?.install || "make deps"));
+    p(29, "#5 DONE 24.1s");
+    p(31, "#6 [build 3/3] RUN " + (f?.build || "make"));
+    p(44, "#7 [runtime 1/1] COPY --from=build /out /app");
+    p(46, "#8 exporting to image");
+    p(47, "#9 pushing " + REGISTRY + "/hopcharlie/apps/" + spec.name + "/" + v.name + ":" + c7);
+    p(49, "#9 digest: sha256:" + hex(commit + v.name, 64));
+  });
+  s.push({ at: 52, type: "phase", phase: "committing", message: "gitops에 apps/" + spec.name + "/<env>.yaml 커밋" });
+  for (const e of envs) s.push({ at: 52, type: "log", phase: "committing", message: "apps/" + spec.name + "/" + e + ".yaml: " + c7 + ", 이미지 digest 고정" });
+  s.push({ at: 54, type: "log", phase: "committing", message: "commit " + hex(commit + "gitops", 7) + " (2026-Softbank-Hackathon-Charlie/gitops)" });
+  s.push({ at: 55, type: "phase", phase: "syncing", message: "Argo CD에 refresh 요청, 환경 " + envs.length + "곳에 동시에 적용" });
+  for (const e of envs) s.push({ at: 56, type: "environment", env: e, envStatus: "syncing", message: "OutOfSync, Progressing" });
+  for (const e of envs) s.push({ at: ready(e), type: "environment", env: e, envStatus: "healthy", message: "Synced, Healthy" });
+  const end = Math.max(...envs.map(ready)) + 1;
+  s.push({ at: end, type: "done", phase: "healthy", message: "모든 환경이 Synced, Healthy" });
+  return s.sort((a, b) => a.at - b.at);
+}
+
+function emit(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
+  const ev: DeploymentEvent = { seq: ++d.seq, deploymentId: dep.id, time: iso(sec), type: st.type, message: st.message };
+  if (st.phase) ev.phase = st.phase;
+  if (st.env) ev.env = st.env;
+  (d.events[dep.id] ??= []).push(ev);
+}
+
+/** Applies one step to the deployment and its app, the way the deployer would. */
+function step(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
+  const app = d.apps.find((a) => a.name === dep.app);
+  const t = iso(sec);
+  if (st.type === "phase" && st.phase) {
+    dep.status = st.phase;
+    if (st.phase === "building") {
+      dep.startedAt = t;
+      dep.buildId = "hopcharlie-apps:" + hex(dep.id + "build", 8) + "-" + hex(dep.id + "b2", 4);
+    }
+    if (st.phase === "committing") {
+      const spec = app?.deploy?.spec;
+      dep.images = (spec?.services ?? []).map((v) => ({
+        service: v.name,
+        image: REGISTRY + "/hopcharlie/apps/" + dep.app + "/" + v.name + "@sha256:" + hex(dep.commit + v.name, 64),
+      }));
+    }
+  }
+  if (st.type === "environment" && st.env && st.envStatus) {
+    const healthy = st.envStatus === "healthy";
+    const pods = (app?.deploy?.spec.services ?? []).reduce((n, v) => n + v.replicas, 0);
+    const e = dep.environments.find((x) => x.env === st.env);
+    const message = healthy ? "Pod " + pods + "/" + pods + " 준비" : "새 커밋 적용 중";
+    if (e) Object.assign(e, { status: st.envStatus, syncStatus: healthy ? "Synced" : "OutOfSync", healthStatus: healthy ? "Healthy" : "Progressing", message });
+    const a = app?.deploy?.status.find((x) => x.env === st.env);
+    if (a) Object.assign(a, { status: st.envStatus, syncStatus: healthy ? "Synced" : "OutOfSync", healthStatus: healthy ? "Healthy" : "Progressing", updatedAt: t, ...(healthy ? { commit: dep.commit } : {}) });
+  }
+  if (st.type === "done" && st.phase) {
+    dep.status = st.phase;
+    dep.finishedAt = t;
+    if (st.phase === "failed") dep.error = st.message;
+  }
+  emit(d, dep, st, sec);
+}
+
+function newDeployment(d: DeploySim, app: App, trigger: DeploymentTrigger, triggeredBy: string, ref: string, commit: string, at: number): Deployment {
+  const envs = app.deploy!.environments;
+  const dep: Deployment = {
+    id: "dep_" + hex(app.name + d.nextId++, 12),
+    app: app.name,
+    ref,
+    commit,
+    trigger,
+    triggeredBy,
+    status: "queued",
+    images: [],
+    environments: envs.map((env) => ({ env, status: "pending" })),
+    createdAt: iso(at),
+  };
+  // A new deployment to the same environments (or more) supersedes an unfinished one.
+  for (const old of d.deployments) {
+    if (old.app !== app.name || isFinal(old.status) || !old.environments.every((e) => envs.includes(e.env))) continue;
+    old.status = "superseded";
+    old.finishedAt = iso(at);
+    emit(d, old, { at: 0, type: "done", phase: "superseded", message: "새 배포 " + dep.id + "가 생겨서 멈췄습니다" }, at);
+    delete d.active[old.id];
+  }
+  d.deployments.unshift(dep);
+  d.events[dep.id] = [];
+  app.deploy!.lastDeployment = dep;
+  const f = fixture(app.deploy!.repo);
+  d.active[dep.id] = { start: at, steps: steps(f, app.deploy!.spec, commit, envs, trigger), i: 0 };
+  advance(d, dep.id, at);
+  return dep;
+}
+
+/** Emits every step of a deployment due by `sec`. Returns true when it just finished. */
+function advance(d: DeploySim, id: string, sec: number): boolean {
+  const a = d.active[id];
+  const dep = d.deployments.find((x) => x.id === id);
+  if (!a || !dep) return false;
+  while (a.i < a.steps.length && a.start + a.steps[a.i].at <= sec + 1e-9) {
+    const st = a.steps[a.i++];
+    step(d, dep, st, a.start + st.at);
+  }
+  if (a.i < a.steps.length) return false;
+  delete d.active[id];
+  return true;
+}
+
+function register(d: DeploySim, repo: string, branch: string, environments: string[], autoDeploy: boolean, at: number, by = "operator"): App {
+  const v = validate(repo, branch);
+  const spec = v.spec!;
+  const envs = envOrder(environments);
+  const app: App = {
+    name: spec.name,
+    namespace: spec.name,
+    database: { name: "app", user: "app", schemas: [] },
+    environments: [],
+    deploy: {
+      repo,
+      branch,
+      environments: envs,
+      autoDeploy,
+      spec,
+      specCommit: v.commit!,
+      ...(spec.services.some((s) => s.public) ? { url: "https://" + spec.name + "." + APP_DOMAIN } : {}),
+      createdAt: iso(at),
+      createdBy: by,
+      status: envs.map((env) => ({ env, status: "pending" })),
+    },
+  };
+  d.apps.push(app);
+  d.apps.sort((x, y) => x.name.localeCompare(y.name));
+  return app;
+}
+
+export function freshDeploy(): DeploySim {
+  const d: DeploySim = { now: 0, apps: [], deployments: [], events: {}, active: {}, seq: 0, nextId: 1 };
+  // todo-api: registered yesterday, deployed again by a push 12 minutes ago.
+  const envs = ENV_ORDER.map((k) => ENV[k].id);
+  const app = register(d, ORG + "/todo-api", "main", envs, true, -86_700);
+  const first = newDeployment(d, app, "register", "operator", "main", "7be03d1f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b", -86_400);
+  advance(d, first.id, 0);
+  const push = newDeployment(d, app, "push", "github:charlie-dev", "main", app.deploy!.specCommit, -720);
+  advance(d, push.id, 0);
+  return d;
+}
+
+/* ---------- operations (POST /v1/apps, POST /v1/apps/{name}/deployments, DELETE /v1/apps/{name}) ---------- */
+
+export type CreateCheck = { validation: AppSpecValidation } | { error: string } | null;
+
+/** What POST /v1/apps would refuse, or null when it would register. */
+export function checkCreate(d: DeploySim, req: AppCreateRequest): CreateCheck {
+  if (!req.environments.length) return { error: "배포할 환경을 하나 이상 고르세요" };
+  const v = validate(req.repo, req.branch ?? "main");
+  if (!v.valid || !v.spec) return { validation: v };
+  if (RESERVED.includes(v.spec.name)) return { error: "이름 " + v.spec.name + "은(는) 플랫폼이 쓰는 이름이라 등록할 수 없습니다" };
+  if (d.apps.some((a) => a.name === v.spec!.name)) return { error: "이름 " + v.spec.name + "은(는) 이미 등록된 앱입니다" };
+  return null;
+}
+
+/** Registers the repository and queues its first deployment. Returns the deployment id. */
+export function createApp(d: DeploySim, req: AppCreateRequest): string | null {
+  if (checkCreate(d, req)) return null;
+  const branch = req.branch ?? "main";
+  const app = register(d, req.repo, branch, req.environments, req.autoDeploy ?? true, d.now);
+  return newDeployment(d, app, "register", "operator", branch, app.deploy!.specCommit, d.now).id;
+}
+
+/** A manual deployment of the head of the app's branch to all of its environments. */
+export function redeploy(d: DeploySim, name: string): string | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return null;
+  const v = validate(app.deploy.repo, app.deploy.branch);
+  if (!v.valid || !v.spec) return null;
+  app.deploy.spec = v.spec;
+  app.deploy.specCommit = v.commit!;
+  return newDeployment(d, app, "manual", "operator", app.deploy.branch, v.commit!, d.now).id;
+}
+
+/** Unregisters an app and forgets its deployments. */
+export function deleteApp(d: DeploySim, name: string): boolean {
+  if (!d.apps.some((a) => a.name === name)) return false;
+  d.apps = d.apps.filter((a) => a.name !== name);
+  for (const dep of d.deployments.filter((x) => x.app === name)) {
+    delete d.events[dep.id];
+    delete d.active[dep.id];
+  }
+  d.deployments = d.deployments.filter((x) => x.app !== name);
+  return true;
+}
+
+export function activeDeployments(d: DeploySim): Deployment[] {
+  return d.deployments.filter((x) => !isFinal(x.status));
+}
+
+/** One tick. Returns an activity line for every deployment that just finished. */
+export function deployTick(d: DeploySim): string[] {
+  if (Object.keys(d.active).length === 0) return [];
+  d.now += 1;
+  const out: string[] = [];
+  for (const id of Object.keys(d.active)) {
+    if (!advance(d, id, d.now)) continue;
+    const dep = d.deployments.find((x) => x.id === id)!;
+    const sec = (Date.parse(dep.finishedAt!) - Date.parse(dep.createdAt)) / 1000;
+    out.push(dep.status === "failed" ? dep.app + " 배포 실패 (이미지 빌드, " + dur(sec) + ")" : dep.app + " 배포 완료 (" + dep.environments.length + "개 환경, " + dur(sec) + ")");
+  }
+  return out;
+}

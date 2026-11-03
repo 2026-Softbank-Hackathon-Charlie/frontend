@@ -22,19 +22,26 @@ export function Ind({ st }: { st: StepState }) {
   );
 }
 
-/** Monospace log that stays scrolled to the newest line without moving focus. */
-export function LogBox({ lines, empty = "아직 기록이 없습니다." }: { lines: LogLine[]; empty?: string }) {
+/**
+ * Monospace log that stays scrolled to the newest line without moving focus.
+ * `follow={false}` stops that; `mark` highlights one line and scrolls to it instead.
+ */
+export function LogBox({ lines, empty = "아직 기록이 없습니다.", follow = true, mark }: { lines: LogLine[]; empty?: string; follow?: boolean; mark?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [lines.length]);
+    const el = ref.current;
+    if (!el) return;
+    const line = mark === undefined ? undefined : (el.children[mark] as HTMLElement | undefined);
+    if (line) el.scrollTop += line.getBoundingClientRect().top - el.getBoundingClientRect().top - 24;
+    else if (follow) el.scrollTop = el.scrollHeight;
+  }, [lines.length, follow, mark]);
   return (
     <div className="log" ref={ref} role="log" aria-live="off">
       {lines.length === 0 ? (
         <div className="empty">{empty}</div>
       ) : (
         lines.map((l, i) => (
-          <div key={i}>
+          <div key={i} className={i === mark ? "err" : undefined}>
             <time>{l[0]}</time>
             {l[1]}
           </div>

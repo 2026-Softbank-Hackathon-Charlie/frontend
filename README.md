@@ -1,6 +1,6 @@
 # HopCharlie 콘솔 (frontend)
 
-HopCharlie 운영 콘솔입니다. 플랫폼 API 토큰을 넣으면 **실제 플랫폼 API**(`src/api`)를 읽고, 토큰이 없으면 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`)을 만듭니다.
+HopCharlie 운영 콘솔입니다. 플랫폼 API 토큰을 넣으면 **실제 플랫폼 API**(`src/api`)를 읽고, 토큰이 없으면 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`, `App`, `Deployment`, `DeploymentEvent`, `AppSpecValidation`)을 만듭니다.
 
 - 스택: Vite 8 + React 19 + TypeScript, 테스트는 Vitest + Testing Library
 - 디자인: SoftBank 디자인 시스템 토큰 (`src/styles/tokens.css`)
@@ -63,11 +63,23 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 
 ### 앱, 새 앱 배포, 환경
 
-| 앱 목록 | 앱 상세 (shop) |
+GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
+
+- **새 앱 배포**(`#new`): GitHub App이 볼 수 있는 레포, 브랜치(기본은 레포의 기본 브랜치), 배포 환경, push 자동 배포를 고릅니다. 고르는 대로 platform.yaml을 확인해서, 통과하면 서비스와 포트, 공개 주소(`https://<이름>.hopcharlie.dev`), 리소스를 보여 주고, 아니면 **직접 고쳐야 하는 항목**(위치, 내용, 고칠 방법)을 보여 줍니다. 플랫폼 기본값을 쓰는 항목도 따로 보여 줍니다. 레포에는 서비스마다 Dockerfile, 루트에 platform.yaml이 있어야 합니다.
+- **앱 목록**(`#apps`): 파일 앱(이전 대상)과 GitHub에서 등록한 앱을 함께 보여 줍니다. 등록한 앱에는 GitHub 표시, 환경별 상태, 공개 주소, 최근 배포가 붙습니다. 위의 전체, 정상, 문제 있음, 배포 중 칸을 누르면 그 상태로 거르고, 거른 목록은 주소(`#apps-healthy`, `#apps-problem`, `#apps-deploying`)로 공유할 수 있습니다.
+- **앱 상세**(`#app-<이름>`): 레포와 브랜치, 자동 배포, platform.yaml 요약, 환경별 상태(Argo CD sync와 health, 커밋, 주소), 배포 이력을 보여 줍니다. **다시 배포**는 브랜치의 head를 모든 환경에 배포하고, **앱 삭제**는 화면 안에서 한 번 더 확인한 뒤 지웁니다. 이전 설정이 있는 앱은 이전 버튼이 그대로 있습니다.
+- **배포 진행**(`#deploy-<id>`): 단계(대기열, 이미지 빌드, gitops 커밋, Argo CD 동기화, 그리고 정상, 실패, 대체됨)와 단계 번호(예: 2/4 빌드), 환경별 상태, 실시간 빌드 로그(자동 스크롤, 멈춤 가능), 배포를 만든 때부터 끝날 때까지의 경과 시간(목표 5분)을 보여 줍니다. 성공하면 공개 주소를 누를 수 있고, 실패하면 로그 위에 한 줄 요약을 띄우고 첫 오류 줄로 스크롤해서 표시합니다.
+- 시뮬레이션 레포: `notice-board`(바로 배포 가능, `dev` 브랜치는 빌드 실패), `photo-album`(`main`은 규칙 위반, `fix-worker`는 통과), `analytics-worker`(platform.yaml 없음). `todo-api`는 처음부터 등록되어 있습니다.
+
+| 앱 목록 | 새 앱 배포 |
 | --- | --- |
-| ![앱](docs/screenshots/apps.png) | ![shop](docs/screenshots/app-shop.png) |
-| **새 앱 배포** | **환경** |
-| ![새 앱 배포](docs/screenshots/new-app.png) | ![환경](docs/screenshots/envs.png) |
+| ![앱](docs/screenshots/apps.png) | ![새 앱 배포](docs/screenshots/new-app.png) |
+| **앱 상세 (todo-api, GitHub에서 등록)** | **앱 상세 (shop, 이전 대상)** |
+| ![todo-api](docs/screenshots/app-todo-api.png) | ![shop](docs/screenshots/app-shop.png) |
+| **배포 진행 (완료)** | **배포 진행 (빌드 실패)** |
+| ![배포 완료](docs/screenshots/deploy.png) | ![빌드 실패](docs/screenshots/deploy-failed.png) |
+| **환경** | |
+| ![환경](docs/screenshots/envs.png) | |
 
 ### 디자인 시스템 (`#design-system`)
 메뉴에는 없는 화면입니다. 주소창에 `#design-system`을 붙여서 엽니다. 색(대비 포함), 글꼴, 간격과 모서리, 상태 표현, 컴포넌트, 움직임을 화면과 같은 토큰과 클래스로 보여줍니다.
@@ -82,7 +94,7 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 
 1. 프로젝트 루트에 `.env.local`을 만들고 `VITE_PLATFORM_URL=<플랫폼 주소>`를 적은 뒤 `npm run dev`를 다시 시작합니다 (자세한 내용은 `src/api/README.md`).
 2. 화면 오른쪽 위 **API 연결**에 토큰을 넣습니다. 승인, 시작, 전환, 중단, 롤백은 operator 토큰이 필요합니다.
-3. 연결되면 상단 배너가 바뀌고 개요, 앱, 이전, 경로별 결과, AI 활동, 보안, 환경 화면이 API를 읽습니다. 새 앱 배포와 기존 앱 가져오기는 아직 시연 화면입니다.
+3. 연결되면 상단 배너가 바뀌고 개요, 앱, 새 앱 배포, 배포 진행, 이전, 경로별 결과, AI 활동, 보안, 환경 화면이 API를 읽습니다. 기존 앱 가져오기는 아직 시연 화면입니다. 앱 등록, 다시 배포, 앱 삭제는 operator 토큰이 필요합니다.
 
 토큰은 기본으로 메모리에만 두고, "이 탭을 새로고침해도 유지"를 켜면 sessionStorage에 둡니다. 화면과 로그에는 토큰을 다시 보여 주지 않습니다.
 
@@ -109,10 +121,12 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 src/api/            플랫폼 API 데이터 계층 (계약 타입, 클라이언트, SSE, 훅) — #3
 src/data/live.ts    API 연결 상태(토큰), Plan 목록 폴링, 오류 문구
 src/data/migration.ts  이전 화면용 보기 모델: 시뮬레이션과 실제 API를 같은 모양으로
+src/data/deploy.ts  새 앱 배포, 앱 목록과 상세, 배포 진행 화면용 보기 모델
 src/sim/mig.ts      계약 모양으로 만드는 이전 시뮬레이션 (Plan, Run, RunEvent, AgentSession)
+src/sim/deploy.ts   계약 모양으로 만드는 GitHub 앱 배포 시뮬레이션 (App, Deployment, DeploymentEvent, AppSpecValidation)
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전)
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #app-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #design-system)
+src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #design-system)
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나)
-src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표)
+src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
 ```

@@ -9,11 +9,20 @@ import type {
   AgentEventList,
   AgentSession,
   AgentSessionList,
+  App,
+  AppCreated,
+  AppCreateRequest,
   AppList,
+  AppSpecValidateRequest,
+  AppSpecValidation,
   AuditList,
+  Deployment,
+  DeploymentCreateRequest,
+  DeploymentList,
   EnginePlan,
   Environment,
   EnvironmentList,
+  GitHubRepoList,
   Health,
   Matrix,
   PlanAttachment,
@@ -37,13 +46,21 @@ import type {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** What failed in platform.yaml, for a 422 invalid_app_spec (the `validation` of AppSpecInvalid). */
+  readonly validation?: AppSpecValidation;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, validation?: AppSpecValidation) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    if (validation) this.validation = validation;
   }
+}
+
+/** The check result of a 422 invalid_app_spec, to show like a POST /v1/apps/validate answer; undefined for any other failure. */
+export function specInvalid(e: unknown): AppSpecValidation | undefined {
+  return e instanceof ApiError && e.status === 422 ? e.validation : undefined;
 }
 
 /** The platform base URL without a trailing slash; empty means same origin. */
@@ -105,7 +122,7 @@ export function authHeaders(extra?: Record<string, string>): Headers {
   return h;
 }
 
-/** @internal Decodes `{"error":{"code","message"}}`, falling back to the HTTP status. */
+/** @internal Decodes `{"error":{"code","message"}}` (and the `validation` of a 422), falling back to the HTTP status. */
 export async function errorFromResponse(res: Response): Promise<ApiError> {
   let text = "";
   try {
@@ -114,14 +131,21 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
     // body unreadable: fall through to the status
   }
   try {
-    const e = (JSON.parse(text) as { error?: { code?: unknown; message?: unknown } }).error;
+    const body = JSON.parse(text) as { error?: { code?: unknown; message?: unknown }; validation?: unknown };
+    const e = body.error;
     if (e && typeof e.code === "string" && typeof e.message === "string") {
-      return new ApiError(res.status, e.code, e.message);
+      return new ApiError(res.status, e.code, e.message, asValidation(body.validation));
     }
   } catch {
     // not JSON (a proxy page, for example)
   }
   return new ApiError(res.status, "http_" + res.status, text.trim().slice(0, 200) || res.statusText || "HTTP " + res.status);
+}
+
+function asValidation(v: unknown): AppSpecValidation | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const x = v as Partial<AppSpecValidation>;
+  return typeof x.valid === "boolean" && Array.isArray(x.errors) ? (v as AppSpecValidation) : undefined;
 }
 
 /** @internal Wraps a fetch rejection that is not a cancellation. */
@@ -144,9 +168,11 @@ interface Call extends RequestOptions {
   /** Sent as is, as application/octet-stream, instead of `body`. */
   bytes?: Blob | ArrayBuffer | Uint8Array<ArrayBuffer> | string;
   headers?: Record<string, string>;
+  /** The answer has no body (DELETE /v1/apps/{name} is a bare 202); resolve with undefined instead of parsing it. */
+  noContent?: boolean;
 }
 
-async function request<T>(method: "GET" | "POST" | "PUT", path: string, c: Call = {}): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, c: Call = {}): Promise<T> {
   const ctrl = new AbortController();
   const ms = c.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let timedOut = false;
@@ -169,6 +195,10 @@ async function request<T>(method: "GET" | "POST" | "PUT", path: string, c: Call 
       signal: ctrl.signal,
     });
     if (!res.ok) throw await errorFromResponse(res);
+    if (c.noContent) {
+      await res.body?.cancel();
+      return undefined as T;
+    }
     try {
       return (await res.json()) as T;
     } catch (e) {
@@ -206,7 +236,7 @@ export const approvePlan = (ref: string, review?: ReviewRequest, o?: RequestOpti
   request<PlanRecord>("POST", `/v1/plans/${seg(ref)}/approve`, { ...o, body: review });
 export const rejectPlan = (ref: string, review: ReviewRequest = {}, o?: RequestOptions) =>
   request<PlanRecord>("POST", `/v1/plans/${seg(ref)}/reject`, { ...o, body: review });
-/** The apps a plan can be drafted for, with the environments each runs in. */
+/** Every app: the ones in PLATFORM_APPS_FILE (what plans are drafted for) first, then the ones registered from GitHub. */
 export const listApps = (o?: RequestOptions) => request<AppList>("GET", "/v1/apps", o);
 /** A plan built from the server's configuration. It is not stored: submit it, as is or edited, with submitPlan. */
 export const draftPlan = (req: PlanDraftRequest, o?: RequestOptions) =>
@@ -323,3 +353,31 @@ export async function listAllAgentEvents(id: string, o?: RequestOptions): Promis
     after = page.nextAfter;
   }
 }
+
+// --- apps from GitHub and their deployments ---
+
+/** One app as GET /v1/apps lists it; `deploy` is set for apps registered from GitHub. */
+export const getApp = (name: string, o?: RequestOptions) => request<App>("GET", `/v1/apps/${seg(name)}`, o);
+/**
+ * Register a repository and queue its first deployment (trigger register).
+ * A platform.yaml that breaks a rule fails with 422 invalid_app_spec; read
+ * the check result with specInvalid(e). Role operator.
+ */
+export const createApp = (req: AppCreateRequest, o?: RequestOptions) =>
+  request<AppCreated>("POST", "/v1/apps", { ...o, body: req });
+/** Unregister an app. 202 means Argo CD is removing its workloads, and their data with them. Role operator. */
+export const deleteApp = (name: string, o?: RequestOptions) =>
+  request<void>("DELETE", `/v1/apps/${seg(name)}`, { ...o, noContent: true });
+/** Check platform.yaml at the head of a branch (`repo`, `branch`) or given as `spec`. Always 200; `valid` says whether it passed. */
+export const validateAppSpec = (req: AppSpecValidateRequest, o?: RequestOptions) =>
+  request<AppSpecValidation>("POST", "/v1/apps/validate", { ...o, body: req });
+/** Deploy a registered app now (trigger manual): `ref` defaults to its branch, `environments` to all of its own. 422 as for createApp. */
+export const createDeployment = (name: string, req?: DeploymentCreateRequest, o?: RequestOptions) =>
+  request<Deployment>("POST", `/v1/apps/${seg(name)}/deployments`, { ...o, body: req });
+/** Newest first; `limit` 1 to 200 (server default 20). */
+export const listDeployments = (name: string, q: { limit?: number } = {}, o?: RequestOptions) =>
+  request<DeploymentList>("GET", `/v1/apps/${seg(name)}/deployments`, { ...o, query: q });
+export const getDeployment = (id: string, o?: RequestOptions) =>
+  request<Deployment>("GET", `/v1/deployments/${seg(id)}`, o);
+/** The repositories the GitHub App installation can see, by full name. */
+export const listGitHubRepos = (o?: RequestOptions) => request<GitHubRepoList>("GET", "/v1/github/repos", o);

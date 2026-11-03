@@ -1,5 +1,6 @@
 import { AI_END, SWITCH_AT, allSessions, matrixRoutes } from "./mig";
-import { apply, fresh, migActive, tick, type SimState } from "./state";
+import * as dep from "./deploy";
+import { apply, appsIn, fresh, migActive, tick, type SimState } from "./state";
 
 function run(S: SimState, n: number) {
   for (let i = 0; i < n; i++) tick(S);
@@ -163,12 +164,88 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(S.mig.src).toBe("gcp");
   });
 
-  it("deploy registers the app on the chosen environments", () => {
+});
+
+describe("deploy simulation (platform contract shapes)", () => {
+  const req = { repo: "team-charlie/notice-board", branch: "main", environments: ["k3s", "gke"], autoDeploy: true };
+
+  it("registers a repository and deploys it through every phase to healthy within 5 minutes", () => {
     const S = fresh();
-    apply(S, { type: "dep-env", env: "aws", on: false });
-    apply(S, { type: "dep-start" });
-    run(S, 150);
-    expect(S.dep.phase).toBe("done");
-    expect(S.apps["notice-board"].envs).toEqual(["gcp", "onprem"]);
+    expect(dep.checkCreate(S.deploy, req)).toBeNull();
+    apply(S, { type: "app-create", req });
+    const d = S.deploy.deployments[0];
+    const app = S.deploy.apps.find((a) => a.name === "notice-board")!;
+    expect(app.deploy).toMatchObject({ repo: req.repo, branch: "main", environments: ["gke", "k3s"], autoDeploy: true, url: "https://notice-board.hopcharlie.dev" });
+    expect(app.deploy?.lastDeployment).toBe(d);
+    expect(d).toMatchObject({ app: "notice-board", trigger: "register", status: "queued", ref: "main" });
+    expect(d.environments.map((e) => e.status)).toEqual(["pending", "pending"]);
+
+    const seen = new Set<string>();
+    for (let i = 0; i < 300 && !dep.isFinal(d.status); i++) {
+      tick(S);
+      seen.add(d.status);
+    }
+    expect([...seen]).toEqual(["queued", "building", "committing", "syncing", "healthy"]);
+    expect(d.environments.every((e) => e.status === "healthy" && e.syncStatus === "Synced" && e.healthStatus === "Healthy")).toBe(true);
+    expect(d.images.map((i) => i.service)).toEqual(["web"]);
+    expect(d.images[0].image).toMatch(/hopcharlie\/apps\/notice-board\/web@sha256:[0-9a-f]{64}$/);
+    expect((Date.parse(d.finishedAt!) - Date.parse(d.createdAt)) / 1000).toBeLessThanOrEqual(300);
+    expect(app.deploy?.status.map((s) => [s.env, s.status, s.commit])).toEqual([
+      ["gke", "healthy", d.commit],
+      ["k3s", "healthy", d.commit],
+    ]);
+    // events: seq increases, every phase once, done last
+    const evs = S.deploy.events[d.id];
+    expect(evs.map((e) => e.seq)).toEqual([...evs.map((e) => e.seq)].sort((a, b) => a - b));
+    expect(evs.filter((e) => e.type === "phase").map((e) => e.phase)).toEqual(["queued", "building", "committing", "syncing"]);
+    expect(evs.at(-1)).toMatchObject({ type: "done", phase: "healthy" });
+    expect(S.act[0][1]).toMatch(/^notice-board 배포 완료 \(2개 환경/);
+    const now = S.deploy.now;
+    run(S, 10); // the clock stops once nothing is running
+    expect(S.deploy.now).toBe(now);
+  });
+
+  it("refuses an invalid platform.yaml, a registered name and no environment, like the API", () => {
+    const S = fresh();
+    const bad = dep.checkCreate(S.deploy, { ...req, repo: "team-charlie/photo-album" });
+    expect(bad && "validation" in bad && bad.validation.errors.map((e) => e.path)).toEqual(["services[1].port", "services[1].env.WORKERS"]);
+    expect(dep.validate("team-charlie/photo-album", "fix-worker").valid).toBe(true);
+    expect(dep.validate("team-charlie/analytics-worker", "main")).toMatchObject({ valid: false, errors: [{ path: "" }] });
+    expect(dep.validate("team-charlie/notice-board", "nope").errors[0].message).toMatch(/branch/);
+    expect(dep.checkCreate(S.deploy, { ...req, repo: "team-charlie/todo-api" })).toEqual({ error: expect.stringMatching(/이미 등록된 앱/) });
+    expect(dep.checkCreate(S.deploy, { ...req, environments: [] })).toEqual({ error: expect.any(String) });
+    apply(S, { type: "app-create", req: { ...req, repo: "team-charlie/photo-album" } });
+    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
+  });
+
+  it("a new deployment supersedes the unfinished one, and delete forgets the app", () => {
+    const S = fresh();
+    apply(S, { type: "app-create", req });
+    const first = S.deploy.deployments[0];
+    run(S, 20);
+    apply(S, { type: "app-redeploy", name: "notice-board" });
+    const second = S.deploy.deployments[0];
+    expect(second.trigger).toBe("manual");
+    expect(first.status).toBe("superseded");
+    expect(S.deploy.events[first.id].at(-1)).toMatchObject({ type: "done", phase: "superseded" });
+    run(S, 200);
+    expect(second.status).toBe("healthy");
+    expect(first.status).toBe("superseded");
+
+    apply(S, { type: "app-delete", name: "notice-board" });
+    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
+    expect(S.deploy.deployments.some((x) => x.app === "notice-board")).toBe(false);
+    expect(S.deploy.events[second.id]).toBeUndefined();
+  });
+
+  it("starts with todo-api registered on all three environments and two finished deployments", () => {
+    const S = fresh();
+    const [todo] = S.deploy.apps;
+    expect(todo.deploy?.status.map((s) => s.status)).toEqual(["healthy", "healthy", "healthy"]);
+    expect(S.deploy.deployments.map((x) => [x.trigger, x.status])).toEqual([
+      ["push", "healthy"],
+      ["register", "healthy"],
+    ]);
+    expect(appsIn(S, "aws")).toBe(1);
   });
 });
