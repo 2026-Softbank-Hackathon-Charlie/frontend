@@ -72,6 +72,9 @@ export function errorText(e: unknown): string {
   if (e.status === 0) return e.code === "timeout" ? "서버가 응답하지 않습니다 (시간 초과)" : "서버에 연결할 수 없습니다 (주소, CORS, 네트워크 확인)";
   if (e.status === 401) return "토큰이 맞지 않습니다";
   if (e.status === 403) return "이 토큰의 역할로는 할 수 없습니다 (operator 토큰 필요)";
+  // Refused by a pre-start check: the reasons are shown in the page's pre-start check box.
+  if (e.code === "residency_denied") return "데이터 레지던시 정책에 걸려 이전을 시작하지 않았습니다. Plan은 승인된 채로 남아 있습니다.";
+  if (e.code === "capacity_insufficient") return "측정한 용량이 부족해 이전을 시작하지 않았습니다. Plan은 승인된 채로 남아 있습니다.";
   if (e.status === 409) return "상태가 그사이 바뀌었습니다: " + e.message;
   return e.message || "요청 실패 (" + e.status + ")";
 }

@@ -5,6 +5,7 @@ import {
   abortMigration,
   approvePlan,
   draftPlan,
+  listAudit,
   newIdempotencyKey,
   rejectPlan,
   resumeMigration,
@@ -19,6 +20,7 @@ import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY, enginePlan, fixDiff, migCounters } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
+import { latestPreflight, preflightOf, type PreflightView } from "./preflight";
 
 export interface EnvOption {
   value: string;
@@ -51,6 +53,8 @@ export interface MigrationView {
   events: RunEvent[];
   /** k6 counters, simulation only */
   counters?: { ok: number; held: number; heldDone: number };
+  /** the platform's residency and capacity checks of the latest start or rollback of this plan */
+  preflight?: PreflightView;
   busy: boolean;
   notice: string;
   makePlan(): void;
@@ -66,6 +70,31 @@ export interface MigrationView {
 // The live hook fetches as soon as it mounts, so pages mount it only in live mode (see LiveOnly in pages).
 
 /* ---------- simulation ---------- */
+
+// The checks a simulated start passes, in the shape the platform writes to the audit log.
+// Numbers are fictional like every simulated value (top banner).
+function simPreflight(time: string): PreflightView | undefined {
+  return preflightOf({
+    time,
+    detail: {
+      residency: "allowed",
+      capacity: {
+        allowed: true,
+        checks: ["connections pass ok: -", "catchup pass caught_up: -", "initial_copy info measured: -"],
+        measurements: {
+          sourceBytes: 2.1 * 1024 ** 3,
+          walBytesPerSecond: 0.4 * 1024 ** 2,
+          sourceSessions: 18,
+          targetMaxConnections: 100,
+          targetMaxConnectionsFrom: "target",
+          lagBefore: 3.2 * 1024 ** 2,
+          lagAfter: 0.9 * 1024 ** 2,
+          window: 5e9,
+        },
+      },
+    },
+  });
+}
 
 export function useSimMigration(): MigrationView {
   const { S, dispatch } = useSim();
@@ -91,6 +120,7 @@ export function useSimMigration(): MigrationView {
     run: m.run ?? undefined,
     events: m.events,
     counters: migCounters(m),
+    preflight: m.run ? simPreflight(m.run.startedAt) : undefined,
     busy: false,
     notice: S.migNotice,
     makePlan: () => dispatch({ type: "mig-plan" }),
@@ -105,6 +135,28 @@ export function useSimMigration(): MigrationView {
 }
 
 /* ---------- platform API ---------- */
+
+/**
+ * The pre-start checks of the plan's latest start or rollback, from the audit log.
+ * Read once per plan, run or start attempt (`attempt` changes with each Idempotency-Key)
+ * and on reload(); the audit log is append-only, so nothing to poll in between.
+ */
+function usePreflight(planRef: string | null, runId: string | null, attempt: string): { data?: PreflightView; reload: () => void } {
+  const [data, setData] = useState<PreflightView | undefined>();
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    if (!planRef) {
+      setData(undefined);
+      return;
+    }
+    const ctrl = new AbortController();
+    listAudit({ limit: 100 }, { signal: ctrl.signal })
+      .then((res) => !ctrl.signal.aborted && setData(latestPreflight(res.entries, planRef)))
+      .catch(() => {}); // a viewer without audit access just sees no checks
+    return () => ctrl.abort();
+  }, [planRef, runId, attempt, nonce]);
+  return { data, reload: () => setNonce((n) => n + 1) };
+}
 
 const ACTIVE = new Set(["running", "awaiting_switch"]);
 
@@ -145,6 +197,7 @@ export function useLiveMigration(): MigrationView {
   }, [enabled, runs.data, plans.data, runId, planRef]);
 
   const plan = plans.data?.find((p) => p.ref === planRef);
+  const preflight = usePreflight(planRef, runId, startKey);
   const watch = useRun(enabled ? runId : null);
   const run = watch.run;
   const sessions = useAgentSessions(enabled && planRef ? 3000 : 0, planRef ? { planRef } : {});
@@ -167,7 +220,9 @@ export function useLiveMigration(): MigrationView {
     }
   }
 
-  const stage: MigrationView["stage"] = run ? "run" : plan?.status === "pending_approval" ? "review" : "setup";
+  // An approved plan without a run was refused at start (or not started yet): stay on it so the
+  // operator sees why and can start again, instead of falling back to the setup form.
+  const stage: MigrationView["stage"] = run ? "run" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
 
   return {
     live: true,
@@ -187,6 +242,7 @@ export function useLiveMigration(): MigrationView {
     selectSession: setSelected,
     run,
     events: watch.events,
+    preflight: preflight.data,
     busy,
     notice: notice || (apps.error ? errorText(apps.error) : ""),
     makePlan: () =>
@@ -203,11 +259,16 @@ export function useLiveMigration(): MigrationView {
     approve: () =>
       act(async () => {
         if (!plan) return;
-        // approve exactly the revision on screen; a newer attachment makes the server answer 409
-        await approvePlan(plan.ref, { revision: plan.revision });
-        const res = await startMigration({ planRef: plan.ref, canary: { weights: CANARY.weights, stepDuration: CANARY.stepSec + "s" } }, startKey);
-        setRunId(res.runId);
-        plans.reload();
+        try {
+          // approve exactly the revision on screen; a newer attachment makes the server answer 409.
+          // Approving an approved plan again is a no-op, so this also retries a refused start.
+          await approvePlan(plan.ref, { revision: plan.revision });
+          const res = await startMigration({ planRef: plan.ref, canary: { weights: CANARY.weights, stepDuration: CANARY.stepSec + "s" } }, startKey);
+          setRunId(res.runId);
+        } finally {
+          plans.reload();
+          preflight.reload(); // refused or not, the start's audit entry now holds the checks
+        }
       }),
     reject: () =>
       act(async () => {
@@ -225,6 +286,7 @@ export function useLiveMigration(): MigrationView {
         const res = await rollbackMigration(run.runId, { reason: "운영자 롤백", autoSwitch: true });
         setPlanRef(res.planRef);
         setRunId(res.runId);
+        preflight.reload();
       }),
     reset: () => {
       setRunId(null);

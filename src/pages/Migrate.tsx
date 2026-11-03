@@ -5,6 +5,7 @@ import { EmptyShop } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td, type ChipKind } from "../components/ui";
 import { useLiveMigration, useSimMigration, type MigrationView } from "../data/migration";
 import { useLive } from "../data/live";
+import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, ENGINE_STEPS, PHASE_LABEL, statusText, targetReadShare, TARGET_SEC } from "../sim/mig";
 
@@ -56,7 +57,19 @@ function MigrateListView({ v }: { v: MigrationView }) {
               [
                 td(live ? <b>{v.app}</b> : <a href={"#app-" + v.app}>{v.app}</a>),
                 td(v.srcLabel),
-                td(v.run ? <RunStatusChip r={v.run} /> : v.stage === "review" ? <Chip kind="run">승인 대기</Chip> : v.stage === "ai" ? <Chip kind="run">AI 작업 중</Chip> : <Chip>이전 전</Chip>),
+                td(
+                  v.run ? (
+                    <RunStatusChip r={v.run} />
+                  ) : v.stage === "review" && v.plan?.status === "approved" ? (
+                    <Chip kind={v.preflight?.blocked ? "bad" : "run"}>{v.preflight?.blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}</Chip>
+                  ) : v.stage === "review" ? (
+                    <Chip kind="run">승인 대기</Chip>
+                  ) : v.stage === "ai" ? (
+                    <Chip kind="run">AI 작업 중</Chip>
+                  ) : (
+                    <Chip>이전 전</Chip>
+                  ),
+                ),
                 td(
                   <a className="btn ghost" href="#migrate-shop">
                     {v.stage === "setup" ? "이전 설정" : "열기"}
@@ -192,6 +205,12 @@ function MigrateView({ v }: { v: MigrationView }) {
               <ProgItem st="wait" title="승인" sub="화면에 보이는 Plan revision을 승인합니다. 그사이 첨부가 바뀌면 승인이 거절되고 다시 확인해야 합니다." right="운영자" />
               <ProgItem
                 st="wait"
+                title="시작 전 검사"
+                sub="플랫폼이 원본의 전체 테이블과 버킷을 데이터 레지던시 정책에 대보고, 대상 접속 한도와 복제 따라잡기를 몇 초 동안 잽니다. 명백히 실패할 이전은 시작하지 않습니다."
+                right="자동"
+              />
+              <ProgItem
+                st="wait"
                 title="실행"
                 sub={"동기화(사전 확인, 대상 준비, 초기 복사, 변경분) → 읽기 카나리 " + CANARY.weights.join("%, ") + "% → 전환 승인 → 쓰기 보류, 승격, 전환 → 검증"}
                 right="3분 이내"
@@ -285,6 +304,7 @@ const PLAN_STATUS = { pending_approval: "승인 대기", approved: "승인됨", 
 
 function ApproveBox({ v }: { v: MigrationView }) {
   if (v.stage !== "review" || !v.plan) return null;
+  if (v.plan.status === "approved") return <StartAgainBox v={v} />;
   const blocked = v.sessions.flatMap((s) => v.sessionEvents(s.id)).filter((e) => e.type === "blocked").length;
   return (
     <div className="box fillbox">
@@ -313,6 +333,11 @@ function ApproveBox({ v }: { v: MigrationView }) {
               <Chip>막힌 명령 {blocked}건</Chip>
             </div>
           </dd>
+          <dt>시작 전 검사</dt>
+          <dd>
+            승인하면 플랫폼이 시작 직전에 데이터 레지던시(원본 전체 테이블과 버킷의 목적지 국가)와 용량(대상 접속 한도, 복제 따라잡기)을 확인합니다. 명백히 실패하면 시작하지 않고 이유를
+            보여 줍니다. 플랫폼에서 켜 둔 검사만 실행합니다.
+          </dd>
           <dt>원복</dt>
           <dd>대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.</dd>
         </dl>
@@ -329,6 +354,82 @@ function ApproveBox({ v }: { v: MigrationView }) {
   );
 }
 
+// An approved plan without a run: its start was refused by a pre-start check, or did not finish.
+// Approving it again is a no-op on the platform, so "다시 시작" reuses the approve-and-start action.
+function StartAgainBox({ v }: { v: MigrationView }) {
+  const p = v.plan!;
+  const blocked = v.preflight?.blocked;
+  return (
+    <div className="box fillbox">
+      <div className="bb">
+        <b>
+          Plan {p.ref} (revision {p.revision})은 승인됐지만 시작하지 않았습니다.
+        </b>
+        <p className="hint">
+          {blocked
+            ? "시작 전 검사에서 막혔습니다. 아래 이유를 해결한 뒤(레지던시 정책이나 대상 설정 변경 등) 다시 시작하세요. 해결하지 않고 다시 시작하면 같은 이유로 막힙니다."
+            : "시작 요청이 끝나지 않았습니다. 다시 시작할 수 있습니다."}
+        </p>
+        <div className="actrow">
+          <button type="button" className="btn primary" disabled={v.busy} onClick={v.approve}>
+            다시 시작
+          </button>
+          <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reset}>
+            새 Plan 작성
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CHECK_CHIP: Record<CheckStatus, [ChipKind, string]> = {
+  pass: ["ok", "통과"],
+  fail: ["bad", "차단"],
+  unknown: ["", "측정 못 함"],
+  info: ["", "참고"],
+  skip: ["", "건너뜀"],
+};
+
+function CheckChip({ s }: { s: CheckStatus }) {
+  const [kind, text] = CHECK_CHIP[s];
+  return <Chip kind={kind}>{text}</Chip>;
+}
+
+// The platform's data residency and capacity checks of the latest start (or rollback) of this plan.
+export function PreflightBox({ p }: { p?: PreflightView }) {
+  if (!p) return null;
+  const ran = p.residency.status !== "skip" || p.capacity.status !== "skip";
+  const head = p.blocked ? <Chip kind="bad">시작 막힘</Chip> : ran ? <Chip kind="ok">통과</Chip> : <Chip>검사 안 함</Chip>;
+  const part = (name: string, x: PreflightView["residency"] | PreflightView["capacity"], items: typeof p.residency.items) => [
+    [td(<b>{name}</b>), td(<CheckChip s={x.status} />), td(x.summary)],
+    ...items.map((it) => [
+      td(<span className="hint">{it.label}</span>),
+      td(<CheckChip s={it.status} />),
+      td(
+        <span className={it.detail === it.raw ? "m" : undefined} title={it.raw}>
+          {it.detail || "-"}
+        </span>,
+      ),
+    ]),
+  ];
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>시작 전 검사</b>
+        {head}
+        <span className="hint">{new Date(p.at).toLocaleString("ko-KR")}</span>
+      </div>
+      <Table head={["검사", "결과", "내용"]} rows={[...part("데이터 레지던시", p.residency, p.residency.items), ...part("용량", p.capacity, p.capacity.items)]} />
+      {p.residency.digest && (
+        <div className="bb hint">
+          레지던시 정책 digest <span className="m">{p.residency.digest.slice(0, 12)}</span> (감사 로그에 같은 값이 남습니다)
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AiView({ v }: { v: MigrationView }) {
   const [picked, setPicked] = useState<string | null>(null);
   const all = v.sessions.flatMap((s) => v.sessionEvents(s.id));
@@ -340,6 +441,7 @@ function AiView({ v }: { v: MigrationView }) {
   return (
     <>
       <ApproveBox v={v} />
+      <PreflightBox p={v.preflight} />
       <div className="split">
         <PlanBox v={v} />
         <div className="sec">
@@ -511,6 +613,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
           note={v.counters && r.engine.writesHeld ? "보류 중인 쓰기 " + fmt(v.counters.held) + "건" : "상한 " + (v.plan?.summary.maxDowntime ?? "30s")}
         />
       </div>
+      <PreflightBox p={v.preflight} />
       <CanaryBox r={r} />
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
