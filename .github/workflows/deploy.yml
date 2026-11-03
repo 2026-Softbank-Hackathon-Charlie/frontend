@@ -1,7 +1,7 @@
 name: Deploy frontend
 
 # Every push to main tests and builds the console, pushes its image to ECR
-# and pins it in infra main with one direct commit (infra ADR 0024); Argo CD
+# and pins it in infra main with one direct commit (infra ADR 0025); Argo CD
 # deploys infra main from there. A newer push cancels the older run, so only
 # the latest commit is pinned. Running it by hand publishes main again.
 
