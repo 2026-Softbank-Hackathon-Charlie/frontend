@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setToken } from "./api/client";
 import { installFetch, json, type FakeCall } from "./api/fakes";
@@ -77,6 +77,26 @@ describe("HopCharlie console (simulation)", () => {
     await user.click(screen.getByRole("link", { name: "AI 활동" }));
     expect(screen.getByRole("heading", { level: 1, name: "AI 활동" })).toBeInTheDocument();
     expect(screen.getAllByText(/샌드박스 리허설/).length).toBeGreaterThan(0);
+  });
+
+  it("shows security findings by environment and category, and filters by a cell", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("link", { name: "보안" }));
+    expect(screen.getByRole("heading", { name: "환경 × 분류" })).toBeInTheDocument();
+    // on-prem has no threat detection: not checked, which is not the same as clean
+    expect(screen.getAllByText("점검 안 함").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("이상 없음").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("row")).toHaveLength(1 + 3 + 1 + 6 + 1 + 6); // matrix, findings, sources (with headers)
+
+    const k3s = screen.getAllByRole("row").find((r) => within(r).queryByText("온프레미스 k3s") && within(r).queryAllByRole("button").length)!;
+    const workload = within(k3s).getByRole("button", { name: /높음 1건/ });
+    await user.click(workload);
+    expect(workload).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/워크로드만 보는 중/)).toBeInTheDocument();
+    expect(screen.getByText("privileged 컨테이너")).toBeInTheDocument();
+    expect(screen.queryByText("EKS API 엔드포인트가 공개되어 있음")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "전체 보기" }));
+    expect(screen.getByText("EKS API 엔드포인트가 공개되어 있음")).toBeInTheDocument();
   });
 
   it("disables deploy when no environment is selected", async () => {
