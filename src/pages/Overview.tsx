@@ -1,6 +1,8 @@
-import { useApps, useAudit, useRuns } from "../api/hooks";
-import { AppsTable, EnvGrid, envName, RoutesTable } from "../components/shared";
-import { Chip, Ind, PageHead, Table, td } from "../components/ui";
+import { useAudit, useRuns } from "../api/hooks";
+import { AppsList } from "../components/deploy";
+import { EnvGrid, envName, RoutesTable } from "../components/shared";
+import { Ind, PageHead } from "../components/ui";
+import { useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { statusText } from "../sim/mig";
 import { running } from "../sim/state";
@@ -32,7 +34,7 @@ export function Overview() {
             전체 보기
           </a>
         </div>
-        {live ? <LiveApps /> : <AppsTable full={false} />}
+        {live ? <LiveApps /> : <SimApps />}
       </section>
       <section className="sec">
         <h2>최근 활동</h2>
@@ -75,33 +77,15 @@ function LiveRunning() {
   return <RunningList items={active.map((r) => [r.runId + " (" + envName(r.source.env) + " → " + envName(r.target.env) + "): " + statusText(r.status, r.phase), "#migrate-shop"])} />;
 }
 
-export function LiveApps() {
-  const apps = useApps();
-  if (apps.error && !apps.data) return <p className="hint">앱을 불러오지 못했습니다: {errorText(apps.error)}</p>;
-  return (
-    <div className="box">
-      <Table
-        head={["이름", "네임스페이스", "DB", "실행 환경", ""]}
-        rows={(apps.data ?? []).map((a) => [
-          td(<b>{a.name}</b>),
-          td(a.namespace, "m"),
-          td(a.database.name, "m"),
-          td(
-            <div className="chips">
-              {a.environments.map((e) => (
-                <Chip key={e.env}>{envName(e.env)}</Chip>
-              ))}
-            </div>,
-          ),
-          td(
-            <a className="btn ghost" href="#migrate-shop">
-              이전
-            </a>,
-          ),
-        ])}
-      />
-    </div>
-  );
+function AppsBrief({ m }: { m: AppsModel }) {
+  if (m.error) return <p className="hint">앱을 불러오지 못했습니다: {m.error}</p>;
+  return <AppsList apps={m.apps ?? []} now={m.now} busy={m.busy} full={false} />;
+}
+function LiveApps() {
+  return <AppsBrief m={useLiveApps()} />;
+}
+function SimApps() {
+  return <AppsBrief m={useSimApps()} />;
 }
 
 function SimActivity() {

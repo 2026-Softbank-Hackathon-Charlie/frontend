@@ -305,8 +305,43 @@ export interface paths {
     };
   };
   "/v1/apps": {
-    /** @description The applications in the server's `PLATFORM_APPS_FILE` and the environments each one runs in. Empty when the file is not set. */
+    /**
+     * @description Every app the platform knows. First the apps in the server's
+     * `PLATFORM_APPS_FILE` (what migrations use) in configuration order, then
+     * the apps registered from GitHub (`POST /v1/apps`) that the file does
+     * not name, by name. An app in both is listed once, as the file has it,
+     * with `deploy` set.
+     *
+     * A registered app that is not in the file is listed with `namespace`
+     * set to its name, `database` set to `{name: app, user: app, schemas: []}`
+     * (the CNPG defaults the app chart uses) and empty `environments`; where
+     * it is deployed is in `deploy`.
+     */
     get: operations["listApps"];
+    /**
+     * @description Register an app from a GitHub repository and deploy it. The repository
+     * holds a Dockerfile per service and `platform.yaml` (AppSpec) at its
+     * root. The platform reads `platform.yaml` at the head of `branch`
+     * through the GitHub App and checks it as `POST /v1/apps/validate`
+     * does, stores the app under the spec's `name`, and queues its first
+     * deployment (trigger `register`) to every environment in
+     * `environments`. With `autoDeploy`, every later push to `branch`
+     * deploys as well (`POST /v1/webhooks/github`).
+     *
+     * A deployment builds one image per service, commits
+     * `apps/<name>/<env>.yaml` to the gitops repository and lets Argo CD
+     * sync the Application `<name>-<env>` into namespace `<name>`.
+     *
+     * Error codes: invalid_request (400: an environment that is not in
+     * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
+     * another registered app has the name, or the platform serves the name
+     * itself under the app domain: `api`, `console` and the gateway's
+     * default app `app`; a name only in PLATFORM_APPS_FILE is not taken),
+     * invalid_app_spec (422: the repository, the branch or
+     * platform.yaml could not be read, or platform.yaml breaks a rule),
+     * github_unreachable (502), github_not_configured (503). Role operator.
+     */
+    post: operations["createApp"];
   };
   "/v1/plans/draft": {
     /**
@@ -342,6 +377,134 @@ export interface paths {
         runId: components["parameters"]["RunId"];
       };
     };
+  };
+  "/v1/apps/validate": {
+    /**
+     * @description Check a `platform.yaml` without registering anything. Send `repo` (and
+     * `branch`) to check the file at the head of that branch through the
+     * GitHub App, or `spec` to check the given content. The answer is 200
+     * either way; `valid` says whether it passed and `errors` what failed.
+     *
+     * With `repo`, the repository and the branch must be visible to the
+     * GitHub App installation, `platform.yaml` must be at the repository
+     * root, and every service's Dockerfile (`<path>/<dockerfile>`) must exist
+     * at that commit. Registration and manual deployments run the same
+     * check. Error codes: invalid_request (400: both or neither of repo and
+     * spec), github_unreachable (502), github_not_configured (503, repo
+     * only). Any role.
+     */
+    post: operations["validateAppSpec"];
+  };
+  "/v1/apps/{name}": {
+    /** @description One app, as `GET /v1/apps` lists it. */
+    get: operations["getApp"];
+    /**
+     * @description Unregister an app. The platform supersedes the app's unfinished
+     * deployments, commits the removal of `apps/<name>/` from the gitops
+     * repository, and forgets the app with its deployments. Argo CD then
+     * deletes the Applications and the resources they created, so the
+     * app's data goes with them; 202 means that is under way.
+     *
+     * Only registered apps can be deleted. Error codes: app_not_found (404),
+     * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
+     * in both stays listed from the file), github_unreachable (502),
+     * github_not_configured (503). Role operator.
+     */
+    delete: operations["deleteApp"];
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+  };
+  "/v1/apps/{name}/deployments": {
+    /** @description The app's deployments, newest first. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: app_not_found (404). */
+    get: operations["listDeployments"];
+    /**
+     * @description Deploy a registered app now (trigger `manual`). `ref` is resolved to
+     * a commit, and `platform.yaml` there is checked as for registration
+     * before the deployment is created; its `name` must still be the app's
+     * name. The deployment is queued and 202 returns at once; follow it
+     * with `GET /v1/deployments/{id}/events`.
+     *
+     * Error codes: invalid_request (400: an environment the app is not
+     * registered for, or a ref the repository does not have), app_not_found
+     * (404), app_not_registered (409: the app is only in
+     * PLATFORM_APPS_FILE), invalid_app_spec (422), github_unreachable (502),
+     * github_not_configured (503). Role operator.
+     */
+    post: operations["createDeployment"];
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+  };
+  "/v1/deployments/{id}": {
+    /** @description Error codes: deployment_not_found (404). */
+    get: operations["getDeployment"];
+    parameters: {
+      path: {
+        id: components["parameters"]["DeploymentId"];
+      };
+    };
+  };
+  "/v1/deployments/{id}/events": {
+    /**
+     * @description Server-Sent Events, with the same contract as a run's events.
+     *
+     * - The first message is `snapshot` (data: `Deployment`), the current
+     *   state. Snapshots carry no SSE id.
+     * - Then every `DeploymentEvent`, with the event `type` as the SSE event
+     *   name and the event `seq` as the SSE id.
+     * - When the deployment ends (`healthy`, `failed` or `superseded`): a
+     *   final `snapshot`, then the stream closes. While it is unfinished
+     *   (including `queued`) the stream stays open, with `: keep-alive`
+     *   comments.
+     *
+     * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events you
+     * missed; they are stored, so nothing is lost. Error codes:
+     * deployment_not_found (404).
+     */
+    get: operations["streamDeploymentEvents"];
+    parameters: {
+      path: {
+        id: components["parameters"]["DeploymentId"];
+      };
+    };
+  };
+  "/v1/github/repos": {
+    /**
+     * @description The repositories the GitHub App installation can see, by full name,
+     * to pick one to register. Error codes: github_unreachable (502),
+     * github_not_configured (503).
+     */
+    get: operations["listGitHubRepos"];
+  };
+  "/v1/webhooks/github": {
+    /**
+     * @description The GitHub App's webhook (content type `application/json`). It takes
+     * no bearer token: `X-Hub-Signature-256` must be the HMAC-SHA256 of the
+     * raw body with the App's webhook secret, and it is checked before
+     * anything else.
+     *
+     * Only `push` events act. A push to the `branch` of a registered app
+     * with `autoDeploy` queues one deployment of the pushed head commit
+     * (`after`) to all of the app's environments, with trigger `push` and
+     * `triggeredBy` `github:<sender login>`, and the answer is 202 with
+     * the queued deployments (one per such app). The deployer reads
+     * platform.yaml at that commit; one that breaks a rule fails the
+     * deployment (`error` says why). Everything else is 204 and
+     * changes nothing: `ping` and other events, pushes to other branches,
+     * tags, deleted branches, repositories with no registered app, apps
+     * without `autoDeploy`, and a delivery (`X-GitHub-Delivery`) that was
+     * already handled.
+     *
+     * Error codes: invalid_signature (401), invalid_request (400: a signed
+     * body that is not a push payload), github_not_configured (503: the
+     * server has no webhook secret).
+     */
+    post: operations["receiveGitHubWebhook"];
   };
 }
 
@@ -1182,15 +1345,23 @@ export interface components {
     AppList: {
       apps: components["schemas"]["App"][];
     };
-    /** @description An application from PLATFORM_APPS_FILE. */
+    /**
+     * @description An application from PLATFORM_APPS_FILE, registered from GitHub, or
+     * both under one name. `namespace`, `database` and `environments` are
+     * what migrations use; `deploy` is set for registered apps. A
+     * registered app that is not in the file has `namespace` = name,
+     * `database` = `{name: app, user: app, schemas: []}` and no
+     * `environments`.
+     */
     App: {
       /** @example shop */
       name: string;
       /** @example shop */
       namespace: string;
       database: components["schemas"]["AppDatabase"];
-      /** @description The environments the app runs in, in PLATFORM_ENVS_FILE order. */
+      /** @description The environments the app runs in according to PLATFORM_APPS_FILE, in PLATFORM_ENVS_FILE order. Empty for an app that is only registered from GitHub (see deploy.environments). */
       environments: components["schemas"]["AppEnvironment"][];
+      deploy?: components["schemas"]["AppDeploy"];
     };
     AppDatabase: {
       /** @example app */
@@ -1236,6 +1407,401 @@ export interface components {
        */
       autoSwitch?: boolean;
     };
+    AppCreateRequest: {
+      /**
+       * @description owner/name of a repository the GitHub App installation can see.
+       * @example 2026-Softbank-Hackathon-Charlie/moimroom
+       */
+      repo: string;
+      /**
+       * @description the branch platform.yaml is read from and pushes deploy from
+       * @default main
+       */
+      branch?: string;
+      /**
+       * @description Where to deploy, by name from PLATFORM_ENVS_FILE.
+       * @example [
+       *   "eks"
+       * ]
+       */
+      environments: string[];
+      /**
+       * @description deploy every push to branch
+       * @default true
+       */
+      autoDeploy?: boolean;
+    };
+    /** @description The registered app and its first deployment (trigger register), queued. */
+    AppCreated: {
+      app: components["schemas"]["App"];
+      deployment: components["schemas"]["Deployment"];
+    };
+    /**
+     * @description How the platform deploys a registered app from GitHub. `spec` is the
+     * newest platform.yaml that passed the check, read at `specCommit`: at
+     * registration, and again by every deployment. `lastDeployment` is the
+     * newest deployment, finished or not.
+     */
+    AppDeploy: {
+      /** @example 2026-Softbank-Hackathon-Charlie/moimroom */
+      repo: string;
+      /** @example main */
+      branch: string;
+      /**
+       * @description The environments the app is deployed to, in PLATFORM_ENVS_FILE order.
+       * @example [
+       *   "gke",
+       *   "eks"
+       * ]
+       */
+      environments: string[];
+      /** @description every push to branch deploys */
+      autoDeploy: boolean;
+      spec: components["schemas"]["AppSpec"];
+      /** @example 9fceb02d0ae598e95dc970b74767f19372d61af8 */
+      specCommit: string;
+      /**
+       * @description Where the public service answers, through the traffic gateway. Absent when no service is public.
+       * @example https://moimroom.hopcharlie.dev
+       */
+      url?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** @description the token name that registered the app */
+      createdBy: string;
+      lastDeployment?: components["schemas"]["Deployment"];
+      /** @description One entry per environment in `environments`, in that order. */
+      status: components["schemas"]["AppEnvironmentStatus"][];
+    };
+    /**
+     * @description The app's live state in one environment, from the Argo CD Application
+     * `<app>-<env>`. `pending` until a deployment reaches the environment.
+     */
+    AppEnvironmentStatus: {
+      /** @example eks */
+      env: string;
+      status: components["schemas"]["DeploymentEnvironmentStatus"];
+      /**
+       * @description Argo CD sync status: Synced, OutOfSync or Unknown
+       * @example Synced
+       */
+      syncStatus?: string;
+      /**
+       * @description Argo CD health status: Healthy, Progressing, Degraded, Suspended, Missing or Unknown
+       * @example Healthy
+       */
+      healthStatus?: string;
+      /** @description the app commit running there */
+      commit?: string;
+      /** @description where the public service answers in this environment, when known */
+      url?: string;
+      /** Format: date-time */
+      updatedAt?: string;
+    };
+    /**
+     * @description `platform.yaml` at the root of an app's repository, with defaults
+     * applied. pkg/appspec parses it strictly (unknown keys are an error)
+     * and checks these rules:
+     *
+     * - `name` matches `^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`. It names the
+     *   namespace, the Argo CD Applications `<name>-<env>`, the images
+     *   `<registry>/hopcharlie/apps/<name>/<service>` and the public URL
+     *   `https://<name>.hopcharlie.dev`.
+     * - 1 to 5 services and at most one resource per type. Service names,
+     *   and resource names, match `^[a-z]([a-z0-9-]{0,22}[a-z0-9])?$` and
+     *   are unique.
+     * - `port` is 1 to 65535, `replicas` 1 to 5, at most one service is
+     *   `public`, and `healthCheck`, when set, starts with `/`.
+     * - `path` and `dockerfile` are relative and have no `..`.
+     * - `env` keys match `^[A-Z_][A-Z0-9_]*$` and are none of the
+     *   variables the platform sets: `PORT`, `DATABASE_URL` and `S3_*`.
+     *
+     * The rules are not repeated as schema keywords, because
+     * AppSpecValidation returns the spec of a file that breaks them.
+     *
+     * @example {
+     *   "name": "moimroom",
+     *   "services": [
+     *     {
+     *       "name": "web",
+     *       "path": ".",
+     *       "dockerfile": "Dockerfile",
+     *       "port": 8080,
+     *       "healthCheck": "/healthz",
+     *       "public": true,
+     *       "replicas": 1,
+     *       "env": {
+     *         "LOG_LEVEL": "info"
+     *       }
+     *     }
+     *   ],
+     *   "resources": [
+     *     {
+     *       "name": "db",
+     *       "type": "postgres"
+     *     },
+     *     {
+     *       "name": "photos",
+     *       "type": "s3"
+     *     }
+     *   ]
+     * }
+     */
+    AppSpec: {
+      /** @example moimroom */
+      name: string;
+      services: components["schemas"]["AppSpecService"][];
+      resources?: components["schemas"]["AppSpecResource"][];
+    };
+    AppSpecService: {
+      /** @example web */
+      name: string;
+      /**
+       * @description the docker build context, relative to the repository root
+       * @default .
+       */
+      path: string;
+      /**
+       * @description relative to path
+       * @default Dockerfile
+       */
+      dockerfile: string;
+      /**
+       * @description the port the service listens on; the service gets it as PORT
+       * @example 8080
+       */
+      port: number;
+      /**
+       * @description an HTTP path that answers 2xx once the service is ready
+       * @example /healthz
+       */
+      healthCheck?: string;
+      /**
+       * @description served at https://<app>.hopcharlie.dev through the traffic gateway
+       * @default false
+       */
+      public: boolean;
+      /** @default 1 */
+      replicas: number;
+      /**
+       * @description Environment variables besides the ones the platform sets. Values
+       * are strings: a value YAML reads as a number, boolean or null
+       * (`4`, `yes`, `0755`, `~`) is an error, so quote it. platform.yaml
+       * is in git, so it holds no secrets.
+       */
+      env?: {
+        [key: string]: string;
+      };
+    };
+    AppSpecResource: {
+      /** @example db */
+      name: string;
+      /**
+       * @description postgres: a CNPG Cluster `<app>-<name>`; every service gets
+       * DATABASE_URL from key `uri` of its secret `<app>-<name>-app`.
+       * s3: a bucket; every service gets S3_ENDPOINT, S3_BUCKET,
+       * S3_REGION, S3_PATH_STYLE, S3_ACCESS_KEY and S3_SECRET_KEY.
+       *
+       * @example postgres
+       */
+      type: string;
+    };
+    AppSpecFieldError: {
+      /**
+       * @description Where in platform.yaml. Empty for the file as a whole (not found, not YAML, an unknown key).
+       * @example services[0].port
+       */
+      path: string;
+      /** @example must be between 1 and 65535 */
+      message: string;
+    };
+    /**
+     * @description The result of checking a platform.yaml. `spec` is set when the file
+     * decodes, with defaults applied, even when it breaks a rule. `commit`
+     * is the commit the file was read at, for a check of a repository once
+     * the branch was found.
+     */
+    AppSpecValidation: {
+      valid: boolean;
+      spec?: components["schemas"]["AppSpec"];
+      /** @example 9fceb02d0ae598e95dc970b74767f19372d61af8 */
+      commit?: string;
+      /** @description Empty when valid. */
+      errors: components["schemas"]["AppSpecFieldError"][];
+    };
+    /** @description Either `repo` (with `branch`) or `spec`. */
+    AppSpecValidateRequest: {
+      /**
+       * @description owner/name; platform.yaml is read at the head of branch through the GitHub App
+       * @example 2026-Softbank-Hackathon-Charlie/moimroom
+       */
+      repo?: string;
+      /** @default main */
+      branch?: string;
+      /**
+       * @description platform.yaml content to check instead, at most 64 KiB.
+       * @example name: moimroom
+       * services:
+       *   - name: web
+       *     port: 8080
+       *     public: true
+       */
+      spec?: string;
+    };
+    /** @description The body of a 422 invalid_app_spec. `error` is the usual Error body; `validation` lists what failed. */
+    AppSpecInvalid: {
+      error: components["schemas"]["ErrorBody"];
+      validation: components["schemas"]["AppSpecValidation"];
+    };
+    /**
+     * @description register: the first deployment, created by POST /v1/apps.
+     * push: a push to the app's branch (the GitHub webhook).
+     * manual: POST /v1/apps/{name}/deployments.
+     *
+     * @enum {string}
+     */
+    DeploymentTrigger: "push" | "manual" | "register";
+    /**
+     * @description queued: waiting for the deployer. A server without a deployer leaves deployments queued.
+     * building: building and pushing one image per service.
+     * committing: writing apps/<app>/<env>.yaml to the gitops repository.
+     * syncing: Argo CD is applying the commit; waiting for every environment to be healthy.
+     * healthy: every environment is synced and healthy. Final.
+     * failed: the deployment stopped; `error` says why. Final.
+     * superseded: a newer deployment of the app to the same environments (or more) was created
+     *   before this one finished. This one stopped, and writes nothing to the gitops repository
+     *   after that. Final.
+     *
+     * @enum {string}
+     */
+    DeploymentStatus: "queued" | "building" | "committing" | "syncing" | "healthy" | "failed" | "superseded";
+    /**
+     * @description pending: nothing deployed to the environment yet.
+     * syncing: apps/<app>/<env>.yaml is committed and Argo CD is applying it.
+     * healthy: Argo CD reports Synced and Healthy for the commit.
+     * degraded: synced, but Argo CD reports the Application Degraded.
+     * failed: the sync failed, or the environment did not become healthy in time.
+     *
+     * @enum {string}
+     */
+    DeploymentEnvironmentStatus: "pending" | "syncing" | "healthy" | "degraded" | "failed";
+    /** @description One deployment of an app's commit to one or more environments. */
+    Deployment: {
+      /** @example dep_3f9c1a0b2d4e */
+      id: string;
+      /** @example moimroom */
+      app: string;
+      /**
+       * @description what was asked for: a branch or a commit sha
+       * @example main
+       */
+      ref: string;
+      /**
+       * @description the full commit sha ref resolved to
+       * @example 9fceb02d0ae598e95dc970b74767f19372d61af8
+       */
+      commit: string;
+      trigger: components["schemas"]["DeploymentTrigger"];
+      /**
+       * @description the token name (register, manual), or github:<login> of the pusher (push)
+       * @example seohyun
+       */
+      triggeredBy: string;
+      status: components["schemas"]["DeploymentStatus"];
+      /**
+       * @description One per service whose image is built, pinned by digest:
+       * `<registry>/hopcharlie/apps/<app>/<service>@sha256:<digest>`. The
+       * image is also tagged with the commit.
+       */
+      images: components["schemas"]["DeploymentImage"][];
+      /** @description One per target environment, in the app's order. */
+      environments: components["schemas"]["DeploymentEnvironment"][];
+      /** @description why the deployment failed */
+      error?: string;
+      /** @description the AWS CodeBuild build id, or the local docker build's id (E2E) */
+      buildId?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /**
+       * Format: date-time
+       * @description when the deployer took it from the queue
+       */
+      startedAt?: string;
+      /**
+       * Format: date-time
+       * @description when it reached a final status
+       */
+      finishedAt?: string;
+    };
+    DeploymentImage: {
+      /** @example web */
+      service: string;
+      /** @example 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/hopcharlie/apps/moimroom/web@sha256:4c2e1a... */
+      image: string;
+    };
+    DeploymentEnvironment: {
+      /** @example eks */
+      env: string;
+      status: components["schemas"]["DeploymentEnvironmentStatus"];
+      /**
+       * @description Argo CD sync status of the Application <app>-<env>
+       * @example Synced
+       */
+      syncStatus?: string;
+      /**
+       * @description Argo CD health status of the Application <app>-<env>
+       * @example Healthy
+       */
+      healthStatus?: string;
+      /** @description where the public service answers in this environment, when known */
+      url?: string;
+      /** @description the latest detail, such as Argo CD's sync message or why the environment failed */
+      message?: string;
+    };
+    DeploymentList: {
+      deployments: components["schemas"]["Deployment"][];
+    };
+    DeploymentCreateRequest: {
+      /**
+       * @description a branch or a commit sha of the app's repository; defaults to the app's branch
+       * @example main
+       */
+      ref?: string;
+      /** @description A subset of the app's environments; defaults to all of them. */
+      environments?: string[];
+    };
+    /** @enum {string} */
+    DeploymentEventType: "phase" | "log" | "environment" | "done";
+    /**
+     * @description One step of a deployment.
+     * - phase: the deployment entered `phase`; `message` may say more.
+     * - log: one line of build or deploy output in `message`, from `phase`.
+     * - environment: `env` changed state; `message` says how (for example "Synced, Healthy").
+     * - done: the deployment ended with `phase` (healthy, failed or superseded); `message` is the error when it failed. It is the deployment's last event.
+     */
+    DeploymentEvent: {
+      /** Format: int64 */
+      seq: number;
+      deploymentId: string;
+      /** Format: date-time */
+      time: string;
+      type: components["schemas"]["DeploymentEventType"];
+      phase?: components["schemas"]["DeploymentStatus"];
+      env?: string;
+      message?: string;
+    };
+    GitHubRepo: {
+      /** @example 2026-Softbank-Hackathon-Charlie/moimroom */
+      fullName: string;
+      private: boolean;
+      /** @example main */
+      defaultBranch: string;
+      /** @example https://github.com/2026-Softbank-Hackathon-Charlie/moimroom */
+      htmlUrl: string;
+    };
+    GitHubRepoList: {
+      repos: components["schemas"]["GitHubRepo"][];
+    };
   };
   responses: {
     /** @description invalid_request, invalid_plan */
@@ -1256,16 +1822,22 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_not_found, run_not_found, env_not_found */
+    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, deployment_not_found */
     NotFound: {
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description invalid_app_spec: platform.yaml could not be read or breaks a rule; `validation` says where */
+    AppSpecInvalid: {
+      content: {
+        "application/json": components["schemas"]["AppSpecInvalid"];
       };
     };
     /** @description too_large */
@@ -1274,7 +1846,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description engine_init_failed, gateway_unreachable */
+    /** @description engine_init_failed, gateway_unreachable, github_unreachable */
     BadGateway: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -1286,7 +1858,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description gateway_not_configured */
+    /** @description gateway_not_configured, github_not_configured */
     Unavailable: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -1297,6 +1869,8 @@ export interface components {
     PlanRef: string;
     RunId: string;
     EnvName: string;
+    AppName: string;
+    DeploymentId: string;
   };
   requestBodies: never;
   headers: never;
@@ -2102,16 +2676,77 @@ export interface operations {
       default: components["responses"]["Internal"];
     };
   };
-  /** @description The applications in the server's `PLATFORM_APPS_FILE` and the environments each one runs in. Empty when the file is not set. */
+  /**
+   * @description Every app the platform knows. First the apps in the server's
+   * `PLATFORM_APPS_FILE` (what migrations use) in configuration order, then
+   * the apps registered from GitHub (`POST /v1/apps`) that the file does
+   * not name, by name. An app in both is listed once, as the file has it,
+   * with `deploy` set.
+   *
+   * A registered app that is not in the file is listed with `namespace`
+   * set to its name, `database` set to `{name: app, user: app, schemas: []}`
+   * (the CNPG defaults the app chart uses) and empty `environments`; where
+   * it is deployed is in `deploy`.
+   */
   listApps: {
     responses: {
-      /** @description Apps in configuration order. */
+      /** @description File apps in configuration order, then the other registered apps by name. */
       200: {
         content: {
           "application/json": components["schemas"]["AppList"];
         };
       };
       401: components["responses"]["Unauthorized"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Register an app from a GitHub repository and deploy it. The repository
+   * holds a Dockerfile per service and `platform.yaml` (AppSpec) at its
+   * root. The platform reads `platform.yaml` at the head of `branch`
+   * through the GitHub App and checks it as `POST /v1/apps/validate`
+   * does, stores the app under the spec's `name`, and queues its first
+   * deployment (trigger `register`) to every environment in
+   * `environments`. With `autoDeploy`, every later push to `branch`
+   * deploys as well (`POST /v1/webhooks/github`).
+   *
+   * A deployment builds one image per service, commits
+   * `apps/<name>/<env>.yaml` to the gitops repository and lets Argo CD
+   * sync the Application `<name>-<env>` into namespace `<name>`.
+   *
+   * Error codes: invalid_request (400: an environment that is not in
+   * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
+   * another registered app has the name, or the platform serves the name
+   * itself under the app domain: `api`, `console` and the gateway's
+   * default app `app`; a name only in PLATFORM_APPS_FILE is not taken),
+   * invalid_app_spec (422: the repository, the branch or
+   * platform.yaml could not be read, or platform.yaml breaks a rule),
+   * github_unreachable (502), github_not_configured (503). Role operator.
+   */
+  createApp: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AppCreateRequest"];
+      };
+    };
+    responses: {
+      /** @description Registered; the first deployment is queued. */
+      201: {
+        headers: {
+          /** @description /v1/apps/{name} */
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["AppCreated"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["AppSpecInvalid"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };
   };
@@ -2185,6 +2820,302 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       502: components["responses"]["BadGateway"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Check a `platform.yaml` without registering anything. Send `repo` (and
+   * `branch`) to check the file at the head of that branch through the
+   * GitHub App, or `spec` to check the given content. The answer is 200
+   * either way; `valid` says whether it passed and `errors` what failed.
+   *
+   * With `repo`, the repository and the branch must be visible to the
+   * GitHub App installation, `platform.yaml` must be at the repository
+   * root, and every service's Dockerfile (`<path>/<dockerfile>`) must exist
+   * at that commit. Registration and manual deployments run the same
+   * check. Error codes: invalid_request (400: both or neither of repo and
+   * spec), github_unreachable (502), github_not_configured (503, repo
+   * only). Any role.
+   */
+  validateAppSpec: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AppSpecValidateRequest"];
+      };
+    };
+    responses: {
+      /** @description The result of the check. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AppSpecValidation"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      413: components["responses"]["TooLarge"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description One app, as `GET /v1/apps` lists it. */
+  getApp: {
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+    responses: {
+      /** @description The app. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["App"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Unregister an app. The platform supersedes the app's unfinished
+   * deployments, commits the removal of `apps/<name>/` from the gitops
+   * repository, and forgets the app with its deployments. Argo CD then
+   * deletes the Applications and the resources they created, so the
+   * app's data goes with them; 202 means that is under way.
+   *
+   * Only registered apps can be deleted. Error codes: app_not_found (404),
+   * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
+   * in both stays listed from the file), github_unreachable (502),
+   * github_not_configured (503). Role operator.
+   */
+  deleteApp: {
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+    responses: {
+      /** @description Unregistered; Argo CD is removing the workloads. */
+      202: {
+        content: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description The app's deployments, newest first. Empty for an app that is only in PLATFORM_APPS_FILE. Error codes: app_not_found (404). */
+  listDeployments: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+    responses: {
+      /** @description Deployments, newest first. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeploymentList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Deploy a registered app now (trigger `manual`). `ref` is resolved to
+   * a commit, and `platform.yaml` there is checked as for registration
+   * before the deployment is created; its `name` must still be the app's
+   * name. The deployment is queued and 202 returns at once; follow it
+   * with `GET /v1/deployments/{id}/events`.
+   *
+   * Error codes: invalid_request (400: an environment the app is not
+   * registered for, or a ref the repository does not have), app_not_found
+   * (404), app_not_registered (409: the app is only in
+   * PLATFORM_APPS_FILE), invalid_app_spec (422), github_unreachable (502),
+   * github_not_configured (503). Role operator.
+   */
+  createDeployment: {
+    parameters: {
+      path: {
+        name: components["parameters"]["AppName"];
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["DeploymentCreateRequest"];
+      };
+    };
+    responses: {
+      /** @description The deployment is queued. */
+      202: {
+        headers: {
+          /** @description /v1/deployments/{id} */
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["Deployment"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["AppSpecInvalid"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Error codes: deployment_not_found (404). */
+  getDeployment: {
+    parameters: {
+      path: {
+        id: components["parameters"]["DeploymentId"];
+      };
+    };
+    responses: {
+      /** @description The deployment. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["Deployment"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Server-Sent Events, with the same contract as a run's events.
+   *
+   * - The first message is `snapshot` (data: `Deployment`), the current
+   *   state. Snapshots carry no SSE id.
+   * - Then every `DeploymentEvent`, with the event `type` as the SSE event
+   *   name and the event `seq` as the SSE id.
+   * - When the deployment ends (`healthy`, `failed` or `superseded`): a
+   *   final `snapshot`, then the stream closes. While it is unfinished
+   *   (including `queued`) the stream stays open, with `: keep-alive`
+   *   comments.
+   *
+   * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events you
+   * missed; they are stored, so nothing is lost. Error codes:
+   * deployment_not_found (404).
+   */
+  streamDeploymentEvents: {
+    parameters: {
+      query?: {
+        /** @description Replay events with seq greater than this. Same as Last-Event-ID. */
+        after?: number;
+      };
+      header?: {
+        "Last-Event-ID"?: string;
+      };
+      path: {
+        id: components["parameters"]["DeploymentId"];
+      };
+    };
+    responses: {
+      /** @description An event stream. */
+      200: {
+        content: {
+          "text/event-stream": string;
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description The repositories the GitHub App installation can see, by full name,
+   * to pick one to register. Error codes: github_unreachable (502),
+   * github_not_configured (503).
+   */
+  listGitHubRepos: {
+    responses: {
+      /** @description Repositories by full name. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GitHubRepoList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description The GitHub App's webhook (content type `application/json`). It takes
+   * no bearer token: `X-Hub-Signature-256` must be the HMAC-SHA256 of the
+   * raw body with the App's webhook secret, and it is checked before
+   * anything else.
+   *
+   * Only `push` events act. A push to the `branch` of a registered app
+   * with `autoDeploy` queues one deployment of the pushed head commit
+   * (`after`) to all of the app's environments, with trigger `push` and
+   * `triggeredBy` `github:<sender login>`, and the answer is 202 with
+   * the queued deployments (one per such app). The deployer reads
+   * platform.yaml at that commit; one that breaks a rule fails the
+   * deployment (`error` says why). Everything else is 204 and
+   * changes nothing: `ping` and other events, pushes to other branches,
+   * tags, deleted branches, repositories with no registered app, apps
+   * without `autoDeploy`, and a delivery (`X-GitHub-Delivery`) that was
+   * already handled.
+   *
+   * Error codes: invalid_signature (401), invalid_request (400: a signed
+   * body that is not a push payload), github_not_configured (503: the
+   * server has no webhook secret).
+   */
+  receiveGitHubWebhook: {
+    parameters: {
+      header: {
+        "X-GitHub-Event": string;
+        /** @description GitHub's delivery id; a delivery that was already handled is a 204. */
+        "X-GitHub-Delivery": string;
+        "X-Hub-Signature-256": string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          [key: string]: unknown;
+        };
+      };
+    };
+    responses: {
+      /** @description Deployments queued for the push. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["DeploymentList"];
+        };
+      };
+      /** @description Nothing to do. */
+      204: {
+        content: never;
+      };
+      400: components["responses"]["BadRequest"];
+      /** @description invalid_signature: X-Hub-Signature-256 is missing or does not match the body */
+      401: {
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      413: components["responses"]["TooLarge"];
+      503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };
   };

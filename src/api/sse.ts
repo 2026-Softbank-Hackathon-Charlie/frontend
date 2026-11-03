@@ -1,7 +1,7 @@
 // Server-Sent Events over fetch. EventSource cannot send the Authorization
 // header, so the stream is read from a fetch body instead.
 import { ApiError, apiUrl, authHeaders, errorFromResponse, networkError } from "./client";
-import type { AgentEvent, AgentSession, Run, RunEvent, RunStatus } from "./types";
+import type { AgentEvent, AgentSession, Deployment, DeploymentEvent, DeploymentStatus, Run, RunEvent, RunStatus } from "./types";
 
 // --- parser ---
 
@@ -115,6 +115,12 @@ export interface StreamHandlers<S, E> {
 
 export type WatchHandlers = StreamHandlers<Run, RunEvent>;
 export type AgentWatchHandlers = StreamHandlers<AgentSession, AgentEvent>;
+export type DeploymentWatchHandlers = StreamHandlers<Deployment, DeploymentEvent>;
+
+/** healthy, failed and superseded are final; queued, building, committing and syncing are still going. */
+export function isFinalDeploymentStatus(s: DeploymentStatus): boolean {
+  return s === "healthy" || s === "failed" || s === "superseded";
+}
 
 export interface WatchOptions {
   signal?: AbortSignal;
@@ -189,7 +195,19 @@ export function watchAgentSession(id: string, handlers: AgentWatchHandlers, opts
 }
 
 /**
- * The loop behind watchRun and watchAgentSession, for a stream at `path` that
+ * Follows a deployment (GET /v1/deployments/{id}/events) until it ends, with
+ * the same guarantees as watchRun. Snapshots are the Deployment, events are
+ * DeploymentEvents named by their type (phase, log, environment, done). The
+ * stream stays open while the deployment is unfinished, queued included, and
+ * closes after the final snapshot of a healthy, failed or superseded one.
+ */
+export function watchDeployment(id: string, handlers: DeploymentWatchHandlers, opts: WatchOptions = {}): Promise<void> {
+  const path = `/v1/deployments/${encodeURIComponent(id)}/events`;
+  return watchStream(path, "deployment", (d) => !isFinalDeploymentStatus(d.status), handlers, opts);
+}
+
+/**
+ * The loop behind watchRun, watchAgentSession and watchDeployment, for a stream at `path` that
  * keeps their contract: a snapshot first on every connection, then stored
  * events with their seq as the SSE id, and, once `isActive` is false for a
  * snapshot, the server closes. `subject` names what the stream follows in

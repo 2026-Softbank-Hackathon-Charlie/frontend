@@ -1,15 +1,18 @@
 import { ApiError, setToken } from "./client";
-import { agentEventMsg, eventMsg, fakeAgentSession, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
+import { agentEventMsg, deploymentEventMsg, eventMsg, fakeAgentSession, fakeDeployment, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
 import {
+  isFinalDeploymentStatus,
   readSse,
   SseParser,
   watchAgentSession,
+  watchDeployment,
   watchRun,
   type AgentWatchHandlers,
+  type DeploymentWatchHandlers,
   type SseMessage,
   type WatchHandlers,
 } from "./sse";
-import type { AgentSessionStatus, RunStatus } from "./types";
+import type { AgentSessionStatus, DeploymentStatus, RunStatus } from "./types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -250,5 +253,53 @@ describe("watchAgentSession", () => {
     await watchAgentSession("ags_1", second.handlers);
     expect(second.r.seqs).toEqual([1, 2]);
     expect(finished).toHaveLength(1);
+  });
+});
+
+describe("watchDeployment", () => {
+  const snap = (status: DeploymentStatus) => snapshotMsg(fakeDeployment({ status }));
+  const log = (seq: number) => deploymentEventMsg(seq, "log", { phase: "building", message: "#" + seq });
+
+  function recorder() {
+    const r = { seqs: [] as number[], snaps: [] as string[], retries: [] as string[] };
+    const handlers: DeploymentWatchHandlers = {
+      onEvent: (e) => r.seqs.push(e.seq),
+      onSnapshot: (d) => r.snaps.push(d.status),
+      onRetry: (e) => r.retries.push(e.message),
+    };
+    return { r, handlers };
+  }
+
+  it("resumes with Last-Event-ID without duplicates and resolves after the final snapshot", async () => {
+    setToken("tok");
+    const calls = installFetch(
+      sequence(
+        sse([snap("building"), log(1), log(2)], "drop"),
+        sse([snap("building"), log(2), log(3), deploymentEventMsg(4, "done", { phase: "healthy" }), snap("healthy")], "close"),
+      ),
+    );
+    const { r, handlers } = recorder();
+    await watchDeployment("dep_1", handlers, { minDelayMs: 1 });
+    expect(r.seqs).toEqual([1, 2, 3, 4]);
+    expect(r.snaps).toEqual(["building", "building", "healthy"]);
+    expect(calls.map((c) => c.headers.get("Last-Event-ID"))).toEqual([null, "2"]);
+    expect(calls[0].url).toBe("/v1/deployments/dep_1/events");
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("keeps a queued deployment open and treats failed and superseded as final", async () => {
+    const calls = installFetch(sequence(sse([snap("queued")]), sse([snap("superseded")])));
+    const { r, handlers } = recorder();
+    await watchDeployment("dep_1", handlers, { minDelayMs: 1 });
+    expect(r.retries).toEqual(["event stream closed while the deployment is active"]);
+    expect(calls).toHaveLength(2);
+
+    const finished = installFetch(sse([snap("failed"), log(1), snap("failed")]));
+    const second = recorder();
+    await watchDeployment("dep_1", second.handlers);
+    expect(second.r.seqs).toEqual([1]);
+    expect(finished).toHaveLength(1);
+    const unfinished: DeploymentStatus[] = ["queued", "building", "committing", "syncing"];
+    expect(unfinished.some(isFinalDeploymentStatus)).toBe(false);
   });
 });

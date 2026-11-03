@@ -5,10 +5,10 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession` 같은 짧은 이름 |
+| `types.ts` | `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
 | `client.ts` | API 함수, `ApiError`, 토큰 |
-| `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession` |
-| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
+| `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment` |
+| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
 | `fakes.ts` | 테스트 전용 가짜 fetch. 앱 코드에서 import하지 않는다 |
 | `gen-schema.mjs` | `npm run gen:api` 스크립트 |
 
@@ -65,6 +65,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
 | 보안 | `getSecurity({ environment, severity, refresh })` |
 | 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
+| GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { ref, environments })`, `listDeployments(name, { limit })`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
 | 기타 | `getMatrix`, `listAudit({ limit, before })` |
 
 - 실패하면 `ApiError`를 던진다. `status`는 HTTP 상태, `code`와 `message`는 서버의 `{"error":{"code","message"}}` 값이다.
@@ -74,6 +75,8 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - `approvePlan`에는 사용자가 본 계획의 `revision`을 `{ revision: plan.revision }`으로 보낸다. 첨부가 있는 계획은 revision이 없거나 그사이 첨부가 올라와 바뀌었으면 409 `plan_state_conflict`로 실패한다. 이때는 계획을 다시 읽어 보여 주고 다시 승인받는다.
 - `putPlanAttachment`는 파일 내용을 `application/octet-stream` 그대로 보낸다(최대 1 MiB). 올릴 때마다 계획의 revision이 1 오른다.
 - `rollbackMigration`은 Idempotency-Key를 받지 않는다. 서버가 run 하나를 한 번만 되돌리므로 다시 눌러도 run이 둘 생기지 않고, 이미 시작된 되돌리기는 409 `run_state_conflict`로 알려 준다.
+- `createApp`과 `createDeployment`는 platform.yaml이 규칙을 어기면 422 `invalid_app_spec`으로 실패한다. 본문의 `validation`이 `ApiError.validation`에 들어 있고, `specInvalid(e)`로 꺼내면 `validateAppSpec`의 답과 같은 모양이다. 화면은 이 경우를 일반 오류가 아니라 확인 결과(고칠 항목과 위치)로 보여 준다.
+- `deleteApp`은 본문 없는 202로 끝난다. Argo CD가 앱과 그 데이터(DB, 버킷)를 지우므로 되돌릴 수 없다. 파일(`PLATFORM_APPS_FILE`)에만 있는 앱은 409 `app_not_registered`다.
 - `listAgentEvents`는 `format=json`으로 저장된 이벤트를 한 쪽씩 읽는다. `listAllAgentEvents`는 `nextAfter`를 따라 끝까지 읽어 모두 돌려준다.
 
 ## 훅
@@ -86,7 +89,12 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | `useMatrix()` | `Matrix` |
 | `useAudit(limit)` | `AuditEntry[]` (최신순) |
 | `useRun(runId)` | `{ run, events, error, connected }` |
-| `useApps()` | `App[]` |
+| `useApps(pollMs)` | `App[]` (파일 앱 먼저, 그다음 GitHub에서 등록한 앱. 등록한 앱은 `deploy`가 있다) |
+| `useApp(name, pollMs)` | `App` |
+| `useDeployments(name, pollMs, limit)` | `Deployment[]` (최신순) |
+| `useGitHubRepos()` | `GitHubRepo[]` |
+| `useAppSpecValidation(repo, branch, debounceMs)` | `{ data, error, loading, reload }` |
+| `useDeployment(id)` | `{ deployment, events, error, connected }` |
 | `useSecurity(pollMs, { environment, severity, refresh })` | `SecurityReport` |
 | `useAgentSessions(pollMs, { planRef, runId, limit })` | `AgentSession[]` (최신순) |
 | `useAgentSession(id)` | `{ session, events, error, connected }` |
@@ -94,6 +102,8 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - 목록 훅은 `{ data, error, loading, reload }`를 돌려준다. `pollMs`가 0이거나 없으면 한 번만 읽고, 있으면 응답을 받은 뒤 `pollMs`마다 다시 읽는다.
 - 폴링 중 실패하면 마지막 `data`는 그대로 두고 `error`만 채운다. 다음 성공에서 `error`가 지워진다.
 - 모든 훅은 언마운트할 때 요청과 타이머, 스트림을 정리한다.
+- `useApp`, `useDeployments`는 이름이 비어 있으면 아무것도 읽지 않는다.
+- `useAppSpecValidation`은 레포나 브랜치가 바뀐 뒤 `debounceMs`(기본 0.4초)가 지나면 한 번만 확인하고, 앞선 요청은 취소한다. `reload()`는 같은 레포와 브랜치를 다시 확인한다(고친 커밋을 push한 뒤).
 
 ## 페이지를 src/sim에서 훅으로 바꾸는 방법
 
@@ -178,6 +188,17 @@ run 이벤트와 계약이 같다. snapshot의 data는 `AgentSession`, 이벤트
 - `watchAgentSession(id, handlers, { signal })`은 `watchRun`과 같은 재연결 루프를 쓴다. 재연결, `Last-Event-ID`, 중복 제거, 타임아웃, 재시도 규칙이 모두 같다.
 - 세션은 `running`인 동안만 진행 중이다. `succeeded`, `failed`, `cancelled` snapshot 뒤에 서버가 연결을 닫으면 끝난다.
 - `useAgentSession`의 `session`은 마지막 snapshot이고 이벤트로 바꾸지 않는다. 진행 중인 세션의 `totals`는 연결할 때 값이므로 실시간 수치는 `events`에서 센다.
+
+## 배포 SSE (`GET /v1/deployments/{id}/events`)
+
+run 이벤트와 계약이 같다. snapshot의 data는 `Deployment`, 이벤트는 `DeploymentEvent`이고 SSE event 이름은 `type`(`phase`, `log`, `environment`, `done`)이다.
+
+- `watchDeployment(id, handlers, { signal })`은 `watchRun`과 같은 재연결 루프를 쓴다. 재연결, `Last-Event-ID`, 중복 제거, 타임아웃, 재시도 규칙이 모두 같다.
+- `healthy`, `failed`, `superseded`가 끝난 상태다. `queued`를 포함해 끝나지 않은 동안 서버는 연결을 유지한다.
+- `useDeployment`는 이벤트를 배포에 이렇게 반영한다.
+  - snapshot이 오면 배포를 snapshot으로 바꾼다.
+  - `phase`와 `done`은 상태를 앞으로만 옮긴다(queued, building, committing, syncing, 끝). 다시 받은 옛 `phase` 이벤트는 상태를 되돌리지 않고, 끝난 배포는 바꾸지 않는다. `done`의 `failed`는 `message`를 `error`에 넣는다.
+  - `environment` 이벤트에는 환경 상태가 없고 메시지만 있다. 메시지는 그 환경의 `message`가 되고, 상태는 `GET /v1/deployments/{id}`로 다시 읽는다. 이벤트가 몰려도 마지막 이벤트 0.3초 뒤에 한 번, 동시에 하나만 읽는다. 끝난 배포는 다시 읽지 않는다.
 
 ## 테스트
 
