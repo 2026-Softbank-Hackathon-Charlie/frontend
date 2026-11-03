@@ -12,6 +12,19 @@ npm test           # 시뮬레이션·화면 테스트
 npm run build      # 타입 검사 + 프로덕션 빌드
 ```
 
+## 버전 히스토리
+
+머지된 PR마다 그 시점의 콘솔을 띄워서 단계별로 찍은 화면은 **[docs/HISTORY.md](docs/HISTORY.md)**에 있습니다.
+
+| 버전 | PR | 머지 (KST) | 작성 | 내용 |
+| --- | --- | --- | --- | --- |
+| v1 | [#1](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/1) | 11/2 01:48 | 박준석 | 시연 시뮬레이션 콘솔 첫 버전 (개요, 앱, 새 앱 배포, 기존 앱 가져오기, 이전, 환경) |
+| v2 | [#3](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/3) | 11/2 15:03 | 조서현 | 실제 플랫폼 API 데이터 계층 `src/api` (화면 변화 없음) |
+| v3 | [#2](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/2) | 11/2 15:37 | 이태훈 | 이전 흐름을 플랫폼 계약에 맞춤(AI 계획, 리허설, revision 승인, 카나리, 전환 승인), 실제 API 연결, 경로별 결과·AI 활동·보안 화면 |
+| v4 | [#4](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/4) | 11/2 19:48 | 조서현 | 전환 후 관찰(observe) 표시 (실제 API 모드에서만 보임) |
+| v5 | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | 조서현 | GitHub 레포로 앱 등록, platform.yaml 확인, 배포 진행 화면, 앱 상태 필터 |
+| v6 | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | 김동윤 | 콘솔 이미지를 infra GitOps PR로 배포하는 workflow (화면 변화 없음) |
+
 ## 화면
 
 시연용 시뮬레이션 화면입니다. 숫자와 로그는 모두 가상입니다. (1440px 너비, 전체 페이지)
@@ -74,6 +87,10 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 | 앱 목록 | 새 앱 배포 |
 | --- | --- |
 | ![앱](docs/screenshots/apps.png) | ![새 앱 배포](docs/screenshots/new-app.png) |
+| **새 앱 배포: 규칙 위반 (photo-album)** | **새 앱 배포: platform.yaml 없음 (analytics-worker)** |
+| ![규칙 위반](docs/history/pr6/04-new-app-2-rule-violation.png) | ![platform.yaml 없음](docs/history/pr6/05-new-app-3-no-platform-yaml.png) |
+| **배포 진행 (진행 중, 2/4 빌드)** | **앱 목록: 문제 있음 필터** |
+| ![배포 진행 중](docs/history/pr6/06-deploy-1-in-progress.png) | ![문제 있음](docs/history/pr6/10-apps-filter-problem.png) |
 | **앱 상세 (todo-api, GitHub에서 등록)** | **앱 상세 (shop, 이전 대상)** |
 | ![todo-api](docs/screenshots/app-todo-api.png) | ![shop](docs/screenshots/app-shop.png) |
 | **배포 진행 (완료)** | **배포 진행 (빌드 실패)** |
