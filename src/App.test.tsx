@@ -50,6 +50,8 @@ describe("HopCharlie console (simulation)", () => {
     expect(screen.getAllByText("kubectl get secrets -n shop").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    expect(screen.getByText("시작 전 검사")).toBeInTheDocument();
+    expect(screen.getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
     ticks(sim, SWITCH_AT);
     expect(screen.getAllByText("전환 승인 대기").length).toBeGreaterThan(0);
     expect(screen.getByRole("img", { name: /읽기: AWS EKS 50%, 온프레미스 k3s 50%/ })).toBeInTheDocument();
@@ -147,6 +149,55 @@ describe("HopCharlie console (platform API)", () => {
     expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
     expect(start.headers.get("Idempotency-Key")).toBeTruthy();
     expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
+  });
+
+  it("shows why a start was refused and lets the operator start again", async () => {
+    let started = 0;
+    const calls = installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...plan, status: started ? "approved" : "pending_approval" }] });
+      if (u.pathname === "/v1/migrations" && c.method === "POST") {
+        started++;
+        return json(409, { error: { code: "residency_denied", message: "residency policy denies this migration: country_not_allowed app.public.customers" } });
+      }
+      if (u.pathname === "/v1/audit")
+        return json(200, {
+          entries: started
+            ? [
+                {
+                  id: 9,
+                  time: "2026-11-06T01:05:00Z",
+                  actor: "op",
+                  role: "operator",
+                  action: "POST /v1/migrations",
+                  target: "/v1/migrations",
+                  status: 409,
+                  detail: { planRef: "pln_1", error: "residency_denied", residencyDigest: "0123456789abcdef", residencyReasons: ["country_not_allowed app.public.customers"] },
+                },
+              ]
+            : [],
+        });
+      return route(() => [])(c);
+    });
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "API 연결" }));
+    await user.type(screen.getByLabelText(/토큰/), "test-token");
+    await user.click(screen.getByRole("button", { name: "연결" }));
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("button", { name: "승인하고 시작" }));
+
+    expect(await screen.findByText(/데이터 레지던시 정책에 걸려 이전을 시작하지 않았습니다/)).toBeInTheDocument();
+    expect(await screen.findByText("시작 전 검사")).toBeInTheDocument();
+    expect(screen.getByText("시작 막힘")).toBeInTheDocument();
+    expect(screen.getByText("목적지 국가로 보낼 수 없는 데이터")).toBeInTheDocument();
+    expect(screen.getByText("app.public.customers")).toBeInTheDocument();
+    expect(screen.getByText("0123456789ab")).toBeInTheDocument();
+    // the plan stays approved and on screen instead of falling back to the setup form
+    expect(await screen.findByText(/은 승인됐지만 시작하지 않았습니다/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "다시 시작" }));
+    await waitFor(() => expect(started).toBe(2));
+    expect(calls.filter((c) => c.url.includes("/approve"))).toHaveLength(2);
   });
 
   it("makes no API calls in simulation mode", () => {
