@@ -70,7 +70,8 @@ jobs:
         run: |
           npm ci
           python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
-          npm test
+          # The tests expect relative API paths; only the build gets the API address.
+          env -u VITE_PLATFORM_URL npm test
           npm run build
           printf '%s\n' "$GITHUB_SHA" > dist/version.txt
 
