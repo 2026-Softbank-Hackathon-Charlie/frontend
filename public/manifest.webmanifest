@@ -1,0 +1,13 @@
+{
+  "name": "HopCharlie 콘솔",
+  "short_name": "HopCharlie",
+  "description": "Zero-downtime multi-cloud migration",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/brand/app-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

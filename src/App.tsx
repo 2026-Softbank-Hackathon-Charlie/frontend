@@ -148,7 +148,7 @@ export function App() {
       <header className="top gut">
         <div className="in">
           <a className="brand" href="#overview">
-            HopCharlie
+            <img src="/brand/lockup-header.png" alt="HopCharlie" width={188} height={40} />
           </a>
           <span className="org">team-charlie</span>
           <div className="acts">
