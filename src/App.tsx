@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Chip } from "./components/ui";
 import { apiTarget, connect, disconnect, useLive } from "./data/live";
 import { Agents } from "./pages/Agents";
-import { AppDetail, Apps } from "./pages/Apps";
+import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
+import { DeploymentPage } from "./pages/Deployment";
 import { DesignSystem } from "./pages/DesignSystem";
 import { Envs } from "./pages/Envs";
 import { Migrate, MigrateList } from "./pages/Migrate";
@@ -12,12 +13,14 @@ import { Overview } from "./pages/Overview";
 import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
 import { navCurrent, navigate, useRoute } from "./router";
+import { activeDeployments } from "./sim/deploy";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
 
 function Page({ r }: { r: string }) {
-  if (r === "apps") return <Apps />;
+  if (r === "apps" || r.startsWith("apps-")) return <Apps filter={appFilterOf(r)} />;
   if (r.startsWith("app-")) return <AppDetail id={r.slice(4)} />;
+  if (r.startsWith("deploy-")) return <DeploymentPage id={r.slice(7)} />;
   if (r === "new") return <NewApp />;
   if (r === "onboard") return <Onboard />;
   if (r === "migrate") return <MigrateList />;
@@ -34,7 +37,7 @@ function SideNav({ r }: { r: string }) {
   const { S } = useSim();
   const c = navCurrent(r);
   const live = useLive();
-  const busyApps = !live && (S.dep.phase === "run" || S.onb.run);
+  const busyApps = !live && (activeDeployments(S.deploy).length > 0 || S.onb.run);
   const items: [string, string, string][] = [
     ["overview", "개요", ""],
     ["apps", "앱", busyApps ? "진행 중" : ""],
@@ -123,7 +126,7 @@ export function App() {
       <div className="banner gut">
         <div className="in">
           {live ? (
-            <span>실제 플랫폼 API({apiTarget()})에 연결되어 있습니다. 새 앱 배포와 기존 앱 가져오기 화면은 아직 시연용입니다.</span>
+            <span>실제 플랫폼 API({apiTarget()})에 연결되어 있습니다. 기존 앱 가져오기 화면은 아직 시연용입니다.</span>
           ) : (
             <>
               <span>시연용 화면입니다. 데이터는 모두 가상이고, 진행 속도는 실제보다 빠릅니다.</span>
@@ -165,8 +168,8 @@ export function App() {
         <div className="in shell">
           <SideNav r={r} />
           <main id="main">
-            {/* keyed by route so the enter animation replays on navigation only, not on every tick */}
-            <Page key={r} r={r} />
+            {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters keep the page */}
+            <Page key={r.startsWith("apps") ? "apps" : r} r={r} />
           </main>
         </div>
       </div>

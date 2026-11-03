@@ -1,19 +1,26 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { agentEventMsg, at, eventMsg, fakeAgentSession, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
+import { agentEventMsg, at, deploymentEventMsg, eventMsg, fakeAgentSession, fakeDeployment, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
 import {
+  applyDeploymentEvent,
   applyRunEvent,
+  deploymentRank,
   isAfter,
   parseDurationMs,
   useAgentSession,
   useAgentSessions,
+  useApp,
   useApps,
+  useAppSpecValidation,
   useAudit,
+  useDeployment,
+  useDeployments,
   useEnvironments,
+  useGitHubRepos,
   useRun,
   useSecurity,
   useTraffic,
 } from "./hooks";
-import type { Environment, GateResult, SecuritySeverity } from "./types";
+import type { DeploymentEvent, Environment, GateResult, SecuritySeverity } from "./types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -335,5 +342,116 @@ describe("useAgentSession", () => {
     expect(result.current.events.map((e) => e.seq)).toEqual([1]);
     await sleep(30);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("deploy hooks", () => {
+  const ev = (seq: number, type: DeploymentEvent["type"], p: Partial<DeploymentEvent> = {}): DeploymentEvent => ({ seq, deploymentId: "dep_1", time: at(seq), type, ...p });
+
+  it("applyDeploymentEvent only moves forward and leaves a final deployment alone", () => {
+    let d = fakeDeployment({ status: "committing" });
+    d = applyDeploymentEvent(d, ev(1, "phase", { phase: "building" })); // replayed history
+    expect(d.status).toBe("committing");
+    d = applyDeploymentEvent(d, ev(2, "phase", { phase: "syncing" }));
+    expect(d.status).toBe("syncing");
+    d = applyDeploymentEvent(d, ev(3, "environment", { env: "gke", message: "Synced, Healthy" }));
+    expect(d.environments.find((e) => e.env === "gke")?.message).toBe("Synced, Healthy");
+    expect(d.environments.find((e) => e.env === "gke")?.status).toBe("pending"); // the event carries no status
+    const failed = applyDeploymentEvent(d, ev(4, "done", { phase: "failed", message: "eks did not become healthy in 10m" }));
+    expect(failed).toMatchObject({ status: "failed", error: "eks did not become healthy in 10m", finishedAt: at(4) });
+    expect(applyDeploymentEvent(failed, ev(5, "done", { phase: "healthy" }))).toBe(failed);
+    expect(applyDeploymentEvent(failed, ev(4, "done", { phase: "failed" }))).toBe(failed);
+    expect(deploymentRank("queued")).toBeLessThan(deploymentRank("syncing"));
+  });
+
+  it("useDeployment follows the stream and reads environment statuses again", async () => {
+    const synced = fakeDeployment({
+      status: "syncing",
+      environments: [
+        { env: "eks", status: "healthy", syncStatus: "Synced", healthStatus: "Healthy" },
+        { env: "gke", status: "syncing" },
+      ],
+    });
+    const stream = sse(
+      [
+        snapshotMsg(fakeDeployment()),
+        deploymentEventMsg(1, "phase", { phase: "queued" }),
+        deploymentEventMsg(2, "phase", { phase: "building" }),
+        deploymentEventMsg(3, "log", { phase: "building", message: "#1 load build definition" }),
+        deploymentEventMsg(4, "phase", { phase: "syncing" }),
+        deploymentEventMsg(5, "environment", { env: "eks", message: "Synced, Healthy" }),
+        deploymentEventMsg(6, "environment", { env: "gke", message: "OutOfSync, Progressing" }),
+      ],
+      "hang",
+    );
+    const calls = installFetch((c) => (c.url === "/v1/deployments/dep_1" ? json(200, synced) : stream(c)));
+    const { result, unmount } = renderHook(() => useDeployment("dep_1", 5));
+    await waitFor(() => expect(result.current.events).toHaveLength(6));
+    expect(result.current.deployment?.status).toBe("syncing");
+    expect(result.current.connected).toBe(true);
+    // Two environment events in a row read the deployment once.
+    await waitFor(() => expect(result.current.deployment?.environments[0].status).toBe("healthy"));
+    await sleep(20);
+    expect(calls.filter((c) => c.url === "/v1/deployments/dep_1")).toHaveLength(1);
+    unmount();
+  });
+
+  it("useDeployment ends at the final snapshot without reading the deployment again", async () => {
+    const calls = installFetch(
+      sse([
+        snapshotMsg(fakeDeployment({ status: "healthy", finishedAt: at(9) })),
+        deploymentEventMsg(1, "environment", { env: "eks", message: "Synced, Healthy" }),
+        deploymentEventMsg(2, "done", { phase: "healthy" }),
+        snapshotMsg(fakeDeployment({ status: "healthy", finishedAt: at(9) })),
+      ]),
+    );
+    const { result } = renderHook(() => useDeployment("dep_1", 5));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    await waitFor(() => expect(result.current.connected).toBe(false));
+    await sleep(30);
+    expect(result.current.deployment?.status).toBe("healthy");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("useApp, useDeployments and useGitHubRepos read their resources; a missing name reads nothing", async () => {
+    const calls = installFetch((c) => {
+      if (c.url === "/v1/github/repos") return json(200, { repos: [{ fullName: "org/moimroom", private: false, defaultBranch: "main", htmlUrl: "" }] });
+      if (c.url.startsWith("/v1/apps/moimroom/deployments")) return json(200, { deployments: [fakeDeployment()] });
+      return json(200, { name: "moimroom", namespace: "moimroom", database: { name: "app", user: "app", schemas: [] }, environments: [] });
+    });
+    const repos = renderHook(() => useGitHubRepos());
+    const app = renderHook(({ name }: { name?: string }) => useApp(name), { initialProps: {} as { name?: string } });
+    const deps = renderHook(() => useDeployments("moimroom", 0, 10));
+    await waitFor(() => expect(repos.result.current.data?.[0].fullName).toBe("org/moimroom"));
+    await waitFor(() => expect(deps.result.current.data?.[0].id).toBe("dep_1"));
+    expect(app.result.current).toMatchObject({ data: undefined, loading: false });
+    expect(calls.some((c) => c.url === "/v1/apps/moimroom")).toBe(false);
+    app.rerender({ name: "moimroom" });
+    await waitFor(() => expect(app.result.current.data?.name).toBe("moimroom"));
+    expect(calls.map((c) => c.url)).toContain("/v1/apps/moimroom/deployments?limit=10");
+  });
+
+  it("useAppSpecValidation checks once after typing stops, and again on reload", async () => {
+    const calls = installFetch((c) => json(200, { valid: JSON.parse(c.body!).branch === "main", errors: [] }));
+    const { result, rerender } = renderHook(({ branch }: { branch: string }) => useAppSpecValidation("org/moimroom", branch, 20), {
+      initialProps: { branch: "m" },
+    });
+    expect(result.current.loading).toBe(true);
+    rerender({ branch: "ma" });
+    rerender({ branch: "mai" });
+    rerender({ branch: "main" });
+    await waitFor(() => expect(result.current.data?.valid).toBe(true));
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0].body!)).toEqual({ repo: "org/moimroom", branch: "main" });
+
+    result.current.reload();
+    await waitFor(() => expect(calls).toHaveLength(2));
+    rerender({ branch: "dev" });
+    await waitFor(() => expect(result.current.data?.valid).toBe(false));
+
+    const none = renderHook(() => useAppSpecValidation("", "main", 1));
+    await sleep(20);
+    expect(none.result.current).toMatchObject({ data: undefined, loading: false });
+    expect(calls).toHaveLength(3);
   });
 });

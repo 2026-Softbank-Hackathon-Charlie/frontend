@@ -5,7 +5,7 @@ import { navigate } from "../router";
 import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
-import { appsIn, migActive, migLabel, type App } from "../sim/state";
+import { appsIn, migActive } from "../sim/state";
 import { useSim } from "../sim/store";
 import { Chip, Table, td, type ChipKind } from "./ui";
 
@@ -88,54 +88,6 @@ function LiveEnvGrid() {
           {e.status.error && <p className="hint">{e.status.error}</p>}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function LocChips({ a }: { a: App }) {
-  const { S } = useSim();
-  if (a.kind === "platform") {
-    return (
-      <div className="chips">
-        {(a.envs ?? []).map((k) => (
-          <Chip key={k}>{ENV[k].name}</Chip>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="chips">
-      <Chip>{ENV[a.loc ?? "aws"].name}</Chip>
-      {migActive(S) && <Chip kind="run">{migLabel(S)}</Chip>}
-    </div>
-  );
-}
-
-export function AppsTable({ full }: { full: boolean }) {
-  const { S } = useSim();
-  const rows = S.appOrder.map((id) => {
-    const a = S.apps[id];
-    const r = [td(<a href={"#app-" + id}>{id}</a>)];
-    if (full) r.push(td(a.repo, "m"));
-    r.push(td(<LocChips a={a} />), td(a.deploys[0][2] + " (" + a.deploys[0][0] + ")", "nw"), td(<Chip kind="ok">정상</Chip>));
-    if (full)
-      r.push(
-        td(
-          a.kind === "service" ? (
-            <a className="btn ghost" href="#migrate-shop">
-              이전
-            </a>
-          ) : (
-            ""
-          ),
-        ),
-      );
-    return r;
-  });
-  const head = full ? ["이름", "레포", "실행 위치", "최근 변경", "상태", ""] : ["이름", "실행 위치", "최근 변경", "상태"];
-  return (
-    <div className="box">
-      <Table head={head} rows={rows} />
     </div>
   );
 }

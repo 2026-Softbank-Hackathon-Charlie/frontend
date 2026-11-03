@@ -117,3 +117,28 @@ export interface MetricData {
   lagBytes?: number;
   downtimeMillis?: number;
 }
+
+// Apps registered from GitHub and their deployments (ADR 0011).
+export type AppDeploy = S["AppDeploy"];
+export type AppEnvironmentStatus = S["AppEnvironmentStatus"];
+export type AppCreateRequest = S["AppCreateRequest"];
+export type AppCreated = S["AppCreated"];
+export type AppSpec = S["AppSpec"];
+export type AppSpecService = S["AppSpecService"];
+export type AppSpecResource = S["AppSpecResource"];
+export type AppSpecFieldError = S["AppSpecFieldError"];
+export type AppSpecValidation = S["AppSpecValidation"];
+export type AppSpecValidateRequest = S["AppSpecValidateRequest"];
+export type AppSpecInvalid = S["AppSpecInvalid"];
+export type DeploymentTrigger = S["DeploymentTrigger"];
+export type DeploymentStatus = S["DeploymentStatus"];
+export type DeploymentEnvironmentStatus = S["DeploymentEnvironmentStatus"];
+export type Deployment = S["Deployment"];
+export type DeploymentImage = S["DeploymentImage"];
+export type DeploymentEnvironment = S["DeploymentEnvironment"];
+export type DeploymentList = S["DeploymentList"];
+export type DeploymentCreateRequest = S["DeploymentCreateRequest"];
+export type DeploymentEventType = S["DeploymentEventType"];
+export type DeploymentEvent = S["DeploymentEvent"];
+export type GitHubRepo = S["GitHubRepo"];
+export type GitHubRepoList = S["GitHubRepoList"];

@@ -1,6 +1,6 @@
 # HopCharlie 콘솔 (frontend)
 
-HopCharlie 운영 콘솔입니다. 플랫폼 API 토큰을 넣으면 **실제 플랫폼 API**(`src/api`)를 읽고, 토큰이 없으면 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`)을 만듭니다.
+HopCharlie 운영 콘솔입니다. 플랫폼 API 토큰을 넣으면 **실제 플랫폼 API**(`src/api`)를 읽고, 토큰이 없으면 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`, `App`, `Deployment`, `DeploymentEvent`, `AppSpecValidation`)을 만듭니다.
 
 - 스택: Vite 8 + React 19 + TypeScript, 테스트는 Vitest + Testing Library
 - 디자인: SoftBank 디자인 시스템 토큰 (`src/styles/tokens.css`)
@@ -63,11 +63,23 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 
 ### 앱, 새 앱 배포, 환경
 
-| 앱 목록 | 앱 상세 (shop) |
+GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
+
+- **새 앱 배포**(`#new`): GitHub App이 볼 수 있는 레포, 브랜치(기본은 레포의 기본 브랜치), 배포 환경, push 자동 배포를 고릅니다. 고르는 대로 platform.yaml을 확인해서, 통과하면 서비스와 포트, 공개 주소(`https://<이름>.hopcharlie.dev`), 리소스를 보여 주고, 아니면 **직접 고쳐야 하는 항목**(위치, 내용, 고칠 방법)을 보여 줍니다. 플랫폼 기본값을 쓰는 항목도 따로 보여 줍니다. 레포에는 서비스마다 Dockerfile, 루트에 platform.yaml이 있어야 합니다.
+- **앱 목록**(`#apps`): 파일 앱(이전 대상)과 GitHub에서 등록한 앱을 함께 보여 줍니다. 등록한 앱에는 GitHub 표시, 환경별 상태, 공개 주소, 최근 배포가 붙습니다. 위의 전체, 정상, 문제 있음, 배포 중 칸을 누르면 그 상태로 거르고, 거른 목록은 주소(`#apps-healthy`, `#apps-problem`, `#apps-deploying`)로 공유할 수 있습니다.
+- **앱 상세**(`#app-<이름>`): 레포와 브랜치, 자동 배포, platform.yaml 요약, 환경별 상태(Argo CD sync와 health, 커밋, 주소), 배포 이력을 보여 줍니다. **다시 배포**는 브랜치의 head를 모든 환경에 배포하고, **앱 삭제**는 화면 안에서 한 번 더 확인한 뒤 지웁니다. 이전 설정이 있는 앱은 이전 버튼이 그대로 있습니다.
+- **배포 진행**(`#deploy-<id>`): 단계(대기열, 이미지 빌드, gitops 커밋, Argo CD 동기화, 그리고 정상, 실패, 대체됨)와 단계 번호(예: 2/4 빌드), 환경별 상태, 실시간 빌드 로그(자동 스크롤, 멈춤 가능), 배포를 만든 때부터 끝날 때까지의 경과 시간(목표 5분)을 보여 줍니다. 성공하면 공개 주소를 누를 수 있고, 실패하면 로그 위에 한 줄 요약을 띄우고 첫 오류 줄로 스크롤해서 표시합니다.
+- 시뮬레이션 레포: `notice-board`(바로 배포 가능, `dev` 브랜치는 빌드 실패), `photo-album`(`main`은 규칙 위반, `fix-worker`는 통과), `analytics-worker`(platform.yaml 없음). `todo-api`는 처음부터 등록되어 있습니다.
+
+| 앱 목록 | 새 앱 배포 |
 | --- | --- |
-| ![앱](docs/screenshots/apps.png) | ![shop](docs/screenshots/app-shop.png) |
-| **새 앱 배포** | **환경** |
-| ![새 앱 배포](docs/screenshots/new-app.png) | ![환경](docs/screenshots/envs.png) |
+| ![앱](docs/screenshots/apps.png) | ![새 앱 배포](docs/screenshots/new-app.png) |
+| **앱 상세 (todo-api, GitHub에서 등록)** | **앱 상세 (shop, 이전 대상)** |
+| ![todo-api](docs/screenshots/app-todo-api.png) | ![shop](docs/screenshots/app-shop.png) |
+| **배포 진행 (완료)** | **배포 진행 (빌드 실패)** |
+| ![배포 완료](docs/screenshots/deploy.png) | ![빌드 실패](docs/screenshots/deploy-failed.png) |
+| **환경** | |
+| ![환경](docs/screenshots/envs.png) | |
 
 ### 디자인 시스템 (`#design-system`)
 메뉴에는 없는 화면입니다. 주소창에 `#design-system`을 붙여서 엽니다. 색(대비 포함), 글꼴, 간격과 모서리, 상태 표현, 컴포넌트, 움직임을 화면과 같은 토큰과 클래스로 보여줍니다.
@@ -82,7 +94,7 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 
 1. 프로젝트 루트에 `.env.local`을 만들고 `VITE_PLATFORM_URL=<플랫폼 주소>`를 적은 뒤 `npm run dev`를 다시 시작합니다 (자세한 내용은 `src/api/README.md`).
 2. 화면 오른쪽 위 **API 연결**에 토큰을 넣습니다. 승인, 시작, 전환, 중단, 롤백은 operator 토큰이 필요합니다.
-3. 연결되면 상단 배너가 바뀌고 개요, 앱, 이전, 경로별 결과, AI 활동, 보안, 환경 화면이 API를 읽습니다. 새 앱 배포와 기존 앱 가져오기는 아직 시연 화면입니다.
+3. 연결되면 상단 배너가 바뀌고 개요, 앱, 새 앱 배포, 배포 진행, 이전, 경로별 결과, AI 활동, 보안, 환경 화면이 API를 읽습니다. 기존 앱 가져오기는 아직 시연 화면입니다. 앱 등록, 다시 배포, 앱 삭제는 operator 토큰이 필요합니다.
 
 토큰은 기본으로 메모리에만 두고, "이 탭을 새로고침해도 유지"를 켜면 sessionStorage에 둡니다. 화면과 로그에는 토큰을 다시 보여 주지 않습니다.
 
@@ -109,51 +121,58 @@ EKS, GKE, k3s 사이 6개 방향의 결과표입니다.
 src/api/            플랫폼 API 데이터 계층 (계약 타입, 클라이언트, SSE, 훅) — #3
 src/data/live.ts    API 연결 상태(토큰), Plan 목록 폴링, 오류 문구
 src/data/migration.ts  이전 화면용 보기 모델: 시뮬레이션과 실제 API를 같은 모양으로
+src/data/deploy.ts  새 앱 배포, 앱 목록과 상세, 배포 진행 화면용 보기 모델
 src/sim/mig.ts      계약 모양으로 만드는 이전 시뮬레이션 (Plan, Run, RunEvent, AgentSession)
+src/sim/deploy.ts   계약 모양으로 만드는 GitHub 앱 배포 시뮬레이션 (App, Deployment, DeploymentEvent, AppSpecValidation)
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전)
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #app-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #design-system)
+src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #design-system)
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나)
-src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표)
+src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
 ```
 
 ## 수동 배포 (GitHub Actions)
 
-[Deploy frontend](.github/workflows/deploy.yml)은 **Run workflow로 실행할 때만** 배포합니다. PR과 main push에서는 실행하지 않습니다. 먼저 workflow를 main에 반영해야 Actions에 실행 버튼이 나타나며, 실행 브랜치도 main만 허용합니다.
+[Deploy frontend](.github/workflows/deploy.yml)은 **Run workflow로 실행할 때만** 이미지를 게시하고 infra PR을 만듭니다. PR과 main push에서는 실행하지 않습니다. workflow를 main에 반영한 뒤 Actions에서 실행하며, 실행 브랜치도 main만 허용합니다.
 
-Node 24에서 `npm ci`, `npm test`, `npm run build`를 통과하면 기존 플랫폼과 같은 Caddy 이미지로 빌드합니다. ECR에 frontend 커밋 SHA와 `latest` 태그를 게시하고, SSM으로 기존 관리 EC2의 **console 서비스만** 갱신합니다. API·게이트웨이·DB는 재시작하지 않습니다. SSM 명령의 종료 상태와 콘솔의 `version.txt`가 실제 배포 SHA와 일치하는지 확인해야 성공입니다.
+Node 24에서 `npm ci`, GitOps helper 시험, `npm test`, `npm run build`를 통과하면 기존 플랫폼과 같은 Caddy 이미지로 빌드합니다. ECR에 frontend 커밋의 **7자리 SHA 태그** 하나를 게시하고, 빌드 결과의 digest로 infra의 다음 두 파일을 한 커밋에서 갱신하는 PR을 엽니다.
+
+- `clusters/aws-dev-management/values/hopcharlie-platform.yaml`의 `images.console`: `<ECR 저장소>:<7자리 SHA>@sha256:<digest>`
+- `helm/images.lock.json`의 같은 `<ECR 저장소>:<7자리 SHA>` 키: 같은 digest
+
+다른 이미지와 설정은 유지합니다. 같은 이미지가 infra main에 이미 반영돼 있으면 새 PR을 만들지 않습니다. `latest` 태그는 게시하지 않으며, 이미지의 `version.txt`에는 추적용 전체 frontend SHA를 둡니다. 인라인 Dockerfile은 platform의 `deploy/console/Dockerfile`과 동기화합니다.
+
+**workflow 성공은 ECR 게시와 infra PR 생성까지입니다.** 실제 콘솔 `https://console.hopcharlie.dev` 반영은 infra PR을 검토·merge한 뒤 관리 EKS의 Argo CD Application이 동기화해야 완료됩니다. workflow는 EC2·SSM·클러스터를 직접 갱신하거나 PR을 자동 merge하지 않습니다.
 
 ### 최초 준비
 
-Settings → Secrets and variables → Actions → **Variables**에 다음 값을 설정합니다. 배포 대상 EC2·ECR·플랫폼 API는 이미 존재해야 합니다.
+Settings → Secrets and variables → Actions → **Variables**에 다음 값을 설정합니다. ECR 저장소와 OIDC 역할은 먼저 준비돼 있어야 합니다.
 
-| 변수 | 값 / 기존 platform의 Terraform output |
+| 변수 | 값 / 출처 |
 | --- | --- |
-| `AWS_DEPLOY_ROLE_ARN` | frontend 배포용 GitHub OIDC 역할 ARN. 기존 infra 역할을 자동으로 재사용하지 않습니다 |
-| `ECR_CONSOLE_REPOSITORY` | `console_repository_url`. 태그 없는 전체 ECR 주소 |
-| `PLATFORM_INSTANCE_ID` | `instance_id`. SSM으로 관리되는 기존 EC2 |
-| `VITE_PLATFORM_URL` | `api_url`. HTTPS API 주소. 빌드 시 포함됩니다 |
-| `CONSOLE_URL` | `console_url`. 배포 후 확인할 HTTPS 콘솔 주소 |
-| `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR·EC2와 같은 리전 |
+| `AWS_DEPLOY_ROLE_ARN` | 필수. frontend 이미지 게시용 GitHub OIDC 역할 ARN |
+| `ECR_CONSOLE_REPOSITORY` | 필수. infra `terraform/platform/aws`의 `console_repository_url`. 태그 없는 전체 ECR 주소이며 현재 infra 콘솔 저장소와 같아야 합니다 |
+| `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR과 같은 리전 |
+| `VITE_PLATFORM_URL` | 선택. 기본 `https://api.hopcharlie.dev`. 빌드에 포함되는 공개 HTTPS API 주소 |
 
-이 값은 비밀값이 아닙니다. API 토큰·AWS 액세스 키·DB 비밀번호를 넣지 않습니다. 브라우저의 API 연결 토큰은 배포 후 사용자가 별도로 입력합니다.
+Terraform output의 소유 위치는 infra `terraform/platform/aws`입니다. 그중 `api_url`, `console_url`, `instance_id`는 기존 EC2 호스트용 값이므로 이 EKS 배포의 입력으로 쓰지 않습니다. `PLATFORM_INSTANCE_ID`와 `CONSOLE_URL` 변수는 필요하지 않습니다. 브라우저의 API 연결 토큰은 배포 후 사용자가 별도로 입력합니다.
 
-배포 역할에는 지정된 ECR 저장소의 이미지 push 권한, `ecr:GetAuthorizationToken`, 지정된 EC2와 `AWS-RunShellScript` 문서에 대한 `ssm:SendCommand`, `ssm:GetCommandInvocation` 권한이 필요합니다. 관리 EC2의 기존 instance role은 ECR 이미지를 pull할 수 있어야 합니다. EC2에는 `/opt/hopcharlie`의 Compose·환경 설정과 SSM Agent가 준비돼 있어야 합니다. ECR은 `latest` 갱신을 허용해야 하며, API·콘솔 URL은 GitHub runner에서 공인 주소로 DNS 조회·HTTPS 접속이 가능해야 합니다.
+**Secrets**에는 `INFRA_PR_TOKEN`을 준비합니다. 대상 infra 저장소에만 접근하는 fine-grained PAT 또는 GitHub App installation token이며, `Contents: read/write`와 `Pull requests: read/write` 권한이 필요합니다. frontend의 기본 `GITHUB_TOKEN`은 다른 비공개 infra 저장소에 쓸 수 없습니다. 토큰은 helper 단계에서만 전달하며 npm 설치·빌드에는 전달하지 않습니다. 토큰의 유효기간과 조직 승인을 확인하고, installation token을 직접 등록했다면 만료 전에 새 실행용 토큰을 준비합니다.
 
-OIDC 신뢰 정책은 `aud=sts.amazonaws.com`과 **이 저장소 main**으로 제한합니다. 조회한 이 저장소의 immutable subject는 다음과 같습니다. GitHub Environment를 사용하는 workflow로 변경한다면 subject도 다시 확인해야 합니다.
+AWS 역할에는 `ecr:GetAuthorizationToken`과 지정된 콘솔 ECR 저장소의 이미지 push 권한이 필요합니다. SSM·EC2 변경·EKS 관리 권한은 필요하지 않습니다. OIDC 신뢰 정책은 `aud=sts.amazonaws.com`과 **이 저장소 main**으로 제한합니다. 조회한 immutable subject는 다음과 같습니다. GitHub Environment를 쓰도록 바꾼다면 subject도 다시 확인합니다.
 
 ```text
 repo:2026-Softbank-Hackathon-Charlie@350278309/frontend@1441992854:ref:refs/heads/main
 ```
 
-공식 설정: [AWS용 GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+공식 설정: [AWS용 GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [GitHub 토큰 권한](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
 
 ### 배포 순서
 
-1. 위 변수와 배포 역할을 준비한 뒤 workflow PR을 main에 merge합니다.
+1. 변수·OIDC 역할·`INFRA_PR_TOKEN`을 준비하고 workflow PR을 main에 merge합니다.
 2. Actions → **Deploy frontend** → **Run workflow**에서 main을 선택합니다.
-3. 빌드·검사·ECR 게시·SSM 결과·콘솔 SHA 확인이 모두 통과했는지 확인합니다. 같은 배포 workflow는 순서대로 실행되며 진행 중 배포를 새 실행이 취소하지 않습니다.
+3. 실행 요약의 이미지 digest와 infra PR을 확인합니다. 수동 실행은 직렬화되며 진행 중 실행을 새 실행이 취소하지 않습니다.
+4. infra PR의 두 이미지 pin과 CI 결과를 검토한 뒤 merge합니다. Argo CD root와 `charlie-management-hopcharlie-platform` Application이 등록돼 있고 동기화·health가 정상인지 확인합니다.
+5. `https://console.hopcharlie.dev/version.txt`가 전체 frontend SHA와 일치하는지와 화면의 실제 API 연결을 확인합니다. 이 확인은 infra merge·Argo 동기화 이후에 수행합니다.
 
-실행한 커밋의 이미지를 `CONSOLE_IMAGE`로 지정해 console만 교체합니다. Terraform이 관리하는 `.env`와 SSM 설정은 수정하지 않습니다. `latest`도 함께 게시하므로 기존 플랫폼 배포와 호환되지만, 이후 플랫폼 전체 재배포는 플랫폼의 `console_image_tag` 설정을 따릅니다. 특정 버전 유지나 롤백이 필요하면 플랫폼 담당자와 이 태그를 맞춥니다.
-
-이 workflow는 클러스터 생성·앱 데이터 이전·Terraform apply를 수행하지 않습니다. IAM 역할과 저장소 변수도 workflow가 생성하지 않습니다.
+롤백은 infra의 두 이미지 pin을 이전 digest로 되돌리는 PR로 진행합니다. workflow는 IAM 역할·토큰·저장소 변수를 만들지 않고, Terraform apply·클러스터 생성·앱 데이터 이전도 수행하지 않습니다.

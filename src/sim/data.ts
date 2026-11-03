@@ -42,58 +42,15 @@ export const SAMPLE = {
   tables: 38,
 };
 
-export interface Repo {
-  label: string;
-  ok: boolean;
-  commit?: string;
-  lang?: string;
-  yaml?: string;
-}
-
-export const REPOS: Record<string, Repo> = {
-  "todo-api": { label: "team-charlie/todo-api", ok: true },
-  "notice-board": {
-    label: "team-charlie/notice-board",
-    ok: true,
-    commit: "3f9c1a0",
-    lang: "Node.js 22, 멀티 스테이지 빌드",
-    yaml: "name: notice-board\nservices:\n  - name: web\n    path: .\n    port: 3000\n    healthCheck: /healthz\n    public: true\nresources:\n  - name: main-db\n    type: postgres",
-  },
-  "analytics-worker": { label: "team-charlie/analytics-worker", ok: false },
-};
-
 /** [at seconds, message] */
 export type LogEntry = [number, string];
-/** [label, detail, start, end] — end null means "until deploy end" */
-export type Stage = [string, string, number, number | null];
 
 /** k6 successful writes per simulated second */
 export const RATE = 20;
 export const FILE_RATE = 0.5;
 
-export const DEP_STAGES: Stage[] = [
-  ["코드 받기", "main, 3f9c1a0", 0, 2],
-  ["DB와 버킷 생성", "빌드와 동시에 진행", 2, 38],
-  ["이미지 빌드", "BuildKit, 대기열 1/3", 2, 52],
-  ["이미지 업로드", "ECR, notice-board:3f9c1a0", 52, 55],
-  ["배포", "Argo CD 동기화, 선택한 환경에 동시 배포", 55, null],
-];
+/** Simulated seconds after a deployment is created when each environment reports Synced, Healthy. */
 export const DEP_READY: Record<EnvKey, number> = { gcp: 141, onprem: 150, aws: 161 };
-export const DEP_LOG: LogEntry[] = [
-  [0, "push 이벤트 수신 (main, 3f9c1a0)"],
-  [2, "빌드 시작 (대기열 1/3), DB와 버킷 생성 시작"],
-  [2, "#1 [internal] load build definition from Dockerfile"],
-  [3, "#2 [internal] load metadata for docker.io/library/node:22-alpine"],
-  [5, "#4 [deps 1/2] COPY package.json package-lock.json ./"],
-  [6, "#5 [deps 2/2] RUN --mount=type=cache,target=/root/.npm npm ci"],
-  [31, "#5 added 412 packages in 24s"],
-  [33, "#6 [build 1/1] RUN npm run build"],
-  [38, "DB와 버킷 생성 완료"],
-  [47, "#7 [runtime 1/2] COPY --from=build /app/dist ./dist"],
-  [50, "#8 exporting to image"],
-  [52, "#9 pushing <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/notice-board:3f9c1a0"],
-  [55, "배포 설정 커밋, Argo CD 동기화 요청"],
-];
 
 /* ---------- onboarding: bring an app running outside the platform onto a cluster ---------- */
 // 3장 7번(AI 범위) 결정 전 시안. 결정에 따라 빠질 수 있다.

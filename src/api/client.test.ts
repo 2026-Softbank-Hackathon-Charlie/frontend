@@ -1,8 +1,13 @@
 import {
   ApiError,
   approvePlan,
+  createApp,
+  createDeployment,
+  deleteApp,
   draftPlan,
   getAgentSession,
+  getApp,
+  getDeployment,
   getHealth,
   getPlan,
   getSecurity,
@@ -14,13 +19,17 @@ import {
   listAllAgentEvents,
   listApps,
   listAudit,
+  listDeployments,
+  listGitHubRepos,
   newIdempotencyKey,
   putPlanAttachment,
   rejectPlan,
   rollbackMigration,
   setToken,
+  specInvalid,
   startMigration,
   switchMigration,
+  validateAppSpec,
 } from "./client";
 import { at, hang, installFetch, json, sequence } from "./fakes";
 import type { AgentEvent } from "./types";
@@ -212,5 +221,68 @@ describe("client requests", () => {
     setToken(null);
     expect(hasToken()).toBe(false);
     for (const spy of logs) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("apps from GitHub", () => {
+  const validation = { valid: false, spec: { name: "moimroom", services: [] }, commit: "9fceb02", errors: [{ path: "services[0].port", message: "must be between 1 and 65535" }] };
+
+  it("reads a 422 invalid_app_spec as a check result, not only an error", async () => {
+    installFetch(() => json(422, { error: { code: "invalid_app_spec", message: "platform.yaml breaks 1 rule" }, validation }));
+    const e = await createApp({ repo: "org/moimroom", environments: ["eks"] }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e).toMatchObject({ status: 422, code: "invalid_app_spec", message: "platform.yaml breaks 1 rule" });
+    expect(specInvalid(e)).toEqual(validation);
+
+    // Any other failure has no check result.
+    installFetch(() => json(409, { error: { code: "app_exists", message: "moimroom is registered" } }));
+    expect(specInvalid(await createApp({ repo: "org/moimroom", environments: ["eks"] }).catch((x: unknown) => x))).toBeUndefined();
+    installFetch(() => json(422, { error: { code: "invalid_app_spec", message: "x" }, validation: "broken" }));
+    expect(specInvalid(await createApp({ repo: "org/moimroom", environments: ["eks"] }).catch((x: unknown) => x))).toBeUndefined();
+  });
+
+  it("sends the register, deploy, validate and list requests the contract describes", async () => {
+    setToken("op");
+    const calls = installFetch((c) => {
+      if (c.url === "/v1/apps" && c.method === "POST") return json(201, { app: {}, deployment: { id: "dep_1" } });
+      if (c.url === "/v1/apps/validate") return json(200, { valid: true, errors: [] });
+      if (c.url.startsWith("/v1/apps/moimroom/deployments") && c.method === "POST") return json(202, { id: "dep_2" });
+      if (c.url.startsWith("/v1/apps/moimroom/deployments")) return json(200, { deployments: [] });
+      if (c.url === "/v1/deployments/dep_1") return json(200, { id: "dep_1" });
+      if (c.url === "/v1/github/repos") return json(200, { repos: [] });
+      return json(200, { name: "moimroom" });
+    });
+    expect((await createApp({ repo: "org/moimroom", branch: "main", environments: ["eks", "gke"], autoDeploy: false })).deployment.id).toBe("dep_1");
+    await validateAppSpec({ repo: "org/moimroom", branch: "dev" });
+    expect((await createDeployment("moimroom")).id).toBe("dep_2");
+    await createDeployment("moimroom", { ref: "abc123", environments: ["eks"] });
+    await listDeployments("moimroom", { limit: 5 });
+    await getDeployment("dep_1");
+    await getApp("moimroom");
+    await listGitHubRepos();
+    expect(calls.map((c) => c.method + " " + c.url)).toEqual([
+      "POST /v1/apps",
+      "POST /v1/apps/validate",
+      "POST /v1/apps/moimroom/deployments",
+      "POST /v1/apps/moimroom/deployments",
+      "GET /v1/apps/moimroom/deployments?limit=5",
+      "GET /v1/deployments/dep_1",
+      "GET /v1/apps/moimroom",
+      "GET /v1/github/repos",
+    ]);
+    expect(JSON.parse(calls[0].body!)).toEqual({ repo: "org/moimroom", branch: "main", environments: ["eks", "gke"], autoDeploy: false });
+    expect(JSON.parse(calls[1].body!)).toEqual({ repo: "org/moimroom", branch: "dev" });
+    expect(calls[2].body).toBeUndefined(); // the app's branch, all of its environments
+    expect(JSON.parse(calls[3].body!)).toEqual({ ref: "abc123", environments: ["eks"] });
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer op");
+  });
+
+  it("deletes with a bare 202 and reports why a delete was refused", async () => {
+    const calls = installFetch(() => new Response(null, { status: 202 }));
+    await expect(deleteApp("moimroom")).resolves.toBeUndefined();
+    expect(calls[0]).toMatchObject({ method: "DELETE", url: "/v1/apps/moimroom" });
+
+    installFetch(() => json(409, { error: { code: "app_not_registered", message: "shop is only in PLATFORM_APPS_FILE" } }));
+    await expect(deleteApp("shop")).rejects.toMatchObject({ status: 409, code: "app_not_registered" });
   });
 });
