@@ -14,16 +14,17 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 
 ## 버전 히스토리
 
-머지된 PR마다 그 시점의 콘솔을 띄워서 단계별로 찍은 화면은 **[docs/HISTORY.md](docs/HISTORY.md)**에 있습니다.
+머지된 PR마다 그 시점의 콘솔을 띄워서 단계별로 찍은 화면은 [docs/HISTORY.md](docs/HISTORY.md)에 있습니다. 머지 시각은 한국 시간입니다.
 
-| 버전 | PR | 머지 (KST) | 작성 | 내용 |
-| --- | --- | --- | --- | --- |
-| v1 | [#1](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/1) | 11/2 01:48 | 박준석 | 시연 시뮬레이션 콘솔 첫 버전 (개요, 앱, 새 앱 배포, 기존 앱 가져오기, 이전, 환경) |
-| v2 | [#3](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/3) | 11/2 15:03 | 조서현 | 실제 플랫폼 API 데이터 계층 `src/api` (화면 변화 없음) |
-| v3 | [#2](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/2) | 11/2 15:37 | 이태훈 | 이전 흐름을 플랫폼 계약에 맞춤(AI 계획, 리허설, revision 승인, 카나리, 전환 승인), 실제 API 연결, 경로별 결과·AI 활동·보안 화면 |
-| v4 | [#4](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/4) | 11/2 19:48 | 조서현 | 전환 후 관찰(observe) 표시 (실제 API 모드에서만 보임) |
-| v5 | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | 조서현 | GitHub 레포로 앱 등록, platform.yaml 확인, 배포 진행 화면, 앱 상태 필터 |
-| v6 | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | 김동윤 | 콘솔 이미지를 infra GitOps PR로 배포하는 workflow (화면 변화 없음) |
+| 버전 | PR | 머지 | 내용 |
+| --- | --- | --- | --- |
+| v1 | [#1](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/1) | 11/2 01:48 | 시연용 시뮬레이션 콘솔 첫 버전 |
+| v2 | [#3](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/3) | 11/2 15:03 | 실제 플랫폼 API를 읽는 코드 (화면 변화 없음) |
+| v3 | [#2](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/2) | 11/2 15:37 | 이전 화면을 플랫폼 흐름에 맞추고 실제 API 연결 |
+| v4 | [#4](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/4) | 11/2 19:48 | 전환 후 관찰 표시 (실제 API 모드에서만) |
+| v5 | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | GitHub 레포로 앱 등록, 배포 진행 화면 |
+| v6 | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | GitOps로 콘솔 이미지 배포 (화면 변화 없음) |
+| v7 | [#7](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/7) | 11/3 14:07 | 버전별 화면 히스토리 문서 (화면 변화 없음) |
 
 ## 화면
 

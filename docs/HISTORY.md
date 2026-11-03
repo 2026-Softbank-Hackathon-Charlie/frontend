@@ -2,22 +2,23 @@
 
 main에 머지된 PR 순서대로, 그 시점의 콘솔이 어떤 모습이었는지 정리했습니다. 각 버전의 스크린샷은 **그 PR의 머지 커밋을 그대로 띄워서** 시뮬레이션 모드로 찍었습니다(1440px 너비, 전체 페이지). 숫자와 로그는 모두 가상입니다.
 
-| 버전 | PR | 머지 (KST) | 작성 | 화면 변화 | 한 줄 요약 |
-| --- | --- | --- | --- | --- | --- |
-| [v1](#v1--pr-1-charlie-콘솔-첫-버전) | [#1](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/1) | 11/2 01:48 | 박준석 | 있음 (19장) | 시연 시뮬레이션 콘솔 첫 버전 |
-| [v2](#v2--pr-3-실제-플랫폼-api-데이터-계층) | [#3](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/3) | 11/2 15:03 | 조서현 | 없음 | 실제 플랫폼 API 데이터 계층 (`src/api`) |
-| [v3](#v3--pr-2-플랫폼-api-계약-기준-콘솔) | [#2](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/2) | 11/2 15:37 | 이태훈 | 있음 (13장) | 이전 흐름을 플랫폼 계약에 맞추고 실제 API 연결 |
-| [v4](#v4--pr-4-전환-후-관찰) | [#4](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/4) | 11/2 19:48 | 조서현 | 실제 API 모드만 | 전환 후 관찰(observe) 표시 |
-| [v5](#v5--pr-6-github-레포로-앱-등록과-배포) | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | 조서현 | 있음 (10장) | GitHub 레포로 앱 등록, 배포 진행 화면 |
-| [v6](#v6--pr-5-gitops-배포-workflow) | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | 김동윤 | 없음 | 콘솔 이미지를 infra GitOps PR로 배포 |
+| 버전 | PR | 머지 | 화면 | 내용 |
+| --- | --- | --- | --- | --- |
+| [v1](#v1--pr-1-charlie-콘솔-첫-버전) | [#1](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/1) | 11/2 01:48 | 19장 | 시연용 시뮬레이션 콘솔 첫 버전 |
+| [v2](#v2--pr-3-실제-플랫폼-api-데이터-계층) | [#3](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/3) | 11/2 15:03 | 변화 없음 | 실제 플랫폼 API를 읽는 코드 |
+| [v3](#v3--pr-2-플랫폼-api-계약-기준-콘솔) | [#2](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/2) | 11/2 15:37 | 13장 | 이전 화면을 플랫폼 흐름에 맞추고 실제 API 연결 |
+| [v4](#v4--pr-4-전환-후-관찰) | [#4](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/4) | 11/2 19:48 | 실제 API만 | 전환 후 관찰 표시 |
+| [v5](#v5--pr-6-github-레포로-앱-등록과-배포) | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | 10장 | GitHub 레포로 앱 등록, 배포 진행 화면 |
+| [v6](#v6--pr-5-gitops-배포-workflow) | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | 변화 없음 | GitOps로 콘솔 이미지 배포 |
+| [v7](#v7--pr-7-버전별-화면-히스토리) | [#7](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/7) | 11/3 14:07 | 변화 없음 | 버전별 화면 히스토리 문서 |
 
-지금 main의 화면은 [README의 화면](../README.md#화면)에 있습니다. v6 이후 화면 변화는 없어서 v5와 같습니다.
+머지 시각은 한국 시간입니다. 지금 main의 화면은 [README의 화면](../README.md#화면)에 있습니다. v6 이후 화면 변화는 없어서 v5와 같습니다.
 
 ---
 
 ## v1 · PR #1: Charlie 콘솔 첫 버전
 
-머지 커밋 `6c58504` · 박준석 · 11/2 01:48
+머지 커밋 `6c58504` · 11/2 01:48
 
 팀의 콘솔 시안을 Vite + React + TypeScript로 옮긴 첫 버전입니다. SoftBank 디자인 시스템 토큰과 softbank.jp의 애니메이션 방식을 적용했고, 데이터는 모두 시연용 시뮬레이션입니다. 메뉴는 개요, 앱, 이전, 환경 네 개였습니다.
 
@@ -66,7 +67,7 @@ main에 머지된 PR 순서대로, 그 시점의 콘솔이 어떤 모습이었�
 
 ## v2 · PR #3: 실제 플랫폼 API 데이터 계층
 
-머지 커밋 `91a38af` · 조서현 · 11/2 15:03 · **화면 변화 없음**
+머지 커밋 `91a38af` · 11/2 15:03 · **화면 변화 없음**
 
 콘솔이 실제 플랫폼 API를 부를 때 쓸 `src/api`를 추가했습니다. 화면 코드는 건드리지 않아서 화면은 v1과 같습니다.
 
@@ -80,7 +81,7 @@ main에 머지된 PR 순서대로, 그 시점의 콘솔이 어떤 모습이었�
 
 ## v3 · PR #2: 플랫폼 API 계약 기준 콘솔
 
-머지 커밋 `0064c16` · 이태훈 · 11/2 15:37
+머지 커밋 `0064c16` · 11/2 15:37
 
 v2의 `src/api` 위에서 콘솔을 다시 짰습니다. 토큰을 넣으면 실제 플랫폼 API를 읽고, 없으면 같은 화면을 시뮬레이션으로 보여 줍니다. 시뮬레이션도 계약과 같은 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`)을 만들어서 화면 코드는 하나입니다. 이름이 HopCharlie로 바뀌었고, 경로별 결과, AI 활동, 보안, 디자인 시스템 화면이 생겼습니다.
 
@@ -120,7 +121,7 @@ AI가 Plan을 만들고 샌드박스에서 리허설한 뒤, 운영자가 화면
 
 ## v4 · PR #4: 전환 후 관찰
 
-머지 커밋 `5712152` · 조서현 · 11/2 19:48 · **시뮬레이션 화면 변화 없음**
+머지 커밋 `5712152` · 11/2 19:48 · **시뮬레이션 화면 변화 없음**
 
 platform #19(전환 후 SLO 관찰과 자동 롤백)를 콘솔에 반영했습니다.
 
@@ -133,7 +134,7 @@ platform #19(전환 후 SLO 관찰과 자동 롤백)를 콘솔에 반영했습�
 
 ## v5 · PR #6: GitHub 레포로 앱 등록과 배포
 
-머지 커밋 `b43ca12` · 조서현 · 11/3 12:07
+머지 커밋 `b43ca12` · 11/3 12:07
 
 platform #30(GitHub 앱 배포 계약, ADR 0011)을 콘솔에 연결했습니다. 새 앱 배포는 고르는 대로 platform.yaml을 확인하고, 배포는 전용 진행 화면(`#deploy-<id>`)에서 봅니다. 앱 목록에는 상태 필터가 생겼습니다.
 
@@ -170,7 +171,7 @@ platform #30(GitHub 앱 배포 계약, ADR 0011)을 콘솔에 연결했습니다
 
 ## v6 · PR #5: GitOps 배포 workflow
 
-머지 커밋 `7427b4f` · 김동윤 · 11/3 13:25 · **화면 변화 없음**
+머지 커밋 `7427b4f` · 11/3 13:25 · **화면 변화 없음**
 
 콘솔 이미지 배포 방식만 바꿨습니다. 화면은 v5와 같습니다.
 
@@ -178,6 +179,14 @@ platform #30(GitHub 앱 배포 계약, ADR 0011)을 콘솔에 연결했습니다
 - 테스트와 빌드를 통과하면 ECR에 7자리 SHA 태그로 이미지를 올리고, infra의 `images.console`과 `images.lock.json`을 바꾸는 **검토용 PR**을 엽니다. 자동 머지는 하지 않습니다.
 - 실제 반영은 infra PR을 머지한 뒤 관리 EKS의 Argo CD가 동기화해야 끝납니다.
 - 자세한 준비와 순서는 [README의 수동 배포](../README.md#수동-배포-github-actions)에 있습니다.
+
+---
+
+## v7 · PR #7: 버전별 화면 히스토리
+
+머지 커밋 `1a163c0` · 11/3 14:07 · **화면 변화 없음**
+
+이 문서와 README의 버전 표를 추가했습니다. 버전마다 머지 커밋을 그대로 띄워 찍은 스크린샷 42장이 `docs/history/`에 있습니다. 앱 코드는 바뀌지 않았습니다.
 
 ---
 
