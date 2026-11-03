@@ -75,17 +75,27 @@ export interface DeploymentModel {
   now: number;
 }
 
+/** Korean texts for the deploy calls' error codes, used for the simulation's refusals too. The server's English message is not repeated. */
+const DEPLOY_ERRORS: Record<string, string> = {
+  app_not_registered: "PLATFORM_APPS_FILE에만 있는 앱이라 여기서 배포하거나 지울 수 없습니다",
+  github_not_configured: "서버에 GitHub App이 설정되어 있지 않습니다",
+  github_unreachable: "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요",
+  gateway_unreachable: "트래픽 게이트웨이에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요",
+  cluster_busy: "이전 중이라 트래픽 게이트웨이가 쓰기를 잡고 있습니다. 이전이 끝난 뒤 다시 시도하세요",
+  branch_exists: "이 브랜치는 이미 배포하고 있습니다. 앱의 기본 브랜치이거나 이미 추가한 브랜치입니다",
+  instance_exists: "이 브랜치의 인스턴스 이름을 다른 브랜치가 이미 쓰고 있습니다. feature/x와 feature-x처럼 인스턴스 이름이 같아지는 브랜치는 하나만 추가할 수 있습니다",
+  instance_limit: "앱 하나에 인스턴스는 기본 인스턴스를 포함해 " + dep.MAX_INSTANCES + "개까지입니다. 인스턴스를 하나 지운 뒤 추가하세요",
+  default_instance: "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다",
+  instance_not_found: "인스턴스를 찾을 수 없습니다. 이미 지워졌을 수 있습니다",
+};
+
 /** A short Korean message for a failed deploy call. */
 export function deployErrorText(e: unknown): string {
   if (e instanceof ApiError) {
+    // These two need the server's detail: what in the request is wrong, which name is taken.
+    if (e.code === "invalid_request") return "요청이 올바르지 않습니다: " + e.message;
     if (e.code === "app_exists") return "같은 이름의 앱이 이미 있거나 플랫폼이 쓰는 이름입니다: " + e.message;
-    if (e.code === "app_not_registered") return "PLATFORM_APPS_FILE에만 있는 앱이라 여기서 배포하거나 지울 수 없습니다";
-    if (e.code === "github_not_configured") return "서버에 GitHub App이 설정되어 있지 않습니다";
-    if (e.code === "github_unreachable") return "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요";
-    if (e.code === "branch_exists") return "이 브랜치는 이미 배포하고 있습니다. 앱의 기본 브랜치이거나 이미 추가한 브랜치입니다";
-    if (e.code === "instance_exists") return "다른 브랜치가 같은 인스턴스 이름을 쓰고 있습니다. 슬러그가 같은 브랜치는 하나만 추가할 수 있습니다: " + e.message;
-    if (e.code === "instance_limit") return "앱 하나에 인스턴스는 기본 인스턴스를 포함해 " + dep.MAX_INSTANCES + "개까지입니다. 인스턴스를 하나 지운 뒤 추가하세요";
-    if (e.code === "default_instance") return "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다";
+    if (Object.hasOwn(DEPLOY_ERRORS, e.code)) return DEPLOY_ERRORS[e.code];
   }
   return errorText(e);
 }
@@ -199,14 +209,15 @@ export function useSimApp(name: string): AppModel {
     },
     addBranch: async (branch, autoDeploy) => {
       const refused = dep.checkAddInstance(S.deploy, name, branch);
+      if (refused && "code" in refused) return { error: deployErrorText(new ApiError(refused.status, refused.code, refused.message)) };
       if (refused) return refused;
       dispatch({ type: "instance-create", name, branch, autoDeploy });
       return { deploymentId: S.deploy.deployments[0].id };
     },
     removeInstance: async (instance) => {
       const inst = instancesOf(app).find((i) => i.name === instance);
-      if (!inst) return "인스턴스를 찾을 수 없습니다";
-      if (inst.default) return "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다";
+      if (!inst) return deployErrorText(new ApiError(404, "instance_not_found", "instance not found"));
+      if (inst.default) return deployErrorText(new ApiError(409, "default_instance", "the default instance goes only with the app"));
       dispatch({ type: "instance-delete", name, instance });
       return "";
     },

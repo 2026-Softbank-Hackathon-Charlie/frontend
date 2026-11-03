@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setToken } from "../api/client";
 import { at, deploymentEventMsg, fakeDeployment, hang, installFetch, json, snapshotMsg, sse, type FakeCall, type FakeHandler } from "../api/fakes";
-import type { App as ApiApp, AppInstance, AppSpec } from "../api/types";
+import type { App as ApiApp, AppDeploy, AppInstance, AppSpec, Deployment } from "../api/types";
 import { App } from "../App";
 import { connect } from "../data/live";
 import { createSim, SimProvider, type Sim } from "../sim/store";
@@ -18,6 +18,9 @@ function setup(hash = "") {
   );
   return { sim, user };
 }
+
+/** The page's subtitle, under its h1. */
+const subtitle = () => screen.getByRole("heading", { level: 1 }).parentElement!.querySelector("p")!;
 
 function ticks(sim: Sim, n: number) {
   act(() => {
@@ -123,7 +126,10 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(sim.state.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
 
     await user.click(screen.getByRole("button", { name: "앱 삭제" }));
-    await user.click(within(screen.getByRole("group", { name: "앱 삭제 확인" })).getByRole("button", { name: "삭제" }));
+    const again = screen.getByRole("group", { name: "앱 삭제 확인" });
+    expect(within(again).getByRole("button", { name: "삭제" })).toBeDisabled();
+    await user.type(within(again).getByLabelText("확인하려면 앱 이름 todo-api을(를) 입력하세요"), "todo-api ");
+    await user.click(within(again).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(window.location.hash).toBe("#apps"));
     expect(sim.state.deploy.apps).toHaveLength(0);
     expect(confirm).not.toHaveBeenCalled();
@@ -131,7 +137,7 @@ describe("GitHub deploy screens (simulation)", () => {
 
   it("deploys again from the app page and supersedes nothing that already finished", async () => {
     const { sim, user } = setup("#app-todo-api");
-    await user.click(screen.getByRole("button", { name: "다시 배포" }));
+    await user.click(screen.getByRole("button", { name: "기본 브랜치 다시 배포" }));
     expect(await screen.findByRole("heading", { level: 1, name: "todo-api 배포" })).toBeInTheDocument();
     expect(sim.state.deploy.deployments[0]).toMatchObject({ trigger: "manual", status: "queued" });
     expect(sim.state.deploy.deployments.slice(1).every((d) => d.status === "healthy")).toBe(true);
@@ -158,9 +164,10 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(within(section).queryByRole("button", { name: "notice-board 삭제" })).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("추가할 브랜치"), "dev");
+    expect(screen.getByText("인스턴스 이름: notice-board--dev")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
     expect(await screen.findByRole("heading", { level: 1, name: "notice-board--dev 배포" })).toBeInTheDocument();
-    expect(screen.getByText(/^dev 브랜치, 등록 배포, dev/)).toBeInTheDocument();
+    expect(subtitle()).toHaveTextContent(/^dev 브랜치, 등록 배포, 8c21e7f,/);
     const id = window.location.hash.slice("#deploy-".length);
     ticks(sim, 60);
     expect(screen.getByText("2/4 빌드에서 실패")).toBeInTheDocument();
@@ -169,7 +176,7 @@ describe("GitHub deploy screens (simulation)", () => {
     const dev = within(section).getByText("notice-board--dev").closest("tr") as HTMLElement;
     const main = within(section).getAllByText("notice-board")[0].closest("tr") as HTMLElement;
     expect(within(dev).getByRole("link", { name: "https://notice-board--dev.hopcharlie.dev" })).toBeInTheDocument();
-    expect(within(dev).getByRole("link", { name: "notice-board--dev 마지막 배포" })).toHaveAttribute("href", "#deploy-" + id);
+    expect(within(dev).getByRole("link", { name: "notice-board--dev 최근 배포" })).toHaveAttribute("href", "#deploy-" + id);
     expect(dev).toHaveTextContent("실패");
     expect(main).toHaveTextContent("AWS EKS 정상");
     const history = screen.getByRole("heading", { name: "배포 이력" }).closest("section") as HTMLElement;
@@ -182,7 +189,7 @@ describe("GitHub deploy screens (simulation)", () => {
     const del = within(box).getByRole("button", { name: "삭제" });
     await user.type(within(box).getByLabelText("확인하려면 인스턴스 이름 notice-board--dev을(를) 입력하세요"), "notice-board--de");
     expect(del).toBeDisabled();
-    await user.type(within(box).getByRole("textbox"), "v");
+    await user.type(within(box).getByRole("textbox"), "v ");
     await user.click(del);
     expect(screen.queryByRole("group", { name: "인스턴스 삭제 확인" })).not.toBeInTheDocument();
     expect(sim.state.deploy.apps.find((a) => a.name === "notice-board")?.deploy?.instances.map((i) => i.name)).toEqual(["notice-board"]);
@@ -199,7 +206,8 @@ describe("GitHub deploy screens (simulation)", () => {
     await appPage("notice-board");
     await user.type(screen.getByLabelText("추가할 브랜치"), "dev");
     await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("브랜치를 추가하지 못했습니다.브랜치 dev은(는) 이미 배포하고 있습니다");
+    // the same text as the live server's 409 branch_exists
+    expect(screen.getByRole("alert")).toHaveTextContent("브랜치를 추가하지 못했습니다.이 브랜치는 이미 배포하고 있습니다. 앱의 기본 브랜치이거나 이미 추가한 브랜치입니다");
 
     await user.clear(screen.getByLabelText("추가할 브랜치"));
     await user.type(screen.getByLabelText("추가할 브랜치"), "feature/search");
@@ -353,7 +361,7 @@ describe("GitHub deploy screens (platform API)", () => {
     expect(window.location.hash).toBe("#new");
   });
 
-  it("sends DELETE only after the in-page confirmation", async () => {
+  it("sends DELETE only after the app's name is typed in the in-page confirmation", async () => {
     const { user } = setup("#app-moimroom");
     const calls = live((c, u) => {
       if (u.pathname === "/v1/apps/moimroom" && c.method === "GET") return json(200, app);
@@ -362,14 +370,18 @@ describe("GitHub deploy screens (platform API)", () => {
       return undefined;
     });
     await user.click(await screen.findByRole("button", { name: "앱 삭제" }));
+    const box = screen.getByRole("group", { name: "앱 삭제 확인" });
+    expect(box).toHaveTextContent("gitops 저장소에서 apps/moimroom/, apps/moimroom--dev/을 지우고");
+    expect(within(box).getByRole("button", { name: "삭제" })).toBeDisabled();
+    await user.type(within(box).getByLabelText("확인하려면 앱 이름 moimroom을(를) 입력하세요"), " moimroom");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-    await user.click(within(screen.getByRole("group", { name: "앱 삭제 확인" })).getByRole("button", { name: "삭제" }));
+    await user.click(within(box).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(window.location.hash).toBe("#apps"));
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/v1/apps/moimroom"]);
   });
 
   /** The app page, with the app and two deployments (main healthy, dev failed). */
-  function appRoutes(extra: (c: FakeCall, u: URL) => Response | undefined = () => undefined) {
+  function appRoutes(extra: (c: FakeCall, u: URL) => Response | Promise<Response> | undefined = () => undefined) {
     return live((c, u) => {
       const r = extra(c, u);
       if (r) return r;
@@ -380,7 +392,7 @@ describe("GitHub deploy screens (platform API)", () => {
     });
   }
 
-  it("lists the instances and adds a branch with POST /v1/apps/{name}/instances, then opens its deployment", async () => {
+  it("lists the instances, previews the new instance's name and adds a branch with POST /v1/apps/{name}/instances", async () => {
     const { user } = setup("#app-moimroom");
     const calls = appRoutes((c, u) =>
       u.pathname === "/v1/apps/moimroom/instances" && c.method === "POST"
@@ -390,15 +402,29 @@ describe("GitHub deploy screens (platform API)", () => {
     const section = (await screen.findByRole("heading", { name: "브랜치별 인스턴스" })).closest("section") as HTMLElement;
     const row = within(section).getByText("moimroom--dev").closest("tr") as HTMLElement;
     expect(within(row).getByRole("link", { name: "https://moimroom--dev.hopcharlie.dev" })).toBeInTheDocument();
-    expect(within(row).getByRole("link", { name: "moimroom--dev 마지막 배포" })).toHaveAttribute("href", "#deploy-dep_7");
+    expect(within(row).getByRole("link", { name: "moimroom--dev 최근 배포" })).toHaveAttribute("href", "#deploy-dep_7");
     expect(row).toHaveTextContent("꺼짐");
     expect(within(section).getByRole("button", { name: "moimroom--dev 삭제" })).toBeInTheDocument();
     expect(within(section).queryByRole("button", { name: "moimroom 삭제" })).not.toBeInTheDocument();
     expect(screen.getByText("인스턴스 2/3개")).toBeInTheDocument();
+    // what shows only the default instance says so
+    expect(screen.getByRole("button", { name: "기본 브랜치 다시 배포" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "기본 인스턴스(moimroom) 환경별 상태" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "기본 인스턴스(moimroom) platform.yaml" })).toBeInTheDocument();
+    expect(screen.getByText("기본 인스턴스 공개 주소")).toBeInTheDocument();
     const history = screen.getByRole("heading", { name: "배포 이력" }).closest("section") as HTMLElement;
     expect(within(history).getAllByRole("row")[1]).toHaveTextContent("dep_7dev실패");
 
-    await user.type(screen.getByLabelText("추가할 브랜치"), "feature/x");
+    const input = screen.getByLabelText("추가할 브랜치");
+    await user.type(input, "_");
+    expect(screen.getByText("브랜치 이름에 영문자나 숫자가 없어 인스턴스 이름을 만들 수 없습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "브랜치 추가" })).toBeDisabled();
+    await user.clear(input);
+    await user.type(input, "feature/" + "x".repeat(50));
+    expect(screen.getByText("인스턴스 이름: moimroom--feature-" + "x".repeat(28) + "-(해시 6자리)")).toBeInTheDocument();
+    await user.clear(input);
+    await user.type(input, "feature/x");
+    expect(screen.getByText("인스턴스 이름: moimroom--feature-x")).toBeInTheDocument();
     await user.click(screen.getByLabelText("push할 때마다 자동으로 배포"));
     await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
     await waitFor(() => expect(window.location.hash).toBe("#deploy-dep_9"));
@@ -406,43 +432,81 @@ describe("GitHub deploy screens (platform API)", () => {
     expect(JSON.parse(post.body!)).toEqual({ branch: "feature/x", autoDeploy: false });
   });
 
-  it("says why a branch was refused: a 409 as a message, a 422 as the check result", async () => {
+  it("says why a branch was refused in Korean: 409 and 400 as messages, 422 as the check result", async () => {
     const { user } = setup("#app-moimroom");
-    let n = 0;
-    appRoutes((c, u) => {
-      if (u.pathname !== "/v1/apps/moimroom/instances" || c.method !== "POST") return undefined;
-      if (n++ === 0) return json(409, { error: { code: "instance_exists", message: "moimroom--dev is taken by branch Dev" } });
-      return json(422, {
-        error: { code: "invalid_app_spec", message: "platform.yaml breaks 1 rule" },
-        validation: { valid: false, spec, errors: [{ path: "name", message: "must be moimroom, the app's name" }] },
-      });
-    });
+    const answers = [
+      json(409, { error: { code: "instance_exists", message: "the instance name moimroom--dev of branch Dev is already taken by another branch or app" } }),
+      json(400, { error: { code: "invalid_request", message: "branch must be a git branch name of letters, digits and . _ / -" } }),
+      json(422, {
+        error: { code: "invalid_app_spec", message: "platform.yaml is invalid" },
+        validation: { valid: false, spec, errors: [{ path: "name", message: 'is "moimroom2", but the app is registered as "moimroom"' }] },
+      }),
+    ];
+    appRoutes((c, u) => (u.pathname === "/v1/apps/moimroom/instances" && c.method === "POST" ? answers.shift() : undefined));
     await user.type(await screen.findByLabelText("추가할 브랜치"), "Dev");
     await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("다른 브랜치가 같은 인스턴스 이름을 쓰고 있습니다. 슬러그가 같은 브랜치는 하나만 추가할 수 있습니다: moimroom--dev is taken by branch Dev");
+    const taken = await screen.findByRole("alert");
+    expect(taken).toHaveTextContent("이 브랜치의 인스턴스 이름을 다른 브랜치가 이미 쓰고 있습니다. feature/x와 feature-x처럼 인스턴스 이름이 같아지는 브랜치는 하나만 추가할 수 있습니다");
+    expect(taken).not.toHaveTextContent("already taken");
+    await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("요청이 올바르지 않습니다: branch must be a git branch name"));
     await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
     const fix = (await screen.findByText("직접 고쳐야 하는 항목")).closest(".box") as HTMLElement;
-    expect(within(fix).getByText("must be moimroom, the app's name")).toBeInTheDocument();
+    expect(within(fix).getByText('is "moimroom2", but the app is registered as "moimroom"')).toBeInTheDocument();
     expect(window.location.hash).toBe("#app-moimroom");
   });
 
-  it("deletes an added instance only after its name is typed, and deploys one instance from its row", async () => {
+  it("deletes an added instance only after its name is typed, keeps every button waiting meanwhile, and drops its row", async () => {
     const { user } = setup("#app-moimroom");
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let deleted = false;
+    const withoutDev: ApiApp = { ...app, deploy: { ...app.deploy!, instances: [main] } };
     const calls = appRoutes((c, u) => {
-      if (u.pathname === "/v1/apps/moimroom/instances/moimroom--dev" && c.method === "DELETE") return new Response(null, { status: 202 });
-      if (u.pathname === "/v1/apps/moimroom/deployments" && c.method === "POST") return json(202, fakeDeployment({ id: "dep_8", branch: "dev", instance: "moimroom--dev", trigger: "manual" }));
+      if (u.pathname === "/v1/apps/moimroom/instances/moimroom--dev" && c.method === "DELETE")
+        return gate.then(() => {
+          deleted = true;
+          return new Response(null, { status: 202 });
+        });
+      if (deleted && u.pathname === "/v1/apps/moimroom" && c.method === "GET") return json(200, withoutDev);
       return undefined;
     });
     const section = (await screen.findByRole("heading", { name: "브랜치별 인스턴스" })).closest("section") as HTMLElement;
     await user.click(within(section).getByRole("button", { name: "moimroom--dev 삭제" }));
     const box = screen.getByRole("group", { name: "인스턴스 삭제 확인" });
     expect(within(box).getByRole("button", { name: "삭제" })).toBeDisabled();
-    await user.type(within(box).getByRole("textbox"), "moimroom--dev");
+    await user.type(within(box).getByLabelText("확인하려면 인스턴스 이름 moimroom--dev을(를) 입력하세요"), "moimroom--dev ");
     await user.click(within(box).getByRole("button", { name: "삭제" }));
-    await waitFor(() => expect(screen.queryByRole("group", { name: "인스턴스 삭제 확인" })).not.toBeInTheDocument());
-    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/v1/apps/moimroom/instances/moimroom--dev"]);
 
-    await user.click(within(section).getByRole("button", { name: "moimroom--dev 배포" }));
+    // in flight: the delete says so, nothing else claims to be running, and the app's own buttons wait
+    expect(await within(box).findByRole("button", { name: "삭제하는 중" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "브랜치 추가" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "기본 브랜치 다시 배포" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "앱 삭제" })).toBeDisabled();
+    expect(within(section).getByRole("button", { name: "moimroom 배포" })).toBeDisabled();
+
+    release();
+    await waitFor(() => expect(screen.queryByRole("group", { name: "인스턴스 삭제 확인" })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(section).queryByText("moimroom--dev")).not.toBeInTheDocument());
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/v1/apps/moimroom/instances/moimroom--dev"]);
+    expect(screen.getByRole("button", { name: "기본 브랜치 다시 배포" })).toBeEnabled();
+  });
+
+  it("deploys the default instance from its row with no branch in the body", async () => {
+    const { user } = setup("#app-moimroom");
+    const calls = appRoutes((c, u) => (u.pathname === "/v1/apps/moimroom/deployments" && c.method === "POST" ? json(202, fakeDeployment({ id: "dep_8", trigger: "manual" })) : undefined));
+    await user.click(await screen.findByRole("button", { name: "moimroom 배포" }));
+    await waitFor(() => expect(window.location.hash).toBe("#deploy-dep_8"));
+    const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/apps/moimroom/deployments"))!;
+    expect(post.body).toBeUndefined();
+  });
+
+  it("deploys an added instance from its row with its branch", async () => {
+    const { user } = setup("#app-moimroom");
+    const calls = appRoutes((c, u) =>
+      u.pathname === "/v1/apps/moimroom/deployments" && c.method === "POST" ? json(202, fakeDeployment({ id: "dep_8", branch: "dev", instance: "moimroom--dev", trigger: "manual" })) : undefined,
+    );
+    await user.click(await screen.findByRole("button", { name: "moimroom--dev 배포" }));
     await waitFor(() => expect(window.location.hash).toBe("#deploy-dep_8"));
     const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/apps/moimroom/deployments"))!;
     expect(JSON.parse(post.body!)).toEqual({ branch: "dev" });
@@ -457,7 +521,8 @@ describe("GitHub deploy screens (platform API)", () => {
       return undefined;
     });
     expect(await screen.findByRole("heading", { level: 1, name: "moimroom--dev 배포" })).toBeInTheDocument();
-    expect(screen.getByText(/^dev 브랜치, 등록 배포, dev/)).toBeInTheDocument();
+    // the ref is the branch, so it is not repeated
+    expect(subtitle()).toHaveTextContent(/^dev 브랜치, 등록 배포, 9fceb02, operator, dep_7$/);
     expect(screen.getByText("gitops 저장소에 apps/moimroom--dev/<환경>.yaml을 씁니다")).toBeInTheDocument();
     const done = screen.getByRole("status");
     await waitFor(() => expect(within(done).getByRole("link", { name: "https://moimroom--dev.hopcharlie.dev" })).toBeInTheDocument());
@@ -465,14 +530,77 @@ describe("GitHub deploy screens (platform API)", () => {
     expect(screen.queryByRole("link", { name: "https://moimroom.hopcharlie.dev" })).not.toBeInTheDocument();
   });
 
-  it("marks an app with a failing added instance in the list", async () => {
+  it("never shows the app's URL for an instance the app does not list", async () => {
+    setup("#deploy-dep_6");
+    const gone = fakeDeployment({ id: "dep_6", branch: "old", instance: "moimroom--old", status: "healthy", environments: [{ env: "eks", status: "healthy" }], finishedAt: at(50) });
+    live((c, u) => {
+      if (u.pathname === "/v1/deployments/dep_6/events") return sse([snapshotMsg(gone)])(c);
+      if (u.pathname === "/v1/apps/moimroom") return json(200, app);
+      return undefined;
+    });
+    expect(await screen.findByRole("heading", { level: 1, name: "moimroom--old 배포" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("AWS EKS에서 moimroom--old이(가) 실행 중입니다."));
+    expect(screen.queryByText("공개 주소:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "https://moimroom.hopcharlie.dev" })).not.toBeInTheDocument();
+  });
+
+  it("lists an app with a failing added instance as a problem, even while its default instance deploys", async () => {
     setup("#apps");
-    live((c, u) => (u.pathname === "/v1/apps" && c.method === "GET" ? json(200, { apps: [app] }) : undefined));
+    const building = fakeDeployment({ id: "dep_10", status: "building" });
+    const busy: ApiApp = { ...app, deploy: { ...app.deploy!, lastDeployment: building, instances: [{ ...main, lastDeployment: building }, dev] } };
+    live((c, u) => (u.pathname === "/v1/apps" && c.method === "GET" ? json(200, { apps: [busy] }) : undefined));
     const row = (await screen.findByRole("link", { name: "moimroom" })).closest("tr") as HTMLElement;
     expect(row).toHaveTextContent("브랜치 2");
     expect(row).toHaveTextContent("dev 브랜치 문제 있음");
     const tiles = screen.getByRole("navigation", { name: "상태로 앱 거르기" });
-    expect(within(tiles).getByRole("link", { name: /문제 있음/ })).toHaveTextContent("1");
+    const count = (label: RegExp) => within(tiles).getByRole("link", { name: label }).querySelector("strong")?.textContent;
+    expect([count(/문제 있음/), count(/배포 중/), count(/정상/)]).toEqual(["1", "0", "0"]);
+  });
+
+  it("works with a server from before ADR 0015: no instances, deployments without branch or instance", async () => {
+    const oldDeploy: Partial<AppDeploy> = { ...app.deploy! };
+    delete oldDeploy.instances;
+    const old = { ...app, deploy: oldDeploy } as ApiApp;
+    const strip = (d: Deployment) => {
+      const x: Partial<Deployment> = { ...d };
+      delete x.branch;
+      delete x.instance;
+      return x as Deployment;
+    };
+    const done = strip(fakeDeployment({ status: "healthy", environments: [{ env: "eks", status: "healthy" }], finishedAt: at(50) }));
+    const running = strip(fakeDeployment({ id: "dep_2", status: "building" }));
+    setup("#apps");
+    live((c, u) => {
+      if (u.pathname === "/v1/apps" && c.method === "GET") return json(200, { apps: [old] });
+      if (u.pathname === "/v1/apps/moimroom" && c.method === "GET") return json(200, old);
+      if (u.pathname === "/v1/apps/moimroom/deployments") return json(200, { deployments: [running, done] });
+      if (u.pathname === "/v1/deployments/dep_1/events") return sse([snapshotMsg(done)])(c);
+      return undefined;
+    });
+    const row = (await screen.findByRole("link", { name: "moimroom" })).closest("tr") as HTMLElement;
+    expect(row).not.toHaveTextContent(/브랜치 \d/);
+
+    act(() => {
+      window.location.hash = "#app-moimroom";
+    });
+    const section = (await screen.findByRole("heading", { name: "브랜치별 인스턴스" })).closest("section") as HTMLElement;
+    expect(within(section).getAllByRole("row")).toHaveLength(2);
+    expect(within(section).getByRole("button", { name: "moimroom 배포" })).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "브랜치 추가" })).not.toBeInTheDocument();
+    expect(screen.getByText("서버가 인스턴스 목록을 보내지 않아 브랜치를 추가하거나 지울 수 없습니다.")).toBeInTheDocument();
+    const progress = await screen.findByText(/^배포 dep_2가 진행 중입니다/);
+    expect(progress).toHaveTextContent(/^배포 dep_2가 진행 중입니다 \(9fceb02, /);
+    const history = screen.getByRole("heading", { name: "배포 이력" }).closest("section") as HTMLElement;
+    expect(within(history).getAllByRole("row")[1]).toHaveTextContent("dep_2-빌드 중");
+
+    act(() => {
+      window.location.hash = "#deploy-dep_1";
+    });
+    expect(await screen.findByRole("heading", { level: 1, name: "moimroom 배포" })).toBeInTheDocument();
+    expect(subtitle()).toHaveTextContent(/^등록 배포, main 9fceb02, operator, dep_1$/);
+    expect(screen.getByText("gitops 저장소에 apps/moimroom/<환경>.yaml을 씁니다")).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("status")).getByRole("link", { name: "https://moimroom.hopcharlie.dev" })).toBeInTheDocument());
   });
 
   it("shows a failed deployment from the stream with the summary and the marked line", async () => {

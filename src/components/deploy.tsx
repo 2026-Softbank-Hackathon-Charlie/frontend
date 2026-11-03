@@ -284,15 +284,16 @@ export function instanceHealth(i: AppInstance): AppHealth {
 }
 
 /**
- * Where a registered app stands over all its instances: deploying while any
- * of them is, else a problem when any has one. Undefined for an app only in
- * PLATFORM_APPS_FILE, which has no deploy status.
+ * Where a registered app stands over all its instances: a problem in any of
+ * them first, so another instance's deployment does not hide it, then
+ * deploying, then healthy. Undefined for an app only in PLATFORM_APPS_FILE,
+ * which has no deploy status.
  */
 export function appHealth(a: App): AppHealth | undefined {
   if (!a.deploy) return undefined;
   const all = instancesOf(a).map(instanceHealth);
-  if (all.includes("deploying")) return "deploying";
   if (all.includes("problem")) return "problem";
+  if (all.includes("deploying")) return "deploying";
   return "healthy";
 }
 

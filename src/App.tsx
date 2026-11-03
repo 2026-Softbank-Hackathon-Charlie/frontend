@@ -19,7 +19,8 @@ import { useSim } from "./sim/store";
 
 function Page({ r }: { r: string }) {
   if (r === "apps" || r.startsWith("apps-")) return <Apps filter={appFilterOf(r)} />;
-  if (r.startsWith("app-")) return <AppDetail id={r.slice(4)} />;
+  // keyed, so one app's half-filled forms and confirmations do not carry over to another
+  if (r.startsWith("app-")) return <AppDetail key={r} id={r.slice(4)} />;
   if (r.startsWith("deploy-")) return <DeploymentPage id={r.slice(7)} />;
   if (r === "new") return <NewApp />;
   if (r === "onboard") return <Onboard />;

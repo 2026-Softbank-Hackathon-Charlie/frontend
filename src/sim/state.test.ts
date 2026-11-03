@@ -327,19 +327,34 @@ describe("branch instances simulation (ADR 0015)", () => {
     expect(board(S).lastDeployment).toBe(main);
   });
 
-  it("refuses a branch already deployed, a slug taken by another branch, an empty slug, a bad platform.yaml and a fourth instance", () => {
+  it("refuses like the server and in its order: branch name, own branch, empty slug, platform.yaml, added branch, taken name, limit", () => {
     const S = registered();
     const check = (branch: string, name = "notice-board") => dep.checkAddInstance(S.deploy, name, branch);
-    expect(check("main")).toEqual({ error: expect.stringMatching(/이미 배포하고 있습니다/) });
-    expect(check("///")).toEqual({ error: expect.stringMatching(/인스턴스 이름을 만들 수 없습니다/) });
+    expect(dep.validBranch("feature/x-1.2_b")).toBe(true);
+    for (const bad of ["", "-x", "/x", ".x", "x/", "x.", "x.lock", "a..b", "a//b", "a/.b", "a b", "기능"]) expect(dep.validBranch(bad)).toBe(false);
+    expect(check("a b")).toMatchObject({ status: 400, code: "invalid_request" });
+    expect(check("main")).toMatchObject({ status: 409, code: "branch_exists", message: expect.stringMatching(/own branch/) });
+    expect(check("_")).toMatchObject({ status: 400, code: "invalid_request", message: expect.stringMatching(/no letter or digit/) });
     expect(check("nope")).toMatchObject({ validation: { valid: false, errors: [{ path: "" }] } });
+    // only the repository's own branches: no prototype keys
+    expect(check("constructor")).toMatchObject({ validation: { valid: false, errors: [{ message: "branch constructor not found" }] } });
+    expect(check("toString")).toMatchObject({ validation: { valid: false } });
+
     apply(S, add("dev"));
-    expect(check("dev")).toEqual({ error: expect.stringMatching(/이미 배포하고 있습니다/) });
-    expect(check("Dev")).toEqual({ error: expect.stringMatching(/notice-board--dev을\(를\) 다른 브랜치가/) });
+    expect(check("dev")).toMatchObject({ status: 409, code: "branch_exists", message: expect.stringMatching(/already deploys/) });
+    // Another branch with the same instance name, as feature-search would be next to feature/search.
+    const others = board(S).instances;
+    board(S).instances = [...others, { ...others[1], branch: "feature-search", name: "notice-board--feature-search" }];
+    expect(check("feature/search")).toMatchObject({ status: 409, code: "instance_exists" });
+    // A third instance under another name: the limit, checked last.
+    board(S).instances = [...others, { ...others[1], branch: "other", name: "notice-board--other" }];
+    expect(check("feature/search")).toMatchObject({ status: 409, code: "instance_limit" });
+    expect(check("nope")).toMatchObject({ validation: { valid: false } });
+    board(S).instances = others;
+
     apply(S, add("feature/search"));
     expect(board(S).instances.map((i) => i.name)).toEqual(["notice-board", "notice-board--dev", "notice-board--feature-search"]);
-    expect(check("next")).toEqual({ error: expect.stringMatching(/3개까지/) });
-    apply(S, add("next"));
+    apply(S, add("main"));
     expect(board(S).instances).toHaveLength(3);
 
     apply(S, { type: "app-create", req: { ...req, repo: "team-charlie/photo-album", branch: "fix-worker" } });

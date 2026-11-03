@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { AppSpecValidation } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
@@ -8,7 +8,7 @@ import { useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type App
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 import { ENV } from "../sim/data";
-import { MAX_INSTANCES } from "../sim/deploy";
+import { branchSlug, instanceName, MAX_INSTANCES } from "../sim/deploy";
 import { dur } from "../sim/format";
 import { useSim } from "../sim/store";
 
@@ -123,9 +123,12 @@ function NotFound({ id }: { id: string }) {
   );
 }
 
+/** What the app page is doing. Every button waits while one action is in flight. */
+type Busy = "" | "deploy" | "delete" | "add" | "remove";
+
 function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Busy>("");
   const [msg, setMsg] = useState("");
   const [invalid, setInvalid] = useState<AppSpecValidation>();
   const a = m.app;
@@ -141,31 +144,39 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const d = a.deploy;
   const deps = m.deployments ?? [];
   const running = deps.find((x) => !isFinalDeploymentStatus(x.status));
+  const def = "기본 인스턴스(" + a.name + ")";
 
+  /** Deploys `branch` into its instance; without one, the default instance. */
   async function redeploy(branch?: string) {
-    setBusy(true);
+    setBusy("deploy");
     setMsg("");
     setInvalid(undefined);
-    const r = await m.redeploy(branch);
-    setBusy(false);
-    if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
-    else if ("validation" in r) setInvalid(r.validation);
-    else setMsg(r.error);
+    try {
+      const r = await m.redeploy(branch);
+      if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
+      else if ("validation" in r) setInvalid(r.validation);
+      else setMsg(r.error);
+    } finally {
+      setBusy("");
+    }
   }
   async function remove() {
-    setBusy(true);
+    setBusy("delete");
     setMsg("");
-    const err = await m.remove();
-    setBusy(false);
-    if (err) setMsg(err);
-    else navigate("#apps");
+    try {
+      const err = await m.remove();
+      if (err) setMsg(err);
+      else navigate("#apps");
+    } finally {
+      setBusy("");
+    }
   }
 
   const acts = (
     <>
       {d && (
-        <button type="button" className="btn primary" disabled={busy} onClick={() => redeploy()}>
-          다시 배포
+        <button type="button" className="btn primary" disabled={!!busy} onClick={() => redeploy()}>
+          기본 브랜치 다시 배포
         </button>
       )}
       {a.environments.length > 0 && (
@@ -174,7 +185,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
         </a>
       )}
       {d && (
-        <button type="button" className="btn ghost" disabled={busy || confirming} onClick={() => setConfirming(true)}>
+        <button type="button" className="btn ghost" disabled={!!busy || confirming} onClick={() => setConfirming(true)}>
           앱 삭제
         </button>
       )}
@@ -189,22 +200,9 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
         crumb={crumb}
       />
       {confirming && d && (
-        <div className="box badbox" role="group" aria-label="앱 삭제 확인">
-          <div className="bb">
-            <b>{a.name}을(를) 삭제할까요?</b>
-            <p>
-              gitops 저장소에서 {m.instances.map((i) => "apps/" + i.name + "/").join(", ")}을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
-            </p>
-            <div className="actrow">
-              <button type="button" className="btn primary" disabled={busy} onClick={remove}>
-                {busy ? "삭제하는 중" : "삭제"}
-              </button>
-              <button type="button" className="btn ghost" disabled={busy} autoFocus onClick={() => setConfirming(false)}>
-                취소
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDelete label="앱 삭제 확인" kind="앱" name={a.name} busy={!!busy} deleting={busy === "delete"} onConfirm={remove} onCancel={() => setConfirming(false)}>
+          gitops 저장소에서 {m.instances.map((i) => "apps/" + i.name + "/").join(", ")}을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
+        </ConfirmDelete>
       )}
       {msg && (
         <div className="box badbox" role="alert">
@@ -220,7 +218,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
             <div className="actrow">
               <DeployChip s={running.status} />
               <span>
-                배포 {running.id}가 진행 중입니다 ({running.instance}, {short(running.commit)}, {ago(running.createdAt, m.now)}).
+                배포 {running.id}가 진행 중입니다 ({[running.instance, short(running.commit), ago(running.createdAt, m.now)].filter(Boolean).join(", ")}).
               </span>
               <a className="more" href={"#deploy-" + running.id}>
                 진행 보기
@@ -242,9 +240,9 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
                   </dd>
                   <dt>기본 브랜치</dt>
                   <dd className="m">{d.branch}</dd>
-                  <dt>자동 배포</dt>
-                  <dd>{d.autoDeploy ? "켜짐: push할 때마다 배포합니다" : "꺼짐: 다시 배포를 눌러야 배포합니다"}</dd>
-                  <dt>공개 주소</dt>
+                  <dt>기본 인스턴스 자동 배포</dt>
+                  <dd>{d.autoDeploy ? "켜짐: push할 때마다 배포합니다" : "꺼짐: 기본 브랜치 다시 배포를 눌러야 배포합니다"}</dd>
+                  <dt>기본 인스턴스 공개 주소</dt>
                   <dd>{d.url ? <ExtLink href={d.url} /> : "없음"}</dd>
                   <dt>platform.yaml</dt>
                   <dd>
@@ -258,9 +256,9 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
               </div>
             </div>
           </section>
-          <Instances m={m} busy={busy} deploy={redeploy} />
+          <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} />
           <section className="sec">
-            <h2>환경별 상태</h2>
+            <h2>{def} 환경별 상태</h2>
             <div className="box">
               <Table
                 head={["환경", "상태", "Argo CD", "커밋", "주소", "갱신"]}
@@ -276,7 +274,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
             </div>
           </section>
           <section className="sec">
-            <h2>platform.yaml</h2>
+            <h2>{def} platform.yaml</h2>
             <div className="box">
               <div className="bb">
                 <SpecSummary spec={d.spec} />
@@ -295,7 +293,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
                   head={["배포", "브랜치", "상태", "트리거", "커밋", "환경", "시작", "소요"]}
                   rows={deps.map((x) => [
                     td(<a href={"#deploy-" + x.id}>{x.id}</a>, "m"),
-                    td(x.branch, "m"),
+                    td(x.branch || "-", "m"),
                     td(<DeployChip s={x.status} />),
                     td(TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : ""), "nw"),
                     td(x.ref + " " + short(x.commit), "m"),
@@ -324,40 +322,76 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   );
 }
 
+/** An in-page delete confirmation whose button works only once `name` is typed. Never window.confirm. */
+function ConfirmDelete(p: { label: string; kind: string; name: string; busy: boolean; deleting: boolean; error?: string; onConfirm: () => void; onCancel: () => void; children: ReactNode }) {
+  const [typed, setTyped] = useState("");
+  const id = useId();
+  return (
+    <div className="box badbox" role="group" aria-label={p.label}>
+      <div className="bb">
+        <b>{p.name}을(를) 삭제할까요?</b>
+        <p>{p.children}</p>
+        <div className="field">
+          <label htmlFor={id}>
+            확인하려면 {p.kind} 이름 {p.name}을(를) 입력하세요
+          </label>
+          <input id={id} value={typed} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setTyped(e.target.value)} />
+        </div>
+        {p.error && <p role="alert">{p.error}</p>}
+        <div className="actrow">
+          <button type="button" className="btn primary" disabled={p.busy || typed.trim() !== p.name} onClick={p.onConfirm}>
+            {p.deleting ? "삭제하는 중" : "삭제"}
+          </button>
+          <button type="button" className="btn ghost" disabled={p.busy} onClick={p.onCancel}>
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The instance name a branch gets, for the add form. The hash at the end of a shortened name is the server's, so it is not shown. */
+function namePreview(app: string, branch: string): string {
+  const inst = instanceName(app, branch);
+  if (!inst) return "브랜치 이름에 영문자나 숫자가 없어 인스턴스 이름을 만들 수 없습니다.";
+  return "인스턴스 이름: " + (inst === app + "--" + branchSlug(branch) ? inst : inst.slice(0, -6) + "(해시 6자리)");
+}
+
 /** One row per instance (ADR 0015), the form that adds a branch, and the typed confirmation that removes one. */
-function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (branch: string) => void }) {
+function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string; busy: Busy; setBusy: (b: Busy) => void; deploy: (branch?: string) => void }) {
   const [branch, setBranch] = useState("");
   const [autoDeploy, setAutoDeploy] = useState(true);
-  const [working, setWorking] = useState(false);
   /** what the last add got back instead of a deployment */
   const [refused, setRefused] = useState<{ validation?: AppSpecValidation; error?: string }>();
   /** the instance whose removal is being confirmed */
   const [removing, setRemoving] = useState("");
-  const [typed, setTyped] = useState("");
   const [removeError, setRemoveError] = useState("");
+  // A server from before ADR 0015 lists no instances: only the default one, so there is nothing to add or remove.
+  const listed = Array.isArray(m.app?.deploy?.instances);
   const full = m.instances.length >= MAX_INSTANCES;
-  const off = busy || working;
 
   async function add() {
-    setWorking(true);
+    setBusy("add");
     setRefused(undefined);
-    const r = await m.addBranch(branch, autoDeploy);
-    setWorking(false);
-    if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
-    else setRefused(r);
-  }
-  function confirm(name: string) {
-    setRemoving(name);
-    setTyped("");
-    setRemoveError("");
+    try {
+      const r = await m.addBranch(branch, autoDeploy);
+      if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
+      else setRefused(r);
+    } finally {
+      setBusy("");
+    }
   }
   async function remove() {
-    setWorking(true);
+    setBusy("remove");
     setRemoveError("");
-    const err = await m.removeInstance(removing);
-    setWorking(false);
-    if (err) setRemoveError(err);
-    else setRemoving("");
+    try {
+      const err = await m.removeInstance(removing);
+      if (err) setRemoveError(err);
+      else setRemoving("");
+    } finally {
+      setBusy("");
+    }
   }
 
   return (
@@ -368,11 +402,11 @@ function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (b
       </p>
       <div className="box">
         <Table
-          head={["브랜치", "인스턴스", "주소", "환경별 상태", "마지막 배포", "자동 배포", ""]}
+          head={["브랜치", "인스턴스", "주소", "환경별 상태", "최근 배포", "자동 배포", ""]}
           rows={m.instances.map((i) => [
             td(
               <span className="chips">
-                <span className="m">{i.branch}</span>
+                <span className="m">{i.branch || "-"}</span>
                 {i.default && <Chip>기본</Chip>}
               </span>,
             ),
@@ -388,7 +422,7 @@ function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (b
             td(
               i.lastDeployment ? (
                 <span className="chips">
-                  <a href={"#deploy-" + i.lastDeployment.id} aria-label={i.name + " 마지막 배포"}>
+                  <a href={"#deploy-" + i.lastDeployment.id} aria-label={i.name + " 최근 배포"}>
                     <DeployChip s={i.lastDeployment.status} />
                   </a>
                   <span className="hint">{ago(i.lastDeployment.createdAt, m.now)}</span>
@@ -401,11 +435,21 @@ function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (b
             td(i.autoDeploy ? "켜짐" : "꺼짐", "nw"),
             td(
               <div className="actrow">
-                <button type="button" className="btn ghost" aria-label={i.name + " 배포"} disabled={off} onClick={() => deploy(i.branch)}>
+                {/* The default instance's deployment names no branch: the server picks the app's own. */}
+                <button type="button" className="btn ghost" aria-label={i.name + " 배포"} disabled={!!busy} onClick={() => deploy(i.default ? undefined : i.branch)}>
                   배포
                 </button>
-                {!i.default && (
-                  <button type="button" className="btn ghost" aria-label={i.name + " 삭제"} disabled={off || removing === i.name} onClick={() => confirm(i.name)}>
+                {listed && !i.default && (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    aria-label={i.name + " 삭제"}
+                    disabled={!!busy || removing === i.name}
+                    onClick={() => {
+                      setRemoving(i.name);
+                      setRemoveError("");
+                    }}
+                  >
                     삭제
                   </button>
                 )}
@@ -416,62 +460,60 @@ function Instances({ m, busy, deploy }: { m: AppModel; busy: boolean; deploy: (b
         />
       </div>
       {removing && (
-        <div className="box badbox" role="group" aria-label="인스턴스 삭제 확인">
+        <ConfirmDelete
+          key={removing}
+          label="인스턴스 삭제 확인"
+          kind="인스턴스"
+          name={removing}
+          busy={!!busy}
+          deleting={busy === "remove"}
+          error={removeError && "인스턴스를 지우지 못했습니다: " + removeError}
+          onConfirm={remove}
+          onCancel={() => setRemoving("")}
+        >
+          gitops 저장소에서 apps/{removing}/을 지우고, Argo CD가 이 인스턴스의 네임스페이스와 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 인스턴스는 그대로 둡니다.
+        </ConfirmDelete>
+      )}
+      {!listed ? (
+        <p className="hint">서버가 인스턴스 목록을 보내지 않아 브랜치를 추가하거나 지울 수 없습니다.</p>
+      ) : (
+        <div className="box">
+          <div className="bh">
+            <b>브랜치 추가</b>
+            <span className="hint">
+              인스턴스 {m.instances.length}/{MAX_INSTANCES}개
+            </span>
+          </div>
           <div className="bb">
-            <b>{removing}을(를) 삭제할까요?</b>
-            <p>gitops 저장소에서 apps/{removing}/을 지우고, Argo CD가 이 인스턴스의 네임스페이스와 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 인스턴스는 그대로 둡니다.</p>
-            <div className="field">
-              <label htmlFor="inst-confirm">확인하려면 인스턴스 이름 {removing}을(를) 입력하세요</label>
-              <input id="inst-confirm" value={typed} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setTyped(e.target.value)} />
+            {full && <p>인스턴스가 {MAX_INSTANCES}개라 브랜치를 더 추가할 수 없습니다. 다른 브랜치를 배포하려면 추가한 인스턴스를 하나 삭제하세요.</p>}
+            <div className="form">
+              <div className="field">
+                <label htmlFor="inst-branch">추가할 브랜치</label>
+                <input
+                  id="inst-branch"
+                  value={branch}
+                  disabled={full}
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    setBranch(e.target.value.trim());
+                    setRefused(undefined);
+                  }}
+                />
+                <small>{branch ? namePreview(app, branch) : "이 브랜치의 head에서 platform.yaml을 읽어 새 인스턴스로 배포합니다. platform.yaml의 name은 앱 이름과 같아야 합니다."}</small>
+              </div>
+              <label className="check">
+                <input type="checkbox" checked={autoDeploy} disabled={full} onChange={(e) => setAutoDeploy(e.target.checked)} /> push할 때마다 자동으로 배포
+              </label>
             </div>
-            {removeError && <p role="alert">인스턴스를 지우지 못했습니다: {removeError}</p>}
             <div className="actrow">
-              <button type="button" className="btn primary" disabled={working || typed !== removing} onClick={remove}>
-                {working ? "삭제하는 중" : "삭제"}
-              </button>
-              <button type="button" className="btn ghost" disabled={working} onClick={() => setRemoving("")}>
-                취소
+              <button type="button" className="btn primary" disabled={full || !!busy || !instanceName(app, branch)} onClick={add}>
+                {busy === "add" ? "추가하는 중" : "브랜치 추가"}
               </button>
             </div>
           </div>
         </div>
       )}
-      <div className="box">
-        <div className="bh">
-          <b>브랜치 추가</b>
-          <span className="hint">
-            인스턴스 {m.instances.length}/{MAX_INSTANCES}개
-          </span>
-        </div>
-        <div className="bb">
-          {full && <p>인스턴스가 {MAX_INSTANCES}개라 브랜치를 더 추가할 수 없습니다. 다른 브랜치를 배포하려면 추가한 인스턴스를 하나 삭제하세요.</p>}
-          <div className="form">
-            <div className="field">
-              <label htmlFor="inst-branch">추가할 브랜치</label>
-              <input
-                id="inst-branch"
-                value={branch}
-                disabled={full}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(e) => {
-                  setBranch(e.target.value.trim());
-                  setRefused(undefined);
-                }}
-              />
-              <small>이 브랜치의 head에서 platform.yaml을 읽어 {m.app?.name}--(브랜치 이름) 인스턴스로 배포합니다. platform.yaml의 name은 앱 이름과 같아야 합니다.</small>
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={autoDeploy} disabled={full} onChange={(e) => setAutoDeploy(e.target.checked)} /> push할 때마다 자동으로 배포
-            </label>
-          </div>
-          <div className="actrow">
-            <button type="button" className="btn primary" disabled={full || off || !branch} onClick={add}>
-              {working ? "추가하는 중" : "브랜치 추가"}
-            </button>
-          </div>
-        </div>
-      </div>
       {refused?.error && (
         <div className="box badbox" role="alert">
           <div className="bb">

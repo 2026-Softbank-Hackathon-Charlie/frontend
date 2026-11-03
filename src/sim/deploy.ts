@@ -157,9 +157,27 @@ const fixture = (repo: string) => REPOS.find((r) => r.repo.fullName === repo);
 export function validate(repo: string, branch: string): AppSpecValidation {
   const f = fixture(repo);
   if (!f) return { valid: false, errors: [{ path: "", message: `repository ${repo} is not visible to the GitHub App` }] };
-  const head = f.branches[branch || f.repo.defaultBranch];
+  const b = branch || f.repo.defaultBranch;
+  // own keys only: a branch named "constructor" or "toString" is not found, like any other
+  const head = Object.hasOwn(f.branches, b) ? f.branches[b] : undefined;
   if (!head) return { valid: false, errors: [{ path: "", message: `branch ${branch} not found` }] };
   return { valid: head.errors.length === 0, ...(head.spec ? { spec: head.spec } : {}), commit: head.commit, errors: head.errors };
+}
+
+/** The server's validBranch (internal/api/handlers_apps.go): a git branch name of letters, digits and . _ / -. */
+export function validBranch(b: string): boolean {
+  return (
+    /^[A-Za-z0-9._/-]{1,200}$/.test(b) &&
+    !b.startsWith("-") &&
+    !b.startsWith("/") &&
+    !b.startsWith(".") &&
+    !b.endsWith("/") &&
+    !b.endsWith(".") &&
+    !b.endsWith(".lock") &&
+    !b.includes("..") &&
+    !b.includes("//") &&
+    !b.includes("/.")
+  );
 }
 
 /** appspec.BranchSlug: ASCII letters lowercased, every run of other characters one "-", no "-" at either end. */
@@ -432,6 +450,13 @@ export function freshDeploy(): DeploySim {
 
 export type CreateCheck = { validation: AppSpecValidation } | { error: string } | null;
 
+/** A refusal as the server answers it: the HTTP status, the error code and the server's message. */
+export interface Refusal {
+  status: number;
+  code: string;
+  message: string;
+}
+
 /** What POST /v1/apps would refuse, or null when it would register. */
 export function checkCreate(d: DeploySim, req: AppCreateRequest): CreateCheck {
   if (!req.environments.length) return { error: "배포할 환경을 하나 이상 고르세요" };
@@ -467,19 +492,31 @@ export function redeploy(d: DeploySim, name: string, branch?: string): string | 
   return newDeployment(d, app, inst, "manual", "operator", inst.branch, v.commit!, d.now).id;
 }
 
-/** What POST /v1/apps/{name}/instances would refuse, or null when it would add the branch. */
-export function checkAddInstance(d: DeploySim, name: string, branch: string): CreateCheck {
+/**
+ * What POST /v1/apps/{name}/instances would refuse, in the server's order
+ * (createAppInstance, then the store): a bad branch name, the app's own
+ * branch, an empty slug, the branch and its platform.yaml, then a branch
+ * already added, a taken instance name and the instance limit. Null when it
+ * would add the branch.
+ */
+export function checkAddInstance(d: DeploySim, name: string, branch: string): { validation: AppSpecValidation } | Refusal | null {
   const app = d.apps.find((a) => a.name === name);
-  if (!app?.deploy) return { error: "앱을 찾을 수 없습니다" };
-  if (!branch) return { error: "추가할 브랜치를 적으세요" };
-  if (app.deploy.instances.some((i) => i.branch === branch)) return { error: "브랜치 " + branch + "은(는) 이미 배포하고 있습니다. 앱의 기본 브랜치이거나 이미 추가한 브랜치입니다" };
-  if (app.deploy.instances.length >= MAX_INSTANCES) return { error: "앱 하나에 인스턴스는 기본 인스턴스를 포함해 " + MAX_INSTANCES + "개까지입니다. 인스턴스를 하나 지운 뒤 추가하세요" };
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  if (!validBranch(branch)) return { status: 400, code: "invalid_request", message: "branch must be a git branch name of letters, digits and . _ / -" };
+  if (branch === app.deploy.branch) return { status: 409, code: "branch_exists", message: `branch ${branch} is app ${name}'s own branch, deployed as its default instance` };
   const inst = instanceName(name, branch);
-  if (!inst) return { error: "브랜치 이름에 영문자나 숫자가 없어 인스턴스 이름을 만들 수 없습니다" };
-  if (d.apps.some((a) => a.deploy?.instances.some((i) => i.name === inst))) return { error: "인스턴스 이름 " + inst + "을(를) 다른 브랜치가 이미 쓰고 있습니다" };
+  if (!inst) return { status: 400, code: "invalid_request", message: `branch "${branch}" has no letter or digit to name an instance after` };
   const v = validate(app.deploy.repo, branch);
   if (!v.valid || !v.spec) return { validation: v };
-  if (v.spec.name !== name) return { validation: { ...v, valid: false, errors: [{ path: "name", message: "must be " + name + ", the app's name" }] } };
+  if (v.spec.name !== name) {
+    const error = { path: "name", message: `is "${v.spec.name}", but the app is registered as "${name}"; register the new name as a new app` };
+    return { validation: { ...v, valid: false, errors: [error] } };
+  }
+  if (app.deploy.instances.some((i) => i.branch === branch)) return { status: 409, code: "branch_exists", message: `app ${name} already deploys branch ${branch}` };
+  if (d.apps.some((a) => a.name === inst || a.deploy?.instances.some((i) => i.name === inst)))
+    return { status: 409, code: "instance_exists", message: `the instance name ${inst} of branch ${branch} is already taken by another branch or app` };
+  if (app.deploy.instances.length >= MAX_INSTANCES)
+    return { status: 409, code: "instance_limit", message: `app ${name} already has ${MAX_INSTANCES} instances, the default one included; delete one first` };
   return null;
 }
 

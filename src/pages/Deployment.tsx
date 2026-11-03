@@ -76,9 +76,10 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   const elapsed = elapsedSec(d, m.now);
   const at = (t: string) => mmss((ms(t) - ms(d.createdAt)) / 1000);
   // A server from before ADR 0015 names no instance: the deployment is the app's default one.
-  const instance = d.instance ?? d.app;
+  const instance = d.instance || d.app;
+  // The instance's own URL. The app's URL is the default instance's, so it stands in only for that one.
   const inst = instancesOf(m.app).find((i) => i.name === instance);
-  const url = (inst ? inst.url : m.app?.deploy?.url) ?? d.environments.find((e) => e.url)?.url;
+  const url = (inst ? inst.url : instance === d.app ? m.app?.deploy?.url : undefined) ?? d.environments.find((e) => e.url)?.url;
   const envNames = d.environments.map((e) => envName(e.env)).join(", ");
   const stopped = PHASES[Math.min(k, PHASES.length - 1)];
 
@@ -133,7 +134,8 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
         sub={
           <>
             {d.branch && <>{d.branch} 브랜치, </>}
-            {TRIGGER_LABEL[d.trigger]} 배포, {d.ref} <span className="m">{short(d.commit)}</span>, {d.triggeredBy}, <span className="m">{d.id}</span>
+            {TRIGGER_LABEL[d.trigger]} 배포, {d.ref !== d.branch && d.ref + " "}
+            <span className="m">{short(d.commit)}</span>, {d.triggeredBy}, <span className="m">{d.id}</span>
           </>
         }
         crumb={
