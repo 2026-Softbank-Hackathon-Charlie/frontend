@@ -1,0 +1,118 @@
+name: Deploy frontend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: frontend-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-2' }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      ECR_CONSOLE_REPOSITORY: ${{ vars.ECR_CONSOLE_REPOSITORY }}
+      VITE_PLATFORM_URL: ${{ vars.VITE_PLATFORM_URL || 'https://api.hopcharlie.dev' }}
+      AWS_PAGER: ''
+    steps:
+      - name: Validate publication configuration
+        id: config
+        env:
+          HAS_INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN != '' }}
+        run: |
+          python3 - <<'PY'
+          import ipaddress, os, re, socket
+          from urllib.parse import urlsplit
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          for name in ('AWS_DEPLOY_ROLE_ARN', 'ECR_CONSOLE_REPOSITORY'):
+              require(os.environ.get(name), f'Missing repository variable: {name}')
+          require(os.environ.get('HAS_INFRA_PR_TOKEN') == 'true', 'Missing repository secret: INFRA_PR_TOKEN')
+          repository = os.environ['ECR_CONSOLE_REPOSITORY']
+          ecr = re.fullmatch(r'([0-9]{12})\.dkr\.ecr\.([a-z]{2}(?:-[a-z]+)+-[0-9]+)\.amazonaws\.com/([a-z0-9]+(?:[._/-][a-z0-9]+)*)', repository)
+          require(ecr, 'ECR_CONSOLE_REPOSITORY must be a full private ECR repository URI')
+          account, region, _ = ecr.groups()
+          require(region == os.environ['AWS_REGION'], 'AWS_REGION must match the ECR region')
+          role = re.fullmatch(r'arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+', os.environ['AWS_DEPLOY_ROLE_ARN'])
+          require(role and role[1] == account, 'Publication role must belong to the ECR account')
+          value = os.environ['VITE_PLATFORM_URL']
+          require(not re.search(r'[\s\x00-\x1f\x7f\\]', value), 'VITE_PLATFORM_URL contains invalid characters')
+          url = urlsplit(value)
+          require(url.scheme == 'https' and url.hostname and not url.username and not url.password and url.port in (None, 443) and not url.query and not url.fragment, 'VITE_PLATFORM_URL must be a public HTTPS URL without credentials, query, or fragment')
+          addresses = socket.getaddrinfo(url.hostname, 443, type=socket.SOCK_STREAM)
+          require(addresses and all(ipaddress.ip_address(item[4][0]).is_global for item in addresses), 'VITE_PLATFORM_URL must resolve to public addresses')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'account={account}\nregistry={repository.split("/")[0]}\n')
+          PY
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install, test, and build
+        run: |
+          npm ci
+          python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+          npm test
+          npm run build
+          printf '%s\n' "$GITHUB_SHA" > dist/version.txt
+
+      - name: Authenticate to AWS with OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+          role-session-name: frontend-publish-${{ github.run_id }}
+
+      - name: Build and publish console image
+        id: image
+        env:
+          REGISTRY: ${{ steps.config.outputs.registry }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          export IMAGE_TAG="${GITHUB_SHA:0:7}"
+          # Keep this Dockerfile in sync with platform/deploy/console/Dockerfile.
+          docker buildx build --platform linux/amd64 --push --metadata-file "$RUNNER_TEMP/console-image.json" \
+            -t "$ECR_CONSOLE_REPOSITORY:$IMAGE_TAG" -f- dist <<'DOCKERFILE'
+          FROM caddy:2.11.7-alpine
+          COPY . /srv
+          EXPOSE 80
+          CMD ["caddy", "file-server", "--root", "/srv", "--listen", ":80"]
+          DOCKERFILE
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          metadata = json.loads(Path(os.environ['RUNNER_TEMP'], 'console-image.json').read_text())
+          digest = metadata.get('containerimage.digest', '')
+          if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+              raise SystemExit('Docker did not return a valid published image digest')
+          image = f"{os.environ['ECR_CONSOLE_REPOSITORY']}:{os.environ['IMAGE_TAG']}@{digest}"
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'image={image}\n')
+          PY
+
+      - name: Open console image PR in infra
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          INFRA_REPOSITORY: 2026-Softbank-Hackathon-Charlie/infra
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: python3 .github/scripts/open-console-pr.py

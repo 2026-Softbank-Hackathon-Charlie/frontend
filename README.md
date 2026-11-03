@@ -130,3 +130,49 @@ src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나)
 src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
 ```
+
+## 수동 배포 (GitHub Actions)
+
+[Deploy frontend](.github/workflows/deploy.yml)은 **Run workflow로 실행할 때만** 이미지를 게시하고 infra PR을 만듭니다. PR과 main push에서는 실행하지 않습니다. workflow를 main에 반영한 뒤 Actions에서 실행하며, 실행 브랜치도 main만 허용합니다.
+
+Node 24에서 `npm ci`, GitOps helper 시험, `npm test`, `npm run build`를 통과하면 기존 플랫폼과 같은 Caddy 이미지로 빌드합니다. ECR에 frontend 커밋의 **7자리 SHA 태그** 하나를 게시하고, 빌드 결과의 digest로 infra의 다음 두 파일을 한 커밋에서 갱신하는 PR을 엽니다.
+
+- `clusters/aws-dev-management/values/hopcharlie-platform.yaml`의 `images.console`: `<ECR 저장소>:<7자리 SHA>@sha256:<digest>`
+- `helm/images.lock.json`의 같은 `<ECR 저장소>:<7자리 SHA>` 키: 같은 digest
+
+다른 이미지와 설정은 유지합니다. 같은 이미지가 infra main에 이미 반영돼 있으면 새 PR을 만들지 않습니다. `latest` 태그는 게시하지 않으며, 이미지의 `version.txt`에는 추적용 전체 frontend SHA를 둡니다. 인라인 Dockerfile은 platform의 `deploy/console/Dockerfile`과 동기화합니다.
+
+**workflow 성공은 ECR 게시와 infra PR 생성까지입니다.** 실제 콘솔 `https://console.hopcharlie.dev` 반영은 infra PR을 검토·merge한 뒤 관리 EKS의 Argo CD Application이 동기화해야 완료됩니다. workflow는 EC2·SSM·클러스터를 직접 갱신하거나 PR을 자동 merge하지 않습니다.
+
+### 최초 준비
+
+Settings → Secrets and variables → Actions → **Variables**에 다음 값을 설정합니다. ECR 저장소와 OIDC 역할은 먼저 준비돼 있어야 합니다.
+
+| 변수 | 값 / 출처 |
+| --- | --- |
+| `AWS_DEPLOY_ROLE_ARN` | 필수. frontend 이미지 게시용 GitHub OIDC 역할 ARN |
+| `ECR_CONSOLE_REPOSITORY` | 필수. infra `terraform/platform/aws`의 `console_repository_url`. 태그 없는 전체 ECR 주소이며 현재 infra 콘솔 저장소와 같아야 합니다 |
+| `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR과 같은 리전 |
+| `VITE_PLATFORM_URL` | 선택. 기본 `https://api.hopcharlie.dev`. 빌드에 포함되는 공개 HTTPS API 주소 |
+
+Terraform output의 소유 위치는 infra `terraform/platform/aws`입니다. 그중 `api_url`, `console_url`, `instance_id`는 기존 EC2 호스트용 값이므로 이 EKS 배포의 입력으로 쓰지 않습니다. `PLATFORM_INSTANCE_ID`와 `CONSOLE_URL` 변수는 필요하지 않습니다. 브라우저의 API 연결 토큰은 배포 후 사용자가 별도로 입력합니다.
+
+**Secrets**에는 `INFRA_PR_TOKEN`을 준비합니다. 대상 infra 저장소에만 접근하는 fine-grained PAT 또는 GitHub App installation token이며, `Contents: read/write`와 `Pull requests: read/write` 권한이 필요합니다. frontend의 기본 `GITHUB_TOKEN`은 다른 비공개 infra 저장소에 쓸 수 없습니다. 토큰은 helper 단계에서만 전달하며 npm 설치·빌드에는 전달하지 않습니다. 토큰의 유효기간과 조직 승인을 확인하고, installation token을 직접 등록했다면 만료 전에 새 실행용 토큰을 준비합니다.
+
+AWS 역할에는 `ecr:GetAuthorizationToken`과 지정된 콘솔 ECR 저장소의 이미지 push 권한이 필요합니다. SSM·EC2 변경·EKS 관리 권한은 필요하지 않습니다. OIDC 신뢰 정책은 `aud=sts.amazonaws.com`과 **이 저장소 main**으로 제한합니다. 조회한 immutable subject는 다음과 같습니다. GitHub Environment를 쓰도록 바꾼다면 subject도 다시 확인합니다.
+
+```text
+repo:2026-Softbank-Hackathon-Charlie@350278309/frontend@1441992854:ref:refs/heads/main
+```
+
+공식 설정: [AWS용 GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [GitHub 토큰 권한](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
+
+### 배포 순서
+
+1. 변수·OIDC 역할·`INFRA_PR_TOKEN`을 준비하고 workflow PR을 main에 merge합니다.
+2. Actions → **Deploy frontend** → **Run workflow**에서 main을 선택합니다.
+3. 실행 요약의 이미지 digest와 infra PR을 확인합니다. 수동 실행은 직렬화되며 진행 중 실행을 새 실행이 취소하지 않습니다.
+4. infra PR의 두 이미지 pin과 CI 결과를 검토한 뒤 merge합니다. Argo CD root와 `charlie-management-hopcharlie-platform` Application이 등록돼 있고 동기화·health가 정상인지 확인합니다.
+5. `https://console.hopcharlie.dev/version.txt`가 전체 frontend SHA와 일치하는지와 화면의 실제 API 연결을 확인합니다. 이 확인은 infra merge·Argo 동기화 이후에 수행합니다.
+
+롤백은 infra의 두 이미지 pin을 이전 digest로 되돌리는 PR로 진행합니다. workflow는 IAM 역할·토큰·저장소 변수를 만들지 않고, Terraform apply·클러스터 생성·앱 데이터 이전도 수행하지 않습니다.
