@@ -2,8 +2,10 @@ import {
   ApiError,
   approvePlan,
   createApp,
+  createAppInstance,
   createDeployment,
   deleteApp,
+  deleteAppInstance,
   draftPlan,
   getAgentSession,
   getApp,
@@ -284,5 +286,41 @@ describe("apps from GitHub", () => {
 
     installFetch(() => json(409, { error: { code: "app_not_registered", message: "shop is only in PLATFORM_APPS_FILE" } }));
     await expect(deleteApp("shop")).rejects.toMatchObject({ status: 409, code: "app_not_registered" });
+  });
+
+  it("adds and removes a branch instance, and deploys or lists one branch", async () => {
+    setToken("op");
+    const calls = installFetch((c) => {
+      if (c.url === "/v1/apps/moimroom/instances") return json(201, { instance: { name: "moimroom--feature-x" }, deployment: { id: "dep_3" } });
+      if (c.method === "DELETE") return new Response(null, { status: 202 });
+      if (c.method === "POST") return json(202, { id: "dep_4" });
+      return json(200, { deployments: [] });
+    });
+    const added = await createAppInstance("moimroom", { branch: "feature/x", autoDeploy: false });
+    expect([added.instance.name, added.deployment.id]).toEqual(["moimroom--feature-x", "dep_3"]);
+    await expect(deleteAppInstance("moimroom", "moimroom--feature-x")).resolves.toBeUndefined();
+    expect((await createDeployment("moimroom", { branch: "feature/x" })).id).toBe("dep_4");
+    await listDeployments("moimroom", { branch: "feature/x", limit: 5 });
+    expect(calls.map((c) => c.method + " " + c.url)).toEqual([
+      "POST /v1/apps/moimroom/instances",
+      "DELETE /v1/apps/moimroom/instances/moimroom--feature-x",
+      "POST /v1/apps/moimroom/deployments",
+      "GET /v1/apps/moimroom/deployments?branch=feature%2Fx&limit=5",
+    ]);
+    expect(JSON.parse(calls[0].body!)).toEqual({ branch: "feature/x", autoDeploy: false });
+    expect(calls[1].body).toBeUndefined();
+    expect(JSON.parse(calls[2].body!)).toEqual({ branch: "feature/x" });
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer op");
+  });
+
+  it("reports why a branch instance was refused", async () => {
+    for (const code of ["branch_exists", "instance_exists", "instance_limit"]) {
+      installFetch(() => json(409, { error: { code, message: "refused" } }));
+      await expect(createAppInstance("moimroom", { branch: "dev" })).rejects.toMatchObject({ status: 409, code });
+    }
+    installFetch(() => json(422, { error: { code: "invalid_app_spec", message: "platform.yaml breaks 1 rule" }, validation }));
+    expect(specInvalid(await createAppInstance("moimroom", { branch: "dev" }).catch((x: unknown) => x))).toEqual(validation);
+    installFetch(() => json(409, { error: { code: "default_instance", message: "moimroom goes only with the app" } }));
+    await expect(deleteAppInstance("moimroom", "moimroom")).rejects.toMatchObject({ status: 409, code: "default_instance" });
   });
 });

@@ -65,7 +65,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
 | 보안 | `getSecurity({ environment, severity, refresh })` |
 | 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
-| GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { ref, environments })`, `listDeployments(name, { limit })`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
+| GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { branch, ref, environments })`, `listDeployments(name, { branch, limit })`, `createAppInstance(name, { branch, autoDeploy })`, `deleteAppInstance(name, instance)`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
 | 기타 | `getMatrix`, `listAudit({ limit, before })` |
 
 - 실패하면 `ApiError`를 던진다. `status`는 HTTP 상태, `code`와 `message`는 서버의 `{"error":{"code","message"}}` 값이다.
@@ -75,8 +75,10 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - `approvePlan`에는 사용자가 본 계획의 `revision`을 `{ revision: plan.revision }`으로 보낸다. 첨부가 있는 계획은 revision이 없거나 그사이 첨부가 올라와 바뀌었으면 409 `plan_state_conflict`로 실패한다. 이때는 계획을 다시 읽어 보여 주고 다시 승인받는다.
 - `putPlanAttachment`는 파일 내용을 `application/octet-stream` 그대로 보낸다(최대 1 MiB). 올릴 때마다 계획의 revision이 1 오른다.
 - `rollbackMigration`은 Idempotency-Key를 받지 않는다. 서버가 run 하나를 한 번만 되돌리므로 다시 눌러도 run이 둘 생기지 않고, 이미 시작된 되돌리기는 409 `run_state_conflict`로 알려 준다.
-- `createApp`과 `createDeployment`는 platform.yaml이 규칙을 어기면 422 `invalid_app_spec`으로 실패한다. 본문의 `validation`이 `ApiError.validation`에 들어 있고, `specInvalid(e)`로 꺼내면 `validateAppSpec`의 답과 같은 모양이다. 화면은 이 경우를 일반 오류가 아니라 확인 결과(고칠 항목과 위치)로 보여 준다.
+- `createApp`, `createDeployment`, `createAppInstance`는 platform.yaml이 규칙을 어기면 422 `invalid_app_spec`으로 실패한다. 본문의 `validation`이 `ApiError.validation`에 들어 있고, `specInvalid(e)`로 꺼내면 `validateAppSpec`의 답과 같은 모양이다. 화면은 이 경우를 일반 오류가 아니라 확인 결과(고칠 항목과 위치)로 보여 준다.
 - `deleteApp`은 본문 없는 202로 끝난다. Argo CD가 앱과 그 데이터(DB, 버킷)를 지우므로 되돌릴 수 없다. 파일(`PLATFORM_APPS_FILE`)에만 있는 앱은 409 `app_not_registered`다.
+- 앱은 기본 브랜치를 인스턴스 `<app>`으로, 추가한 브랜치를 `<app>--<slug>`로 배포한다(ADR 0015). `createAppInstance`는 브랜치를 더하고 그 인스턴스의 첫 배포를 돌려준다. 이미 배포하는 브랜치는 409 `branch_exists`, 슬러그가 같은 다른 브랜치가 있으면 409 `instance_exists`, 인스턴스가 이미 3개면 409 `instance_limit`이다. `deleteAppInstance`는 `deleteApp`처럼 본문 없는 202로 끝나고, 기본 인스턴스는 409 `default_instance`다.
+- `createDeployment`의 `branch`가 배포할 인스턴스를 고른다. 비우면 기본 인스턴스다.
 - `listAgentEvents`는 `format=json`으로 저장된 이벤트를 한 쪽씩 읽는다. `listAllAgentEvents`는 `nextAfter`를 따라 끝까지 읽어 모두 돌려준다.
 
 ## 훅

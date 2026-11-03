@@ -160,6 +160,8 @@ export function fakeDeployment(p: Partial<Deployment> = {}): Deployment {
   return {
     id: "dep_1",
     app: "moimroom",
+    branch: "main",
+    instance: "moimroom",
     ref: "main",
     commit: "9fceb02d0ae598e95dc970b74767f19372d61af8",
     trigger: "register",

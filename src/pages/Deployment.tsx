@@ -5,7 +5,7 @@ import type { Deployment, DeploymentEvent, DeploymentStatus } from "../api/types
 import { DEPLOY_LABEL, DeployChip, EnvChip, ExtLink, elapsedSec, ms, short, TRIGGER_LABEL } from "../components/deploy";
 import { envName } from "../components/shared";
 import { LogBox, PageHead, ProgItem, Table, td } from "../components/ui";
-import { useLiveDeployment, useSimDeployment, type DeploymentModel } from "../data/deploy";
+import { instancesOf, useLiveDeployment, useSimDeployment, type DeploymentModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { dur, mmss, type StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
@@ -75,7 +75,11 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   const k = reached(d, starts);
   const elapsed = elapsedSec(d, m.now);
   const at = (t: string) => mmss((ms(t) - ms(d.createdAt)) / 1000);
-  const url = m.app?.deploy?.url ?? d.environments.find((e) => e.url)?.url;
+  // A server from before ADR 0015 names no instance: the deployment is the app's default one.
+  const instance = d.instance || d.app;
+  // The instance's own URL. The app's URL is the default instance's, so it stands in only for that one.
+  const inst = instancesOf(m.app).find((i) => i.name === instance);
+  const url = (inst ? inst.url : instance === d.app ? m.app?.deploy?.url : undefined) ?? d.environments.find((e) => e.url)?.url;
   const envNames = d.environments.map((e) => envName(e.env)).join(", ");
   const stopped = PHASES[Math.min(k, PHASES.length - 1)];
 
@@ -104,7 +108,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
     const sub: Record<string, string> = {
       queued: "배포 실행기가 가져가기를 기다립니다",
       building: d.images.length ? d.images.map((x) => x.service).join(", ") + " 이미지, digest로 고정" : "서비스마다 이미지를 빌드합니다" + (d.buildId ? " (" + d.buildId + ")" : ""),
-      committing: "gitops 저장소에 apps/" + d.app + "/<환경>.yaml을 씁니다",
+      committing: "gitops 저장소에 apps/" + instance + "/<환경>.yaml을 씁니다",
       syncing: "Argo CD가 환경 " + d.environments.length + "곳에 동시에 적용합니다",
     };
     return <ProgItem key={p} st={st} title={DEPLOY_LABEL[p]} sub={sub[p]} right={right} />;
@@ -115,7 +119,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
     ) : d.status === "failed" ? (
       <ProgItem st="bad" title="실패" sub={d.error ?? "배포가 멈췄습니다"} right={mmss(elapsed)} />
     ) : d.status === "superseded" ? (
-      <ProgItem st="wait" title="대체됨" sub="같은 앱의 새 배포가 생겨서 멈췄습니다" right={mmss(elapsed)} />
+      <ProgItem st="wait" title="대체됨" sub="같은 인스턴스의 새 배포가 생겨서 멈췄습니다" right={mmss(elapsed)} />
     ) : (
       <ProgItem st="wait" title="정상 확인" sub="모든 환경이 Synced, Healthy가 되면 끝납니다" right="대기" />
     );
@@ -126,10 +130,12 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   return (
     <div className="page">
       <PageHead
-        title={d.app + " 배포"}
+        title={instance + " 배포"}
         sub={
           <>
-            {TRIGGER_LABEL[d.trigger]} 배포, {d.ref} <span className="m">{short(d.commit)}</span>, {d.triggeredBy}, <span className="m">{d.id}</span>
+            {d.branch && <>{d.branch} 브랜치, </>}
+            {TRIGGER_LABEL[d.trigger]} 배포, {d.ref !== d.branch && d.ref + " "}
+            <span className="m">{short(d.commit)}</span>, {d.triggeredBy}, <span className="m">{d.id}</span>
           </>
         }
         crumb={
@@ -150,7 +156,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
           <div className="bb">
             <b>배포 완료: {dur(elapsed)}</b>
             <p>
-              {envNames}에서 {d.app}이(가) 실행 중입니다.{" "}
+              {envNames}에서 {instance}이(가) 실행 중입니다.{" "}
               {elapsed <= GOAL_SEC ? "목표 5분 안에 끝났습니다." : "목표 5분보다 " + dur(elapsed - GOAL_SEC) + " 더 걸렸습니다."}
             </p>
             {url && (
@@ -186,7 +192,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
         <div className="box fillbox" role="status">
           <div className="bb">
             <b>이 배포는 대체되었습니다.</b>
-            <p>같은 앱의 새 배포가 생겨서 멈췄고, gitops에는 새 배포만 커밋합니다.</p>
+            <p>같은 인스턴스의 새 배포가 생겨서 멈췄고, gitops에는 새 배포만 커밋합니다.</p>
             <div className="actrow">
               <a className="btn" href={"#app-" + d.app}>
                 앱 보기

@@ -1,11 +1,13 @@
 // Apps registered from GitHub and their deployments, in the platform's contract
 // shapes (App with deploy, Deployment, DeploymentEvent, AppSpecValidation,
-// GitHubRepo). Time advances 1 simulated second per tick while a deployment
-// is unfinished, like the old deploy demo, so a three-environment deploy
-// takes 2 min 41 s of simulated time.
+// GitHubRepo). Every app deploys its own branch as the default instance and up
+// to two added branches as instances `<app>--<slug>` (ADR 0015). Time advances
+// 1 simulated second per tick while a deployment is unfinished, like the old
+// deploy demo, so a three-environment deploy takes 2 min 41 s of simulated time.
 import type {
   App,
   AppCreateRequest,
+  AppInstance,
   AppSpec,
   AppSpecFieldError,
   AppSpecValidation,
@@ -24,6 +26,10 @@ import { iso } from "./mig";
 export const APP_DOMAIN = "hopcharlie.dev";
 /** Names the platform serves itself under the app domain (409 app_exists, ADR 0012). */
 export const RESERVED = ["api", "console", "app"];
+/** Instances per app, the default one included (appspec.MaxInstances). */
+export const MAX_INSTANCES = 3;
+/** The Helm release name limit, which instance names keep to (appspec.MaxInstanceName). */
+export const MAX_INSTANCE_NAME = 53;
 const REGISTRY = "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com";
 const ORG = "team-charlie";
 
@@ -98,12 +104,18 @@ export const REPOS: RepoFixture[] = [
         spec: { name: "notice-board", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "main-db", type: "postgres" }] },
         errors: [],
       },
-      // platform.yaml passes, but the build breaks: shows a failed deployment
+      // platform.yaml passes, but the build breaks: shows a failed deployment, or a failed instance next to a healthy main
       dev: {
         commit: "8c21e7f4a9b3d5c6e0f1a2b3c4d5e6f7a8b9c0d1",
         spec: { name: "notice-board", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "main-db", type: "postgres" }] },
         errors: [],
         buildError: 'ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2',
+      },
+      // builds fine: a healthy added instance, named notice-board--feature-search
+      "feature/search": {
+        commit: "c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5",
+        spec: { name: "notice-board", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "main-db", type: "postgres" }] },
+        errors: [],
       },
     },
   },
@@ -145,9 +157,52 @@ const fixture = (repo: string) => REPOS.find((r) => r.repo.fullName === repo);
 export function validate(repo: string, branch: string): AppSpecValidation {
   const f = fixture(repo);
   if (!f) return { valid: false, errors: [{ path: "", message: `repository ${repo} is not visible to the GitHub App` }] };
-  const head = f.branches[branch || f.repo.defaultBranch];
+  const b = branch || f.repo.defaultBranch;
+  // own keys only: a branch named "constructor" or "toString" is not found, like any other
+  const head = Object.hasOwn(f.branches, b) ? f.branches[b] : undefined;
   if (!head) return { valid: false, errors: [{ path: "", message: `branch ${branch} not found` }] };
   return { valid: head.errors.length === 0, ...(head.spec ? { spec: head.spec } : {}), commit: head.commit, errors: head.errors };
+}
+
+/** The server's validBranch (internal/api/handlers_apps.go): a git branch name of letters, digits and . _ / -. */
+export function validBranch(b: string): boolean {
+  return (
+    /^[A-Za-z0-9._/-]{1,200}$/.test(b) &&
+    !b.startsWith("-") &&
+    !b.startsWith("/") &&
+    !b.startsWith(".") &&
+    !b.endsWith("/") &&
+    !b.endsWith(".") &&
+    !b.endsWith(".lock") &&
+    !b.includes("..") &&
+    !b.includes("//") &&
+    !b.includes("/.")
+  );
+}
+
+/** appspec.BranchSlug: ASCII letters lowercased, every run of other characters one "-", no "-" at either end. */
+export function branchSlug(branch: string): string {
+  return branch
+    .replace(/[A-Z]/g, (c) => c.toLowerCase())
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/**
+ * The instance name of a branch added to `app`, like appspec.InstanceName:
+ * `<app>--<slug>`, or past MAX_INSTANCE_NAME as much of the slug as fits
+ * (without a trailing "-"), "-" and 6 hex digits of a hash of the branch. The
+ * server hashes with SHA-256; the simulation uses its deterministic FNV `hex`,
+ * so a cut name ends in other digits than the server's. Null when the slug is
+ * empty (400 on the server).
+ */
+export function instanceName(app: string, branch: string): string | null {
+  const slug = branchSlug(branch);
+  if (!slug) return null;
+  const name = app + "--" + slug;
+  if (name.length <= MAX_INSTANCE_NAME) return name;
+  const keep = MAX_INSTANCE_NAME - app.length - "--".length - 1 - 6;
+  return app + "--" + slug.slice(0, keep).replace(/-+$/, "") + "-" + hex(branch, 6);
 }
 
 /* ---------- state ---------- */
@@ -198,7 +253,7 @@ export function isFinal(s: DeploymentStatus): boolean {
   return s === "healthy" || s === "failed" || s === "superseded";
 }
 
-function steps(f: RepoFixture | undefined, spec: AppSpec, commit: string, envs: string[], trigger: DeploymentTrigger): Step[] {
+function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, commit: string, envs: string[], trigger: DeploymentTrigger): Step[] {
   const c7 = commit.slice(0, 7);
   const s: Step[] = [{ at: 0, type: "phase", phase: "queued", message: "대기열에 들어갔습니다 (trigger " + trigger + ")" }];
   s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
@@ -230,8 +285,8 @@ function steps(f: RepoFixture | undefined, spec: AppSpec, commit: string, envs: 
     p(47, "#9 pushing " + REGISTRY + "/hopcharlie/apps/" + spec.name + "/" + v.name + ":" + c7);
     p(49, "#9 digest: sha256:" + hex(commit + v.name, 64));
   });
-  s.push({ at: 52, type: "phase", phase: "committing", message: "gitops에 apps/" + spec.name + "/<env>.yaml 커밋" });
-  for (const e of envs) s.push({ at: 52, type: "log", phase: "committing", message: "apps/" + spec.name + "/" + e + ".yaml: " + c7 + ", 이미지 digest 고정" });
+  s.push({ at: 52, type: "phase", phase: "committing", message: "gitops에 apps/" + instance + "/<env>.yaml 커밋" });
+  for (const e of envs) s.push({ at: 52, type: "log", phase: "committing", message: "apps/" + instance + "/" + e + ".yaml: " + c7 + ", 이미지 digest 고정" });
   s.push({ at: 54, type: "log", phase: "committing", message: "commit " + hex(commit + "gitops", 7) + " (2026-Softbank-Hackathon-Charlie/gitops)" });
   s.push({ at: 55, type: "phase", phase: "syncing", message: "Argo CD에 refresh 요청, 환경 " + envs.length + "곳에 동시에 적용" });
   for (const e of envs) s.push({ at: 56, type: "environment", env: e, envStatus: "syncing", message: "OutOfSync, Progressing" });
@@ -248,9 +303,11 @@ function emit(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
   (d.events[dep.id] ??= []).push(ev);
 }
 
-/** Applies one step to the deployment and its app, the way the deployer would. */
+const instanceOf = (app: App | undefined, name: string) => app?.deploy?.instances.find((i) => i.name === name);
+
+/** Applies one step to the deployment and its instance, the way the deployer would. */
 function step(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
-  const app = d.apps.find((a) => a.name === dep.app);
+  const inst = instanceOf(d.apps.find((a) => a.name === dep.app), dep.instance);
   const t = iso(sec);
   if (st.type === "phase" && st.phase) {
     dep.status = st.phase;
@@ -259,8 +316,7 @@ function step(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
       dep.buildId = "hopcharlie-apps:" + hex(dep.id + "build", 8) + "-" + hex(dep.id + "b2", 4);
     }
     if (st.phase === "committing") {
-      const spec = app?.deploy?.spec;
-      dep.images = (spec?.services ?? []).map((v) => ({
+      dep.images = (inst?.spec.services ?? []).map((v) => ({
         service: v.name,
         image: REGISTRY + "/hopcharlie/apps/" + dep.app + "/" + v.name + "@sha256:" + hex(dep.commit + v.name, 64),
       }));
@@ -268,11 +324,12 @@ function step(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
   }
   if (st.type === "environment" && st.env && st.envStatus) {
     const healthy = st.envStatus === "healthy";
-    const pods = (app?.deploy?.spec.services ?? []).reduce((n, v) => n + v.replicas, 0);
+    const pods = (inst?.spec.services ?? []).reduce((n, v) => n + v.replicas, 0);
     const e = dep.environments.find((x) => x.env === st.env);
     const message = healthy ? "Pod " + pods + "/" + pods + " 준비" : "새 커밋 적용 중";
     if (e) Object.assign(e, { status: st.envStatus, syncStatus: healthy ? "Synced" : "OutOfSync", healthStatus: healthy ? "Healthy" : "Progressing", message });
-    const a = app?.deploy?.status.find((x) => x.env === st.env);
+    // The default instance's status is also the app's deploy.status (the same array).
+    const a = inst?.status.find((x) => x.env === st.env);
     if (a) Object.assign(a, { status: st.envStatus, syncStatus: healthy ? "Synced" : "OutOfSync", healthStatus: healthy ? "Healthy" : "Progressing", updatedAt: t, ...(healthy ? { commit: dep.commit } : {}) });
   }
   if (st.type === "done" && st.phase) {
@@ -283,11 +340,13 @@ function step(d: DeploySim, dep: Deployment, st: Step, sec: number): void {
   emit(d, dep, st, sec);
 }
 
-function newDeployment(d: DeploySim, app: App, trigger: DeploymentTrigger, triggeredBy: string, ref: string, commit: string, at: number): Deployment {
+function newDeployment(d: DeploySim, app: App, inst: AppInstance, trigger: DeploymentTrigger, triggeredBy: string, ref: string, commit: string, at: number): Deployment {
   const envs = app.deploy!.environments;
   const dep: Deployment = {
     id: "dep_" + hex(app.name + d.nextId++, 12),
     app: app.name,
+    branch: inst.branch,
+    instance: inst.name,
     ref,
     commit,
     trigger,
@@ -297,9 +356,9 @@ function newDeployment(d: DeploySim, app: App, trigger: DeploymentTrigger, trigg
     environments: envs.map((env) => ({ env, status: "pending" })),
     createdAt: iso(at),
   };
-  // A new deployment to the same environments (or more) supersedes an unfinished one.
+  // A new deployment of the same instance to the same environments (or more) supersedes an unfinished one.
   for (const old of d.deployments) {
-    if (old.app !== app.name || isFinal(old.status) || !old.environments.every((e) => envs.includes(e.env))) continue;
+    if (old.instance !== inst.name || isFinal(old.status) || !old.environments.every((e) => envs.includes(e.env))) continue;
     old.status = "superseded";
     old.finishedAt = iso(at);
     emit(d, old, { at: 0, type: "done", phase: "superseded", message: "새 배포 " + dep.id + "가 생겨서 멈췄습니다" }, at);
@@ -307,9 +366,10 @@ function newDeployment(d: DeploySim, app: App, trigger: DeploymentTrigger, trigg
   }
   d.deployments.unshift(dep);
   d.events[dep.id] = [];
-  app.deploy!.lastDeployment = dep;
+  inst.lastDeployment = dep;
+  if (inst.default) app.deploy!.lastDeployment = dep;
   const f = fixture(app.deploy!.repo);
-  d.active[dep.id] = { start: at, steps: steps(f, app.deploy!.spec, commit, envs, trigger), i: 0 };
+  d.active[dep.id] = { start: at, steps: steps(f, inst.name, inst.spec, commit, envs, trigger), i: 0 };
   advance(d, dep.id, at);
   return dep;
 }
@@ -328,26 +388,44 @@ function advance(d: DeploySim, id: string, sec: number): boolean {
   return true;
 }
 
+function newInstance(name: string, branch: string, isDefault: boolean, autoDeploy: boolean, v: AppSpecValidation, envs: string[], at: number, by: string): AppInstance {
+  return {
+    name,
+    branch,
+    default: isDefault,
+    autoDeploy,
+    spec: v.spec!,
+    specCommit: v.commit!,
+    ...(v.spec!.services.some((s) => s.public) ? { url: "https://" + name + "." + APP_DOMAIN } : {}),
+    createdAt: iso(at),
+    createdBy: by,
+    status: envs.map((env) => ({ env, status: "pending" })),
+  };
+}
+
 function register(d: DeploySim, repo: string, branch: string, environments: string[], autoDeploy: boolean, at: number, by = "operator"): App {
   const v = validate(repo, branch);
   const spec = v.spec!;
   const envs = envOrder(environments);
+  const inst = newInstance(spec.name, branch, true, autoDeploy, v, envs, at, by);
   const app: App = {
     name: spec.name,
     namespace: spec.name,
     database: { name: "app", user: "app", schemas: [] },
     environments: [],
+    // The top-level fields describe the default instance; `status` is its array, so the deployer updates both.
     deploy: {
       repo,
       branch,
       environments: envs,
       autoDeploy,
       spec,
-      specCommit: v.commit!,
-      ...(spec.services.some((s) => s.public) ? { url: "https://" + spec.name + "." + APP_DOMAIN } : {}),
-      createdAt: iso(at),
+      specCommit: inst.specCommit,
+      ...(inst.url ? { url: inst.url } : {}),
+      createdAt: inst.createdAt,
       createdBy: by,
-      status: envs.map((env) => ({ env, status: "pending" })),
+      status: inst.status,
+      instances: [inst],
     },
   };
   d.apps.push(app);
@@ -360,16 +438,24 @@ export function freshDeploy(): DeploySim {
   // todo-api: registered yesterday, deployed again by a push 12 minutes ago.
   const envs = ENV_ORDER.map((k) => ENV[k].id);
   const app = register(d, ORG + "/todo-api", "main", envs, true, -86_700);
-  const first = newDeployment(d, app, "register", "operator", "main", "7be03d1f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b", -86_400);
+  const main = app.deploy!.instances[0];
+  const first = newDeployment(d, app, main, "register", "operator", "main", "7be03d1f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b", -86_400);
   advance(d, first.id, 0);
-  const push = newDeployment(d, app, "push", "github:charlie-dev", "main", app.deploy!.specCommit, -720);
+  const push = newDeployment(d, app, main, "push", "github:charlie-dev", "main", app.deploy!.specCommit, -720);
   advance(d, push.id, 0);
   return d;
 }
 
-/* ---------- operations (POST /v1/apps, POST /v1/apps/{name}/deployments, DELETE /v1/apps/{name}) ---------- */
+/* ---------- operations (POST /v1/apps, POST /v1/apps/{name}/deployments, DELETE /v1/apps/{name}, POST and DELETE /v1/apps/{name}/instances) ---------- */
 
 export type CreateCheck = { validation: AppSpecValidation } | { error: string } | null;
+
+/** A refusal as the server answers it: the HTTP status, the error code and the server's message. */
+export interface Refusal {
+  status: number;
+  code: string;
+  message: string;
+}
 
 /** What POST /v1/apps would refuse, or null when it would register. */
 export function checkCreate(d: DeploySim, req: AppCreateRequest): CreateCheck {
@@ -386,18 +472,76 @@ export function createApp(d: DeploySim, req: AppCreateRequest): string | null {
   if (checkCreate(d, req)) return null;
   const branch = req.branch ?? "main";
   const app = register(d, req.repo, branch, req.environments, req.autoDeploy ?? true, d.now);
-  return newDeployment(d, app, "register", "operator", branch, app.deploy!.specCommit, d.now).id;
+  return newDeployment(d, app, app.deploy!.instances[0], "register", "operator", branch, app.deploy!.specCommit, d.now).id;
 }
 
-/** A manual deployment of the head of the app's branch to all of its environments. */
-export function redeploy(d: DeploySim, name: string): string | null {
+/** A manual deployment of the head of `branch` (default: the app's own) into its instance, to all of the app's environments. */
+export function redeploy(d: DeploySim, name: string, branch?: string): string | null {
   const app = d.apps.find((a) => a.name === name);
   if (!app?.deploy) return null;
-  const v = validate(app.deploy.repo, app.deploy.branch);
+  const inst = app.deploy.instances.find((i) => i.branch === (branch ?? app.deploy!.branch));
+  if (!inst) return null;
+  const v = validate(app.deploy.repo, inst.branch);
   if (!v.valid || !v.spec) return null;
-  app.deploy.spec = v.spec;
-  app.deploy.specCommit = v.commit!;
-  return newDeployment(d, app, "manual", "operator", app.deploy.branch, v.commit!, d.now).id;
+  inst.spec = v.spec;
+  inst.specCommit = v.commit!;
+  if (inst.default) {
+    app.deploy.spec = v.spec;
+    app.deploy.specCommit = v.commit!;
+  }
+  return newDeployment(d, app, inst, "manual", "operator", inst.branch, v.commit!, d.now).id;
+}
+
+/**
+ * What POST /v1/apps/{name}/instances would refuse, in the server's order
+ * (createAppInstance, then the store): a bad branch name, the app's own
+ * branch, an empty slug, the branch and its platform.yaml, then a branch
+ * already added, a taken instance name and the instance limit. Null when it
+ * would add the branch.
+ */
+export function checkAddInstance(d: DeploySim, name: string, branch: string): { validation: AppSpecValidation } | Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  if (!validBranch(branch)) return { status: 400, code: "invalid_request", message: "branch must be a git branch name of letters, digits and . _ / -" };
+  if (branch === app.deploy.branch) return { status: 409, code: "branch_exists", message: `branch ${branch} is app ${name}'s own branch, deployed as its default instance` };
+  const inst = instanceName(name, branch);
+  if (!inst) return { status: 400, code: "invalid_request", message: `branch "${branch}" has no letter or digit to name an instance after` };
+  const v = validate(app.deploy.repo, branch);
+  if (!v.valid || !v.spec) return { validation: v };
+  if (v.spec.name !== name) {
+    const error = { path: "name", message: `is "${v.spec.name}", but the app is registered as "${name}"; register the new name as a new app` };
+    return { validation: { ...v, valid: false, errors: [error] } };
+  }
+  if (app.deploy.instances.some((i) => i.branch === branch)) return { status: 409, code: "branch_exists", message: `app ${name} already deploys branch ${branch}` };
+  if (d.apps.some((a) => a.name === inst || a.deploy?.instances.some((i) => i.name === inst)))
+    return { status: 409, code: "instance_exists", message: `the instance name ${inst} of branch ${branch} is already taken by another branch or app` };
+  if (app.deploy.instances.length >= MAX_INSTANCES)
+    return { status: 409, code: "instance_limit", message: `app ${name} already has ${MAX_INSTANCES} instances, the default one included; delete one first` };
+  return null;
+}
+
+/** Adds `branch` as an instance and queues its first deployment. Returns the deployment id. */
+export function addInstance(d: DeploySim, name: string, branch: string, autoDeploy: boolean, by = "operator"): string | null {
+  if (checkAddInstance(d, name, branch)) return null;
+  const app = d.apps.find((a) => a.name === name)!;
+  const inst = newInstance(instanceName(name, branch)!, branch, false, autoDeploy, validate(app.deploy!.repo, branch), app.deploy!.environments, d.now, by);
+  // the default instance first, then the others by branch name
+  app.deploy!.instances = [...app.deploy!.instances, inst].sort((x, y) => Number(y.default) - Number(x.default) || (x.branch < y.branch ? -1 : 1));
+  return newDeployment(d, app, inst, "register", by, branch, inst.specCommit, d.now).id;
+}
+
+/** Removes an added instance and forgets its deployments. The default instance goes only with the app. */
+export function removeInstance(d: DeploySim, name: string, instance: string): boolean {
+  const app = d.apps.find((a) => a.name === name);
+  const inst = instanceOf(app, instance);
+  if (!app?.deploy || !inst || inst.default) return false;
+  app.deploy.instances = app.deploy.instances.filter((i) => i !== inst);
+  for (const dep of d.deployments.filter((x) => x.instance === instance)) {
+    delete d.events[dep.id];
+    delete d.active[dep.id];
+  }
+  d.deployments = d.deployments.filter((x) => x.instance !== instance);
+  return true;
 }
 
 /** Unregisters an app and forgets its deployments. */
@@ -425,7 +569,7 @@ export function deployTick(d: DeploySim): string[] {
     if (!advance(d, id, d.now)) continue;
     const dep = d.deployments.find((x) => x.id === id)!;
     const sec = (Date.parse(dep.finishedAt!) - Date.parse(dep.createdAt)) / 1000;
-    out.push(dep.status === "failed" ? dep.app + " 배포 실패 (이미지 빌드, " + dur(sec) + ")" : dep.app + " 배포 완료 (" + dep.environments.length + "개 환경, " + dur(sec) + ")");
+    out.push(dep.status === "failed" ? dep.instance + " 배포 실패 (이미지 빌드, " + dur(sec) + ")" : dep.instance + " 배포 완료 (" + dep.environments.length + "개 환경, " + dur(sec) + ")");
   }
   return out;
 }

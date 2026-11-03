@@ -1,7 +1,8 @@
 // Pieces of the GitHub deploy screens (new app, app list and detail, deployment) that more than one page uses.
 import type { SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { App, AppSpec, AppSpecFieldError, Deployment, DeploymentEnvironmentStatus, DeploymentStatus, DeploymentTrigger } from "../api/types";
+import type { App, AppInstance, AppSpec, AppSpecFieldError, Deployment, DeploymentEnvironmentStatus, DeploymentStatus, DeploymentTrigger } from "../api/types";
+import { instancesOf } from "../data/deploy";
 import { errorText } from "../data/live";
 import { envName } from "./shared";
 import { Chip, ProgItem, Table, td, type ChipKind } from "./ui";
@@ -274,14 +275,26 @@ export function SpecResult({ check }: { check: SpecCheck }) {
 
 export type AppHealth = "healthy" | "problem" | "deploying";
 
-/** Where a registered app stands; undefined for an app only in PLATFORM_APPS_FILE, which has no deploy status. */
-export function appHealth(a: App): AppHealth | undefined {
-  const d = a.deploy;
-  if (!d) return undefined;
-  if (d.lastDeployment && !isFinalDeploymentStatus(d.lastDeployment.status)) return "deploying";
-  if (d.lastDeployment?.status === "failed" || d.status.some((s) => s.status === "failed" || s.status === "degraded")) return "problem";
-  if (d.status.length > 0 && d.status.every((s) => s.status === "healthy")) return "healthy";
+/** Where one instance stands. */
+export function instanceHealth(i: AppInstance): AppHealth {
+  if (i.lastDeployment && !isFinalDeploymentStatus(i.lastDeployment.status)) return "deploying";
+  if (i.lastDeployment?.status === "failed" || i.status.some((s) => s.status === "failed" || s.status === "degraded")) return "problem";
+  if (i.status.length > 0 && i.status.every((s) => s.status === "healthy")) return "healthy";
   return "deploying";
+}
+
+/**
+ * Where a registered app stands over all its instances: a problem in any of
+ * them first, so another instance's deployment does not hide it, then
+ * deploying, then healthy. Undefined for an app only in PLATFORM_APPS_FILE,
+ * which has no deploy status.
+ */
+export function appHealth(a: App): AppHealth | undefined {
+  if (!a.deploy) return undefined;
+  const all = instancesOf(a).map(instanceHealth);
+  if (all.includes("problem")) return "problem";
+  if (all.includes("deploying")) return "deploying";
+  return "healthy";
 }
 
 /** File apps and registered apps in one table, as GET /v1/apps lists them. */
@@ -289,15 +302,26 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
   const rows = apps.map((a) => {
     const d = a.deploy;
     const last = d?.lastDeployment;
+    const insts = instancesOf(a);
     const name = (
       <span className="chips">
         <a href={"#app-" + a.name}>{a.name}</a>
         {d && <Chip>GitHub</Chip>}
+        {insts.length > 1 && <Chip>브랜치 {insts.length}</Chip>}
       </span>
     );
+    // The chips are the default instance's; another instance shows up only when it is not healthy.
+    const others = insts.filter((i) => !i.default).map((i) => [i, instanceHealth(i)] as const);
     const envs = (
       <div className="chips">
         {d ? d.status.map((s) => <EnvChip key={s.env} s={s.status} env={s.env} />) : a.environments.map((e) => <Chip key={e.env}>{envName(e.env)}</Chip>)}
+        {others.map(([i, h]) =>
+          h === "healthy" ? null : (
+            <Chip key={i.name} kind={h === "problem" ? "bad" : "run"}>
+              {i.branch} 브랜치 {h === "problem" ? "문제 있음" : "배포 중"}
+            </Chip>
+          ),
+        )}
         {busy[a.name] && <Chip kind="run">{busy[a.name]}</Chip>}
       </div>
     );

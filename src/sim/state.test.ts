@@ -249,3 +249,135 @@ describe("deploy simulation (platform contract shapes)", () => {
     expect(appsIn(S, "aws")).toBe(1);
   });
 });
+
+describe("branch instances simulation (ADR 0015)", () => {
+  const req = { repo: "team-charlie/notice-board", branch: "main", environments: ["eks", "gke"], autoDeploy: true };
+  const add = (branch: string, autoDeploy = true) => ({ type: "instance-create" as const, name: "notice-board", branch, autoDeploy });
+  const board = (S: SimState) => S.deploy.apps.find((a) => a.name === "notice-board")!.deploy!;
+
+  /** notice-board registered from main and healthy on EKS and GKE */
+  function registered(): SimState {
+    const S = fresh();
+    apply(S, { type: "app-create", req });
+    run(S, 300);
+    return S;
+  }
+
+  it("names instances like appspec.InstanceName", () => {
+    expect(dep.branchSlug("Feature/Login_Page")).toBe("feature-login-page");
+    expect(dep.branchSlug("--a//b--")).toBe("a-b");
+    expect(dep.instanceName("notice-board", "dev")).toBe("notice-board--dev");
+    expect(dep.instanceName("notice-board", "///")).toBeNull();
+    // past 53 characters: the slug is cut and a hash of the branch follows
+    const long = dep.instanceName("notice-board", "feature/" + "x".repeat(60))!;
+    expect(long).toHaveLength(53);
+    expect(long).toMatch(/^notice-board--feature-x{24}-[0-9a-f]{6}$/);
+    expect(dep.instanceName("notice-board", "feature/" + "x".repeat(61))).not.toBe(long);
+    // a cut that ends in "-" drops it
+    expect(dep.instanceName("notice-board", "x".repeat(31) + "/" + "y".repeat(30))).toMatch(/^notice-board--x{31}-[0-9a-f]{6}$/);
+  });
+
+  it("deploys an added branch as its own instance; its failed build leaves main healthy", () => {
+    const S = registered();
+    expect(dep.checkAddInstance(S.deploy, "notice-board", "dev")).toBeNull();
+    apply(S, add("dev", false));
+    const [main, dev] = board(S).instances;
+    expect(main).toMatchObject({ name: "notice-board", branch: "main", default: true, url: "https://notice-board.hopcharlie.dev" });
+    expect(dev).toMatchObject({ name: "notice-board--dev", branch: "dev", default: false, autoDeploy: false, url: "https://notice-board--dev.hopcharlie.dev" });
+    const d = S.deploy.deployments[0];
+    expect(d).toMatchObject({ app: "notice-board", branch: "dev", instance: "notice-board--dev", trigger: "register", ref: "dev", status: "queued" });
+    expect(dev.lastDeployment).toBe(d);
+    // the top-level fields stay the default instance's
+    expect(board(S).lastDeployment?.instance).toBe("notice-board");
+    expect(S.act[0][1]).toBe("notice-board에 dev 브랜치 추가 (인스턴스 notice-board--dev)");
+
+    run(S, 60);
+    expect(d.status).toBe("failed");
+    expect(S.act[0][1]).toMatch(/^notice-board--dev 배포 실패/);
+    expect(dev.status.map((s) => s.status)).toEqual(["pending", "pending"]);
+    expect(board(S).status.map((s) => s.status)).toEqual(["healthy", "healthy"]);
+    expect(main.lastDeployment?.status).toBe("healthy");
+  });
+
+  it("supersedes per instance and commits apps/<instance>/", () => {
+    const S = registered();
+    apply(S, add("feature/search"));
+    const search = S.deploy.deployments[0];
+    expect(search.instance).toBe("notice-board--feature-search");
+    run(S, 10);
+    apply(S, { type: "app-redeploy", name: "notice-board" });
+    const main = S.deploy.deployments[0];
+    expect(main).toMatchObject({ branch: "main", instance: "notice-board", trigger: "manual" });
+    expect(search.status).toBe("building"); // another instance's deployment is not superseded
+    apply(S, { type: "app-redeploy", name: "notice-board", branch: "feature/search" });
+    const again = S.deploy.deployments[0];
+    expect(again).toMatchObject({ branch: "feature/search", instance: "notice-board--feature-search" });
+    expect(search.status).toBe("superseded");
+    expect(main.status).not.toBe("superseded");
+
+    run(S, 300);
+    expect([main.status, again.status]).toEqual(["healthy", "healthy"]);
+    expect(S.deploy.events[again.id].map((e) => e.message)).toContain("gitops에 apps/notice-board--feature-search/<env>.yaml 커밋");
+    expect(again.images[0].image).toMatch(/hopcharlie\/apps\/notice-board\/web@sha256:/); // images are the app's
+    const inst = board(S).instances.find((i) => i.branch === "feature/search")!;
+    expect(inst.status.map((s) => [s.status, s.commit])).toEqual([
+      ["healthy", again.commit],
+      ["healthy", again.commit],
+    ]);
+    expect(board(S).lastDeployment).toBe(main);
+  });
+
+  it("refuses like the server and in its order: branch name, own branch, empty slug, platform.yaml, added branch, taken name, limit", () => {
+    const S = registered();
+    const check = (branch: string, name = "notice-board") => dep.checkAddInstance(S.deploy, name, branch);
+    expect(dep.validBranch("feature/x-1.2_b")).toBe(true);
+    for (const bad of ["", "-x", "/x", ".x", "x/", "x.", "x.lock", "a..b", "a//b", "a/.b", "a b", "기능"]) expect(dep.validBranch(bad)).toBe(false);
+    expect(check("a b")).toMatchObject({ status: 400, code: "invalid_request" });
+    expect(check("main")).toMatchObject({ status: 409, code: "branch_exists", message: expect.stringMatching(/own branch/) });
+    expect(check("_")).toMatchObject({ status: 400, code: "invalid_request", message: expect.stringMatching(/no letter or digit/) });
+    expect(check("nope")).toMatchObject({ validation: { valid: false, errors: [{ path: "" }] } });
+    // only the repository's own branches: no prototype keys
+    expect(check("constructor")).toMatchObject({ validation: { valid: false, errors: [{ message: "branch constructor not found" }] } });
+    expect(check("toString")).toMatchObject({ validation: { valid: false } });
+
+    apply(S, add("dev"));
+    expect(check("dev")).toMatchObject({ status: 409, code: "branch_exists", message: expect.stringMatching(/already deploys/) });
+    // Another branch with the same instance name, as feature-search would be next to feature/search.
+    const others = board(S).instances;
+    board(S).instances = [...others, { ...others[1], branch: "feature-search", name: "notice-board--feature-search" }];
+    expect(check("feature/search")).toMatchObject({ status: 409, code: "instance_exists" });
+    // A third instance under another name: the limit, checked last.
+    board(S).instances = [...others, { ...others[1], branch: "other", name: "notice-board--other" }];
+    expect(check("feature/search")).toMatchObject({ status: 409, code: "instance_limit" });
+    expect(check("nope")).toMatchObject({ validation: { valid: false } });
+    board(S).instances = others;
+
+    apply(S, add("feature/search"));
+    expect(board(S).instances.map((i) => i.name)).toEqual(["notice-board", "notice-board--dev", "notice-board--feature-search"]);
+    apply(S, add("main"));
+    expect(board(S).instances).toHaveLength(3);
+
+    apply(S, { type: "app-create", req: { ...req, repo: "team-charlie/photo-album", branch: "fix-worker" } });
+    const bad = check("main", "photo-album");
+    expect(bad && "validation" in bad && bad.validation.errors.map((e) => e.path)).toEqual(["services[1].port", "services[1].env.WORKERS"]);
+  });
+
+  it("removes an added instance with its deployments but never the default one; deleting the app removes them all", () => {
+    const S = registered();
+    apply(S, add("dev"));
+    const devDep = S.deploy.deployments[0];
+    apply(S, { type: "instance-delete", name: "notice-board", instance: "notice-board" });
+    expect(board(S).instances).toHaveLength(2);
+    apply(S, { type: "instance-delete", name: "notice-board", instance: "notice-board--dev" });
+    expect(board(S).instances.map((i) => i.name)).toEqual(["notice-board"]);
+    expect(S.deploy.deployments.some((x) => x.instance === "notice-board--dev")).toBe(false);
+    expect(S.deploy.events[devDep.id]).toBeUndefined();
+    expect(S.deploy.active[devDep.id]).toBeUndefined();
+    expect(S.act[0][1]).toBe("notice-board--dev 삭제 (gitops에서 apps/notice-board--dev/ 제거)");
+
+    apply(S, add("dev"));
+    apply(S, { type: "app-delete", name: "notice-board" });
+    expect(S.act[0][1]).toBe("notice-board 삭제 (gitops에서 apps/notice-board/, apps/notice-board--dev/ 제거)");
+    expect(S.deploy.deployments.some((x) => x.app === "notice-board")).toBe(false);
+  });
+});
