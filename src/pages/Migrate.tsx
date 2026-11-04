@@ -3,7 +3,7 @@ import type { Run, RunStatus } from "../api/types";
 import { BlockedTable, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td, type ChipKind } from "../components/ui";
-import { OBSERVE_DURATIONS, useLiveMigration, useSimMigration, type MigrationView } from "../data/migration";
+import { OBSERVE_DURATIONS, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -341,7 +341,14 @@ function ApproveBox({ v }: { v: MigrationView }) {
             보여 줍니다. 플랫폼에서 켜 둔 검사만 실행합니다.
           </dd>
           <dt>원복</dt>
-          <dd>대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.</dd>
+          <dd>
+            대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.
+            {v.start?.options.observe &&
+              v.plan.summary.gatewayMode === "http" &&
+              (v.start.options.autoRollback
+                ? " 전환이 끝난 뒤 관찰 중에 게이트를 어기면 플랫폼이 롤백 run을 시작합니다(자동 롤백)."
+                : " 전환이 끝난 뒤 관찰 중에 게이트를 어기면 위반을 기록하고, 롤백은 운영자가 정합니다.")}
+          </dd>
           <StartOptionsFields v={v} />
         </dl>
         <div className="actrow">
@@ -357,12 +364,15 @@ function ApproveBox({ v }: { v: MigrationView }) {
   );
 }
 
-const DURATION_LABEL: Record<(typeof OBSERVE_DURATIONS)[number], string> = { "1m": "1분", "2m": "2분", "5m": "5분", "10m": "10분" };
+const DURATION_LABEL: Record<ObserveDuration, string> = { "1m": "1분", "2m": "2분", "5m": "5분", "10m": "10분" };
 
 // Observe and auto rollback for the start (platform ObserveOptions). Live only: the simulation does not model them.
-function StartOptionsFields({ v }: { v: MigrationView }) {
+// `locked` resends a start that did not finish: the platform may already have started it under the same
+// Idempotency-Key and then answers with that run, so changed options would be ignored without a word.
+function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: boolean }) {
   if (!v.start || !v.plan) return null;
   const { options: o, set } = v.start;
+  const off = v.busy || locked;
   if (v.plan.summary.gatewayMode !== "http")
     return (
       <>
@@ -375,14 +385,14 @@ function StartOptionsFields({ v }: { v: MigrationView }) {
       <dt>전환 후 관찰</dt>
       <dd>
         <label className="check">
-          <input type="checkbox" checked={o.observe} disabled={v.busy} onChange={(e) => set({ ...o, observe: e.target.checked, autoRollback: e.target.checked && o.autoRollback })} /> 전환 뒤에도
+          <input type="checkbox" checked={o.observe} disabled={off} onChange={(e) => set({ ...o, observe: e.target.checked, autoRollback: e.target.checked && o.autoRollback })} /> 전환 뒤에도
           대상을 게이트로 계속 판정
         </label>
         {o.observe && (
           <div className="obsopts">
             <label className="check">
               관찰 시간
-              <select aria-label="관찰 시간" value={o.duration} disabled={v.busy} onChange={(e) => set({ ...o, duration: e.target.value })}>
+              <select aria-label="관찰 시간" value={o.duration} disabled={off} onChange={(e) => set({ ...o, duration: e.target.value as ObserveDuration })}>
                 {OBSERVE_DURATIONS.map((d) => (
                   <option key={d} value={d}>
                     {DURATION_LABEL[d]}
@@ -392,16 +402,18 @@ function StartOptionsFields({ v }: { v: MigrationView }) {
               {CANARY.stepSec}초마다 판정
             </label>
             <label className="check">
-              <input type="checkbox" checked={o.autoRollback} disabled={v.busy} onChange={(e) => set({ ...o, autoRollback: e.target.checked })} /> 게이트를 어기면 바로 롤백
+              <input type="checkbox" checked={o.autoRollback} disabled={off} onChange={(e) => set({ ...o, autoRollback: e.target.checked })} /> 게이트를 어기면 바로 롤백
             </label>
             <p className="hint">
               {o.autoRollback
                 ? "게이트를 어긴 단계가 나오면 플랫폼이 바로 롤백 run을 시작합니다(행위자 slo-guard). 롤백은 데이터를 원본으로 다시 옮기는 전체 이전입니다."
                 : "게이트를 어긴 단계가 나오면 관찰을 멈추고 위반을 기록합니다. 롤백할지는 운영자가 정합니다."}{" "}
-              게이트 기준은 플랫폼 기본값(오류율 1% 이하, p95 800ms 이하)이고, 요청이 20개보다 적은 단계는 판정하지 않고 넘어갑니다.
+              게이트 기준은 플랫폼 기본값(오류율 {PLATFORM_GATE.maxErrorRate * 100}% 이하, p95 {PLATFORM_GATE.maxP95Millis}ms 이하)이고, 요청이{" "}
+              {PLATFORM_GATE.minRequests}개보다 적은 단계는 판정하지 않고 넘어갑니다.
             </p>
           </div>
         )}
+        {locked && <p className="hint">끝나지 않은 시작 요청을 같은 옵션으로 다시 보냅니다. 앞선 요청이 이미 처리됐다면 플랫폼은 그 run을 돌려주므로, 옵션을 바꾸려면 새 Plan을 작성하세요.</p>}
       </dd>
     </>
   );
@@ -424,7 +436,8 @@ function StartAgainBox({ v }: { v: MigrationView }) {
             : "시작 요청이 끝나지 않았습니다. 다시 시작할 수 있습니다."}
         </p>
         <dl className="kv">
-          <StartOptionsFields v={v} />
+          {/* a start refused by a pre-start check stored no Idempotency-Key, so its options may change */}
+          <StartOptionsFields v={v} locked={!blocked} />
         </dl>
         <div className="actrow">
           <button type="button" className="btn primary" disabled={v.busy} onClick={v.approve}>

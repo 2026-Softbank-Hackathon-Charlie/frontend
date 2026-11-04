@@ -32,17 +32,25 @@ export interface EnvOption {
  * cutover; with autoRollback the platform starts the rollback itself (actor slo-guard) on a breach.
  * The gate thresholds stay at the platform's defaults.
  */
+/** Within the platform's 10s to 30m, each at least one CANARY step long. */
+export const OBSERVE_DURATIONS = ["1m", "2m", "5m", "10m"] as const;
+export type ObserveDuration = (typeof OBSERVE_DURATIONS)[number];
+
 export interface StartOptions {
   observe: boolean;
-  /** total observation time, one of OBSERVE_DURATIONS */
-  duration: string;
+  /** total observation time */
+  duration: ObserveDuration;
   autoRollback: boolean;
 }
 
 export const DEFAULT_START: StartOptions = { observe: false, duration: "2m", autoRollback: false };
 
-/** Within the platform's 10s to 30m, each at least one CANARY step long. */
-export const OBSERVE_DURATIONS = ["1m", "2m", "5m", "10m"] as const;
+/**
+ * The gate the platform applies when a start names none, which the console never does.
+ * Copied from the platform's gateWithDefaults (internal/runs/observe.go) and the
+ * GateThresholds defaults in api/openapi.yaml: change them together.
+ */
+export const PLATFORM_GATE = { maxErrorRate: 0.01, maxP95Millis: 800, minRequests: 20 } as const;
 
 /**
  * The start request for a plan. Canary and observe both need the platform gateway (mode http), and
@@ -84,7 +92,7 @@ export interface MigrationView {
   counters?: { ok: number; held: number; heldDone: number };
   /** the platform's residency and capacity checks of the latest start or rollback of this plan */
   preflight?: PreflightView;
-  /** start options; the simulation does not model observe and leaves them out */
+  /** start options of the plan on screen; the simulation does not model observe and leaves them out */
   start?: { options: StartOptions; set(o: StartOptions): void };
   busy: boolean;
   notice: string;
@@ -209,7 +217,8 @@ export function useLiveMigration(): MigrationView {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [startKey, setStartKey] = useState(newIdempotencyKey);
-  const [startOptions, setStartOptions] = useState<StartOptions>(DEFAULT_START);
+  // Start options belong to one plan: another plan (a new one, after a reject, a rollback) starts from the defaults.
+  const [picked, setPicked] = useState<{ planRef: string | null; options: StartOptions }>({ planRef: null, options: DEFAULT_START });
   const [selected, setSelected] = useState<string | null>(null);
 
   const app = (apps.data ?? []).find((a) => a.name === appName) ?? apps.data?.[0];
@@ -229,6 +238,7 @@ export function useLiveMigration(): MigrationView {
   }, [enabled, runs.data, plans.data, runId, planRef]);
 
   const plan = plans.data?.find((p) => p.ref === planRef);
+  const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
   const watch = useRun(enabled ? runId : null);
   const run = watch.run;
@@ -275,7 +285,7 @@ export function useLiveMigration(): MigrationView {
     run,
     events: watch.events,
     preflight: preflight.data,
-    start: { options: startOptions, set: setStartOptions },
+    start: { options: startOptions, set: (options) => setPicked({ planRef, options }) },
     busy,
     notice: notice || (apps.error ? errorText(apps.error) : ""),
     makePlan: () =>
@@ -327,7 +337,6 @@ export function useLiveMigration(): MigrationView {
       setEngine(undefined);
       setNotice("");
       setStartKey(newIdempotencyKey());
-      setStartOptions(DEFAULT_START);
     },
   };
 }

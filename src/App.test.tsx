@@ -165,42 +165,35 @@ describe("HopCharlie console (platform API)", () => {
     };
   }
 
-  it("approves the revision on screen and starts with a read canary", async () => {
-    let calls: FakeCall[] = [];
-    calls = installFetch(route(() => calls));
-    const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
-    await logInAs(user);
-    expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
-
-    window.location.hash = "#migrate-shop";
-    expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
-
-    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))).toBe(true));
-    const approve = calls.find((c) => c.url.includes("/v1/plans/pln_1/approve"))!;
-    expect(JSON.parse(approve.body!)).toEqual({ revision: 3 });
-    const start = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!;
-    expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
-    expect(JSON.parse(start.body!).observe).toBeUndefined(); // observe stays off unless the operator turns it on
-    expect(start.headers.get("Idempotency-Key")).toBeTruthy();
-    expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
-  });
-
   async function openApproval(plan = basePlan) {
     let calls: FakeCall[] = [];
     calls = installFetch(route(() => calls, plan));
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
     await logInAs(user);
+    expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
     window.location.hash = "#migrate-shop";
     expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
-    const started = async () => {
+    const startCall = async () => {
       await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))).toBe(true));
-      return JSON.parse(calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!.body!);
+      return calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!;
     };
-    return { user, started };
+    const started = async () => JSON.parse((await startCall()).body!);
+    return { user, started, startCall, calls: () => calls };
   }
+
+  it("approves the revision on screen and starts with a read canary", async () => {
+    const { user, startCall, calls } = await openApproval();
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+
+    const start = await startCall();
+    const approve = calls().find((c) => c.url.includes("/v1/plans/pln_1/approve"))!;
+    expect(JSON.parse(approve.body!)).toEqual({ revision: 3 });
+    expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
+    expect(JSON.parse(start.body!).observe).toBeUndefined(); // observe stays off unless the operator turns it on
+    expect(start.headers.get("Idempotency-Key")).toBeTruthy();
+    expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
+  });
 
   it("starts with the observe options the operator picked", async () => {
     const { user, started } = await openApproval();
@@ -210,6 +203,8 @@ describe("HopCharlie console (platform API)", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "관찰 시간" }), "5m");
     await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
     expect(screen.getByText(/플랫폼이 바로 롤백 run을 시작합니다/)).toBeInTheDocument();
+    // the rollback row says the same, instead of "the operator decides" only
+    expect(screen.getByText(/관찰 중에 게이트를 어기면 플랫폼이 롤백 run을 시작합니다\(자동 롤백\)/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
     expect(await started()).toMatchObject({
       planRef: "pln_1",
@@ -283,9 +278,67 @@ describe("HopCharlie console (platform API)", () => {
     // the plan stays approved and on screen instead of falling back to the setup form
     expect(await screen.findByText(/은 승인됐지만 시작하지 않았습니다/)).toBeInTheDocument();
 
+    // a refused start stored no Idempotency-Key, so the options may change before starting again
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "다시 시작" }));
     await waitFor(() => expect(started).toBe(2));
     expect(calls.filter((c) => c.url.includes("/approve"))).toHaveLength(2);
+  });
+
+  it("locks the options when it resends a start that did not finish", async () => {
+    let started = 0;
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...basePlan, status: started ? "approved" : "pending_approval" }] });
+      if (u.pathname === "/v1/migrations" && c.method === "POST") {
+        started++;
+        return json(502, { error: { code: "bad_gateway", message: "upstream closed" } });
+      }
+      if (u.pathname === "/v1/audit") return json(200, { entries: [] });
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("checkbox", { name: /전환 뒤에도/ }));
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+
+    expect(await screen.findByText(/은 승인됐지만 시작하지 않았습니다/)).toBeInTheDocument();
+    // the platform may have started it under the same key and would answer with that run
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeChecked();
+    expect(screen.getByText(/끝나지 않은 시작 요청을 같은 옵션으로 다시 보냅니다/)).toBeInTheDocument();
+  });
+
+  it("starts the next plan from the default options after a reject", async () => {
+    let rejected = false;
+    let submitted = false;
+    const next = { ...basePlan, ref: "pln_2", revision: 1 };
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans" && c.method === "GET") return json(200, { plans: rejected ? [{ ...basePlan, status: "rejected" }, ...(submitted ? [next] : [])] : [basePlan] });
+      if (u.pathname === "/v1/plans/pln_1/reject") {
+        rejected = true;
+        return json(200, { ...basePlan, status: "rejected" });
+      }
+      if (u.pathname === "/v1/plans/draft") return json(200, { id: "shop-eks-to-gke" });
+      if (u.pathname === "/v1/plans" && c.method === "POST") {
+        submitted = true;
+        return json(201, next);
+      }
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("checkbox", { name: /전환 뒤에도/ }));
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    await user.click(screen.getByRole("button", { name: "반려" }));
+    await user.click(await screen.findByRole("button", { name: "Plan 작성" }));
+
+    expect(await screen.findByText(/Plan pln_2 \(revision 1\)을 승인할까요\?/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: /바로 롤백/ })).toBeNull();
   });
 
   it("makes no API calls in simulation mode", () => {
