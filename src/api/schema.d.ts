@@ -24,9 +24,11 @@ export interface paths {
      * Error codes: invalid_request (400), invalid_credentials (401: an
      * unknown username or a wrong password; the answer does not say
      * which), too_many_attempts (429: 10 failed attempts for this
-     * username in the last 10 minutes; `Retry-After` gives the seconds to
+     * username in the last 10 minutes, or the server is already checking
+     * as many logins as it can at once; `Retry-After` gives the seconds to
      * wait), login_not_configured (503: the server has no administrators).
-     * Every success and failure is written to the audit log.
+     * Every success and failure is written to the audit log; a login
+     * refused because the server was busy is not.
      */
     post: operations["login"];
   };
@@ -50,7 +52,7 @@ export interface paths {
      * or log it. `client` is shown to the administrator before they
      * approve, so say what is asking, e.g. "charlie v0.5.0 on rin-sbx-12".
      *
-     * Error codes: invalid_request (400), too_many_attempts (429: 50
+     * Error codes: invalid_request (400), too_many_attempts (429: 1000
      * device logins are already pending).
      */
     post: operations["startDeviceLogin"];
@@ -778,7 +780,7 @@ export interface components {
     };
     /** @enum {string} */
     DeviceLoginStatus: "pending" | "approved" | "denied";
-    /** @description A device login as the console shows it to an administrator. It never contains the device code. */
+    /** @description A device login as the console shows it to an administrator. It never contains the device code. `role` is the role the CLI token gets, set once approved. */
     DeviceLogin: {
       /** @example BCDF-GHJK */
       userCode: string;
@@ -790,7 +792,6 @@ export interface components {
       expiresAt: string;
       /** @description The administrator who approved or denied it, once reviewed. */
       reviewedBy?: string;
-      /** @description The role the CLI token gets, once approved. */
       role?: components["schemas"]["Role"];
     };
     DeviceLoginApproveRequest: {
@@ -2355,9 +2356,11 @@ export interface operations {
    * Error codes: invalid_request (400), invalid_credentials (401: an
    * unknown username or a wrong password; the answer does not say
    * which), too_many_attempts (429: 10 failed attempts for this
-   * username in the last 10 minutes; `Retry-After` gives the seconds to
+   * username in the last 10 minutes, or the server is already checking
+   * as many logins as it can at once; `Retry-After` gives the seconds to
    * wait), login_not_configured (503: the server has no administrators).
-   * Every success and failure is written to the audit log.
+   * Every success and failure is written to the audit log; a login
+   * refused because the server was busy is not.
    */
   login: {
     requestBody: {
@@ -2410,7 +2413,7 @@ export interface operations {
    * or log it. `client` is shown to the administrator before they
    * approve, so say what is asking, e.g. "charlie v0.5.0 on rin-sbx-12".
    *
-   * Error codes: invalid_request (400), too_many_attempts (429: 50
+   * Error codes: invalid_request (400), too_many_attempts (429: 1000
    * device logins are already pending).
    */
   startDeviceLogin: {
