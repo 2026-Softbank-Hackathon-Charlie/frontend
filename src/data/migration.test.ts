@@ -1,5 +1,7 @@
 import { CANARY_PRESETS } from "../sim/mig";
-import { DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, startRequest } from "./migration";
+import { DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest } from "./migration";
+import { fakeAgentSession } from "../api/fakes";
+import type { AgentEvent } from "../api/types";
 
 describe("start request", () => {
   it("sends the quick read canary and no observation by default", () => {
@@ -48,5 +50,31 @@ describe("start request", () => {
       expect(sec(d)).toBeLessThanOrEqual(30 * 60);
     }
     expect(OBSERVE_DURATIONS).toContain(DEFAULT_START.duration);
+  });
+});
+
+describe("AI runner sessions", () => {
+  const plan = (p: Parameters<typeof fakeAgentSession>[0]) => fakeAgentSession({ kind: "plan", title: "moimroom 이전 계획 (gke → eks)", ...p });
+
+  it("finds the plan hopai is writing for the app before a Plan exists", () => {
+    const writing = plan({ id: "ags_3" });
+    const sessions = [
+      plan({ id: "ags_5", title: "todo-api 이전 계획 (gke → eks)" }), // another app
+      fakeAgentSession({ id: "ags_4", kind: "rehearsal", title: "샌드박스 리허설 (moimroom-gke-to-eks)" }),
+      writing,
+      plan({ id: "ags_2", status: "succeeded" }), // done
+      plan({ id: "ags_1", planRef: "pln_1" }), // already tied to a plan
+    ];
+    expect(planningSession(sessions, "moimroom")).toBe(writing);
+    expect(planningSession(sessions, "moim")).toBeUndefined(); // the title starts with the whole app name
+    expect(planningSession(sessions, "")).toBeUndefined();
+    expect(planningSession(undefined, "moimroom")).toBeUndefined();
+  });
+
+  it("reads the plan session a rehearsal names", () => {
+    const ev = (p: Partial<AgentEvent>): AgentEvent => ({ seq: 1, sessionId: "ags_4", time: "2026-11-04T00:00:00Z", type: "message", ...p });
+    expect(linkedPlanSessionId([ev({ tool: "sandbox_apply", output: { planSession: "x" } }), ev({ tool: "plan", output: { planRef: "pln_1", planSession: "ags_3", planId: "p" } })])).toBe("ags_3");
+    expect(linkedPlanSessionId([ev({ tool: "plan", output: "ags_3" }), ev({ tool: "plan", output: { planSession: "" } })])).toBeUndefined();
+    expect(linkedPlanSessionId([])).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { fakeSession, installFetch, json, type FakeCall } from "./api/fakes";
+import { fakeAgentSession, fakeSession, installFetch, json, type FakeCall } from "./api/fakes";
 import { App } from "./App";
 import { initAuth } from "./data/live";
 import { AI_END, SWITCH_AT } from "./sim/mig";
@@ -364,6 +364,110 @@ describe("HopCharlie console (platform API)", () => {
     expect(await screen.findByText(/Plan pln_2 \(revision 1\)을 승인할까요\?/)).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).not.toBeChecked();
     expect(screen.queryByRole("checkbox", { name: /바로 롤백/ })).toBeNull();
+  });
+
+  it("shows the plan the AI runner is writing before a Plan exists", async () => {
+    const writing = fakeAgentSession({ id: "ags_3", kind: "plan", title: "shop 이전 계획 (eks → gke)" });
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") return json(200, { plans: [] });
+      if (u.pathname === "/v1/agent/sessions") return json(200, { sessions: [fakeAgentSession({ id: "ags_9", title: "other 이전 계획 (eks → gke)" }), writing] });
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app";
+    // the AI step with the running plan session, instead of the setup form
+    expect(await screen.findByText(/계획: shop 이전 계획 \(eks → gke\)/)).toBeInTheDocument();
+    expect(screen.getByText("AI 작성 중")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plan 작성" })).toBeNull();
+  });
+
+  it("shows a newer AI plan ahead of an older Plan still waiting for approval", async () => {
+    // pln_1 was submitted at 01:00 and left pending; hopai started planning again at 02:00
+    const writing = fakeAgentSession({ id: "ags_5", kind: "plan", title: "shop 이전 계획 (eks → gke)", createdAt: "2026-11-06T02:00:00Z" });
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/agent/sessions") return json(200, { sessions: u.searchParams.get("planRef") ? [] : [writing] });
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app";
+    expect(await screen.findByText(/계획: shop 이전 계획 \(eks → gke\)/)).toBeInTheDocument();
+    expect(screen.getByText("AI 작성 중")).toBeInTheDocument();
+    expect(screen.queryByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeNull();
+  });
+
+  it("keeps a failed AI plan on screen with its reason and lets the operator go back", async () => {
+    let failed = false;
+    const base = { id: "ags_6", kind: "plan" as const, title: "shop 이전 계획 (eks → gke)", createdAt: "2026-11-06T02:00:00Z" };
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") return json(200, { plans: [] });
+      if (u.pathname === "/v1/agent/sessions") {
+        // running at first, then failed before any Plan arrives
+        const s = failed ? fakeAgentSession({ ...base, status: "failed", summary: "AI 응답이 3번 모두 검사에 걸림" }) : fakeAgentSession(base);
+        return json(200, { sessions: [s] });
+      }
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-app";
+    expect(await screen.findByText("AI 작성 중")).toBeInTheDocument();
+    failed = true;
+    expect(await screen.findByText("AI 계획 실패", undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText(/AI가 Plan을 내지 못하고 끝났습니다: AI 응답이 3번 모두 검사에 걸림/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
+    expect(await screen.findByRole("button", { name: "Plan 작성" })).toBeInTheDocument();
+  });
+
+  it("moves from the AI plan to the Plan it submits", async () => {
+    let done = false;
+    const base = { id: "ags_7", kind: "plan" as const, title: "shop 이전 계획 (eks → gke)", createdAt: "2026-11-06T02:00:00Z" };
+    const submitted = { ...basePlan, ref: "pln_2", revision: 1, submittedAt: "2026-11-06T02:01:00Z" };
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      // the old pln_1 stays pending; pln_2 appears once the plan session has finished
+      if (u.pathname === "/v1/plans") return json(200, { plans: done ? [basePlan, submitted] : [basePlan] });
+      if (u.pathname === "/v1/agent/sessions") {
+        if (u.searchParams.get("planRef")) return json(200, { sessions: [] });
+        return json(200, { sessions: [fakeAgentSession(done ? { ...base, status: "succeeded" } : base)] });
+      }
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app";
+    expect(await screen.findByText("AI 작성 중")).toBeInTheDocument();
+    done = true;
+    expect(await screen.findByText(/Plan pln_2 \(revision 1\)을 승인할까요\?/, undefined, { timeout: 8000 })).toBeInTheDocument();
+  }, 15000);
+
+  it("lists the plan session behind a submitted Plan through its rehearsal", async () => {
+    const rehearsal = fakeAgentSession({ id: "ags_4", kind: "rehearsal", title: "샌드박스 리허설 (shop-eks-to-gke)", planRef: "pln_1", status: "succeeded" });
+    const planned = fakeAgentSession({ id: "ags_3", kind: "plan", title: "shop 이전 계획 (eks → gke)", status: "succeeded" });
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/agent/sessions") return json(200, { sessions: u.searchParams.get("planRef") === "pln_1" ? [rehearsal] : [] });
+      if (u.pathname === "/v1/agent/sessions/ags_4/events" && u.searchParams.get("format") === "json")
+        return json(200, { events: [{ seq: 1, sessionId: "ags_4", time: "2026-11-04T00:00:00Z", type: "message", tool: "plan", output: { planRef: "pln_1", planSession: "ags_3", planId: "shop-eks-to-gke" } }] });
+      if (u.pathname === "/v1/agent/sessions/ags_3") return json(200, planned);
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app";
+    expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
+    // the plan session has no planRef: it comes in through the rehearsal that names it
+    expect(await screen.findByText("shop 이전 계획 (eks → gke)")).toBeInTheDocument();
+    expect(screen.getByText("샌드박스 리허설 (shop-eks-to-gke)")).toBeInTheDocument();
   });
 
   it("makes no API calls in simulation mode", () => {
