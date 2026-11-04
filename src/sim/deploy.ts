@@ -506,17 +506,19 @@ export function checkRedeploy(d: DeploySim, name: string, branch: string): Refus
   if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
   const inst = app.deploy.instances.find((i) => i.branch === branch);
   if (!inst) return { status: 400, code: "invalid_request", message: `app ${name} does not deploy branch ${branch}` };
+  if (d.deployments.some((x) => x.instance === inst.name && !isFinal(x.status)))
+    return { status: 409, code: "deployment_in_progress", message: `instance ${inst.name} has a deployment in progress` };
   if (!lastHealthy(d, inst.name)) return { status: 409, code: "nothing_to_redeploy", message: `instance ${inst.name} has no healthy deployment to deploy again` };
   return null;
 }
 
-/** The instance's last healthy deployment again (trigger redeploy): same commit and images, no build. Returns the deployment id. */
-export function redeployNoBuild(d: DeploySim, name: string, branch: string): string | null {
-  if (checkRedeploy(d, name, branch)) return null;
+/** The instance's last healthy deployment again (trigger redeploy): same commit and images, no build. */
+export function redeployNoBuild(d: DeploySim, name: string, branch: string): void {
+  if (checkRedeploy(d, name, branch)) return;
   const app = d.apps.find((a) => a.name === name)!;
   const inst = app.deploy!.instances.find((i) => i.branch === branch)!;
   const last = lastHealthy(d, inst.name)!;
-  return newDeployment(d, app, inst, "redeploy", "operator", last.ref, last.commit, d.now).id;
+  newDeployment(d, app, inst, "redeploy", "operator", last.ref, last.commit, d.now);
 }
 
 /**

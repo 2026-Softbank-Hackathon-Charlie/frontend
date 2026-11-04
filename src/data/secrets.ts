@@ -29,9 +29,17 @@ export interface SecretsModel {
   reveal(name: string, instance: string | undefined, signal?: AbortSignal): Promise<RevealResult>;
   /** Sends one change (one scope); resolves with "" once saved, or an error message. */
   save(body: AppSecretsUpdate): Promise<string>;
+  /** Reads the names again. */
+  reload(): void;
 }
 
-const refusalText = (r: Refusal) => deployErrorText(new ApiError(r.status, r.code, r.message));
+/** A short Korean message for a failed secrets call. */
+function secretErrorText(e: unknown): string {
+  if (e instanceof ApiError && e.code === "app_not_registered") return "파일에만 있는 앱이라 시크릿을 쓸 수 없습니다";
+  return deployErrorText(e);
+}
+
+const refusalText = (r: Refusal) => secretErrorText(new ApiError(r.status, r.code, r.message));
 
 export function useSimSecrets(app: string): SecretsModel {
   const { S, dispatch } = useSim();
@@ -52,6 +60,7 @@ export function useSimSecrets(app: string): SecretsModel {
       dispatch({ type: "secrets-update", name: app, body });
       return "";
     },
+    reload: () => {},
   };
 }
 
@@ -67,12 +76,12 @@ export function useLiveSecrets(app: string): SecretsModel {
     if (e instanceof ApiError && e.status === 403) setForbidden(true);
     // A secret or an instance that went away: read the names again.
     if (e instanceof ApiError && e.status === 404) list.reload();
-    return deployErrorText(e);
+    return secretErrorText(e);
   };
   return {
     live: true,
     data,
-    error: list.error && !data && !notConfigured ? deployErrorText(list.error) : "",
+    error: list.error && !data && !notConfigured ? secretErrorText(list.error) : "",
     notConfigured,
     canEdit: role === "operator" && !forbidden,
     now: Date.now(),
@@ -93,5 +102,6 @@ export function useLiveSecrets(app: string): SecretsModel {
         return failed(e);
       }
     },
+    reload: list.reload,
   };
 }

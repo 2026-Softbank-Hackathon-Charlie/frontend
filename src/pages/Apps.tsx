@@ -5,7 +5,7 @@ import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ExtLink, sho
 import { AppSecrets } from "../components/secrets";
 import { envName } from "../components/shared";
 import { Chip, PageHead, Table, td, type Cell } from "../components/ui";
-import { useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
+import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 import { ENV } from "../sim/data";
@@ -374,6 +374,9 @@ function namePreview(app: string, branch: string): string {
   return "인스턴스 이름: " + (inst === app + "--" + branchSlug(branch) ? inst : inst.slice(0, -6) + "(해시 6자리)");
 }
 
+/** The no-build redeploy button's text, with the short commit it deploys again when known. */
+const noBuildLabel = (commit?: string) => "재배포 (빌드 없이" + (commit ? ", " + short(commit) : "") + ")";
+
 /** One row per instance (ADR 0015), the form that adds a branch, and the typed confirmation that removes one. */
 function Instances({
   m,
@@ -400,6 +403,8 @@ function Instances({
   // A server from before ADR 0015 lists no instances: only the default one, so there is nothing to add or remove.
   const listed = Array.isArray(m.app?.deploy?.instances);
   const full = m.instances.length >= MAX_INSTANCES;
+  const again = new Map(m.instances.map((i) => [i.name, redeployState(app, i, m.deployments)]));
+  const waiting = listed ? m.instances.filter((i) => again.get(i.name)!.running) : [];
 
   async function add() {
     setBusy("add");
@@ -471,8 +476,14 @@ function Instances({
                 </button>
                 {/* A server that lists no instances predates ADR 0015, and redeploy (ADR 0019) with it. */}
                 {listed && (
-                  <button type="button" className="btn ghost" aria-label={i.name + " 재배포 (빌드 없이)"} disabled={!!busy} onClick={() => redeployNoBuild(i)}>
-                    재배포 (빌드 없이)
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    aria-label={i.name + " " + noBuildLabel(again.get(i.name)!.commit)}
+                    disabled={!!busy || again.get(i.name)!.running}
+                    onClick={() => redeployNoBuild(i)}
+                  >
+                    {noBuildLabel(again.get(i.name)!.commit)}
                   </button>
                 )}
                 {listed && !i.default && (
@@ -495,6 +506,11 @@ function Instances({
           ])}
         />
       </div>
+      {waiting.length > 0 && (
+        <p className="hint">
+          {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
+        </p>
+      )}
       {removing && (
         <ConfirmDelete
           key={removing}

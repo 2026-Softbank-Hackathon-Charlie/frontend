@@ -24,7 +24,7 @@ export function secretNameError(name: string): string {
   return "";
 }
 
-/** Why `value` cannot be saved, in Korean; "" when it is fine. An empty value is refused so a blank edit never wipes a secret. */
+/** Why the server would refuse `value` (1 to MAX_SECRET_VALUE bytes), in Korean; "" when it is fine. */
 export function secretValueError(value: string): string {
   if (!value) return "값을 입력하세요";
   const bytes = new TextEncoder().encode(value).length;
@@ -102,10 +102,9 @@ export function checkUpdate(d: DeploySim, app: string, body: AppSecretsUpdate): 
 }
 
 /** Applies a change that checkUpdate passes. */
-export function updateSecrets(d: DeploySim, app: string, body: AppSecretsUpdate, by = "operator"): boolean {
-  if (checkUpdate(d, app, body)) return false;
+export function updateSecrets(d: DeploySim, app: string, body: AppSecretsUpdate, by = "operator"): void {
+  if (checkUpdate(d, app, body)) return;
   const scope = ((d.secrets[app] ??= {})[body.instance ?? ""] ??= {});
   for (const n of body.delete ?? []) delete scope[n];
   for (const [n, value] of Object.entries(body.set ?? {})) scope[n] = { value, updatedAt: iso(d.now), updatedBy: by };
-  return true;
 }

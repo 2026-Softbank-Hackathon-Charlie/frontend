@@ -77,6 +77,9 @@ export interface DeploymentModel {
   now: number;
 }
 
+/** Why a no-build redeploy waits: the unfinished deployment already carries the secrets as they were at its gitops commit. */
+export const REDEPLOY_WAIT = "진행 중인 배포가 끝난 뒤 재배포할 수 있습니다. 진행 중인 배포도 커밋할 때의 시크릿을 씁니다";
+
 /** Korean texts for the deploy calls' error codes, used for the simulation's refusals too. The server's English message is not repeated. */
 const DEPLOY_ERRORS: Record<string, string> = {
   app_not_registered: "PLATFORM_APPS_FILE에만 있는 앱이라 여기서 배포하거나 지울 수 없습니다",
@@ -90,6 +93,7 @@ const DEPLOY_ERRORS: Record<string, string> = {
   default_instance: "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다",
   instance_not_found: "인스턴스를 찾을 수 없습니다. 이미 지워졌을 수 있습니다",
   nothing_to_redeploy: "이 인스턴스에는 아직 정상(healthy) 배포가 없어 재배포할 수 없습니다. 먼저 배포를 한 번 끝내세요",
+  deployment_in_progress: REDEPLOY_WAIT,
   secrets_not_configured: "서버에 시크릿 키가 설정되어 있지 않습니다",
   secret_not_found: "시크릿을 찾을 수 없습니다. 다른 곳에서 지웠을 수 있습니다",
 };
@@ -116,6 +120,21 @@ export function instancesOf(a: App | undefined): AppInstance[] {
   if (d.instances?.length) return d.instances;
   const { branch, autoDeploy, spec, specCommit, url, createdAt, createdBy, lastDeployment, status } = d;
   return [{ name: a.name, branch, default: true, autoDeploy, spec, specCommit, url, createdAt, createdBy, lastDeployment, status }];
+}
+
+/**
+ * For a no-build redeploy of `inst`: whether its newest deployment is
+ * unfinished (the server answers 409 deployment_in_progress), and the commit
+ * of its last healthy deployment, which a redeploy uses again, when the
+ * loaded deployments or the instance show one.
+ */
+export function redeployState(app: string, inst: AppInstance, deployments: Deployment[] | undefined): { running: boolean; commit?: string } {
+  // A server from before ADR 0015 names no instance: such a deployment is the default instance's.
+  const mine = (deployments ?? []).filter((d) => (d.instance || app) === inst.name);
+  const last = inst.lastDeployment;
+  const running = (!!mine[0] && !isFinalDeploymentStatus(mine[0].status)) || (!!last && !isFinalDeploymentStatus(last.status));
+  const healthy = mine.find((d) => d.status === "healthy") ?? (last?.status === "healthy" ? last : undefined);
+  return { running, commit: healthy?.commit };
 }
 
 function registeredRepos(apps: App[] | undefined): Record<string, string> {
