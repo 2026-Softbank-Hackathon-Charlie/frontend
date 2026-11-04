@@ -91,6 +91,31 @@ describe("pre-start checks from the audit log", () => {
     expect(p.capacity.items[1]).toMatchObject({ status: "fail", detail: "지연 1000.0 MiB → 1000.0 MiB (5초), 지연이 줄지 않습니다" });
   });
 
+  it("explains the hot standby settings check", () => {
+    const standby = (code: string, status: string, m: Record<string, unknown>) =>
+      preflightOf(entry({ capacity: { allowed: status !== "fail", checks: [`standby_settings ${status} ${code}: platform text`], measurements: m } }))!.capacity.items[0];
+    const both = { sourceMaxConnections: 200, targetMaxConnections: 100, targetMaxConnectionsFrom: "manifest", sourceMaxWorkerProcesses: 8, targetMaxWorkerProcesses: 8, targetMaxWorkerProcessesFrom: "target" };
+
+    // only the settings below the source are named
+    expect(standby("target_below_source", "fail", both)).toEqual({
+      label: "대기 서버 설정",
+      status: "fail",
+      detail: "max_connections 대상 100 (manifest 설정), 원본 200. 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다",
+      raw: "platform text",
+    });
+    expect(standby("ok", "pass", { ...both, targetMaxConnections: 200 }).detail).toBe(
+      "max_connections 대상 200 (manifest 설정), 원본 200, max_worker_processes 대상 8 (실행 중인 대상), 원본 8. 모두 원본 이상입니다",
+    );
+    // a setting unknown on either side is left out, as the platform does
+    expect(standby("ok", "pass", { sourceMaxConnections: 100, targetMaxConnections: 300, targetMaxConnectionsFrom: "target", sourceMaxWorkerProcesses: 8 }).detail).toBe(
+      "max_connections 대상 300 (실행 중인 대상), 원본 100. 모두 원본 이상입니다",
+    );
+    expect(standby("not_measured", "unknown", {})).toMatchObject({ status: "unknown", detail: "원본이나 대상의 max_connections, max_worker_processes를 읽지 못해 비교하지 않았습니다" });
+    // measurements that do not back the platform's verdict fall back to its own text
+    expect(standby("target_below_source", "fail", {}).detail).toBe("platform text");
+    expect(standby("ok", "pass", {}).detail).toBe("platform text");
+  });
+
   it("shows unknown codes and messages as the platform wrote them", () => {
     const p = preflightOf(entry({ capacity: { allowed: true, checks: ["future_check pass new_code: something new"], measurements: {} } }))!;
     expect(p.capacity.items[0]).toEqual({ label: "future_check", status: "pass", detail: "something new", raw: "something new" });
