@@ -78,11 +78,14 @@ describe("migration simulation (platform contract shapes)", () => {
 
     run(S, 70);
     expect(m.run?.phase).toBe("canary");
-    expect(m.run?.canary?.steps[0].weight).toBe(10);
+    expect(m.run?.canary?.steps[0].weight).toBe(1);
 
     run(S, SWITCH_AT - 70);
     expect(m.run?.status).toBe("awaiting_switch");
-    expect(m.run?.canary?.steps.every((s) => s.gate?.passed)).toBe(true);
+    // 1% sees too few requests (inconclusive); every later step passes, the last one decides.
+    const steps = m.run?.canary?.steps ?? [];
+    expect(steps.map((s) => s.verdict)).toEqual(["inconclusive", "ok", "ok", "ok", "ok", "ok", "ok"]);
+    expect(steps.map((s) => s.weight)).toEqual([1, 10, 25, 50, 75, 90, 100]);
     expect(m.run?.engine.promoteRequested).toBe(false);
     run(S, 10); // waiting does not advance the engine
     expect(m.run?.status).toBe("awaiting_switch");

@@ -1076,14 +1076,22 @@ export interface components {
      * @description Before cutover, send this share of read requests (GET, HEAD, OPTIONS) to
      * the target while writes keep going to the source. After each step the
      * gate checks the target's requests over the step. A failed gate puts all
-     * reads back on the source and ends the run as `rolled_back`. Needs
-     * gateway mode http.
+     * reads back on the source and ends the run as `rolled_back`. A step with
+     * fewer than `gate.minRequests` requests and no other breach is
+     * `inconclusive` and the canary moves on, except at the last step, which
+     * must pass with enough requests. Gradual steps such as
+     * 1, 10, 25, 50, 75, 90, 100 are recommended. Needs gateway mode http.
      */
     CanaryOptions: {
       /**
        * @example [
+       *   1,
        *   10,
-       *   50
+       *   25,
+       *   50,
+       *   75,
+       *   90,
+       *   100
        * ]
        */
       weights: number[];
@@ -1100,7 +1108,7 @@ export interface components {
       /** @default 800 */
       maxP95Millis?: number;
       /**
-       * @description fewer requests than this fails the gate
+       * @description fewer requests than this cannot pass the gate: a canary step other than the last is inconclusive, the last canary step fails, an observe step is inconclusive
        * @default 20
        */
       minRequests?: number;
@@ -1223,6 +1231,11 @@ export interface components {
       startedAt: string;
       /** Format: date-time */
       endedAt?: string;
+      /**
+       * @description ok: passed. inconclusive: too few requests at a step that is not the last; the canary went on. failed: the run rolled back.
+       * @enum {string}
+       */
+      verdict?: "ok" | "failed" | "inconclusive";
       gate?: components["schemas"]["GateResult"];
     };
     GateResult: {

@@ -32,8 +32,15 @@ export interface EnvOption {
  * cutover; with autoRollback the platform starts the rollback itself (actor slo-guard) on a breach.
  * The gate thresholds stay at the platform's defaults.
  */
-/** Within the platform's 10s to 30m, each at least one CANARY step long. */
+/** Within the platform's 10s to 30m, each at least one observe step long. */
 export const OBSERVE_DURATIONS = ["1m", "2m", "5m", "10m"] as const;
+
+/**
+ * One observe gate window after cutover. Kept apart from the canary step: the gradual canary uses
+ * short steps, while a rollback after cutover is a full migration back and should be judged on a
+ * longer window.
+ */
+export const OBSERVE_STEP = "20s";
 export type ObserveDuration = (typeof OBSERVE_DURATIONS)[number];
 
 export interface StartOptions {
@@ -58,9 +65,8 @@ export const PLATFORM_GATE = { maxErrorRate: 0.01, maxP95Millis: 800, minRequest
  */
 export function startRequest(planRef: string, gatewayMode: string | undefined, o: StartOptions): StartMigrationRequest {
   if (gatewayMode !== "http") return { planRef };
-  const stepDuration = CANARY.stepSec + "s";
-  const req: StartMigrationRequest = { planRef, canary: { weights: CANARY.weights, stepDuration } };
-  if (o.observe) req.observe = { duration: o.duration, stepDuration, autoRollback: o.autoRollback };
+  const req: StartMigrationRequest = { planRef, canary: { weights: CANARY.weights, stepDuration: CANARY.stepSec + "s" } };
+  if (o.observe) req.observe = { duration: o.duration, stepDuration: OBSERVE_STEP, autoRollback: o.autoRollback };
   return req;
 }
 
