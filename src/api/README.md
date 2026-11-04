@@ -5,8 +5,8 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
-| `client.ts` | API 함수, `ApiError`, 토큰 |
+| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
+| `client.ts` | API 함수, `ApiError`, 토큰(메모리), 401 알림(`onUnauthorized`) |
 | `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment` |
 | `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
 | `fakes.ts` | 테스트 전용 가짜 fetch. 앱 코드에서 import하지 않는다 |
@@ -24,21 +24,30 @@ VITE_PLATFORM_URL=https://api.3-36-23-54.sslip.io
 2. 배포된 서버는 `http://localhost:5173`에서 오는 CORS 요청만 허용하므로 개발 서버 포트를 바꾸지 않는다.
 3. 값을 비워 두면 같은 origin(`/v1/...`)으로 요청한다.
 
-## 토큰 설정
+## 로그인과 토큰
 
-`/healthz`와 `/openapi.yaml`을 빼면 모든 요청에 `Authorization: Bearer <token>`이 필요하다. 토큰마다 역할(viewer, agent, operator)이 있고, 승인이나 시작, 전환, 중단은 operator만 할 수 있다.
+`/healthz`, `/openapi.yaml`, 로그인 엔드포인트(`POST /v1/auth/login`, CLI용 `POST /v1/auth/device`, `POST /v1/auth/device/token`)를 빼면 모든 요청에 `Authorization: Bearer <token>`이 필요하다. 콘솔은 관리자 아이디와 비밀번호로 로그인해 받은 세션 토큰(역할 operator, 12시간)을 쓴다. 토큰을 붙여 넣는 입력은 없다.
 
 ```ts
-import { hasToken, setToken } from "../api/client";
+import { login, logout, onUnauthorized, setToken } from "../api/client";
 
-setToken(token);                    // 메모리에만 둔다. 새로고침하면 사라진다
-setToken(token, { persist: true }); // sessionStorage에도 둔다. 이 탭을 새로고침해도 유지된다
-setToken(null);                     // 지운다
-hasToken();
+const session = await login({ username, password }); // Session: token, expiresAt, principal
+setToken(session.token); // 메모리에만 둔다
+await logout();          // 서버에서 세션을 끝낸다. 그 토큰은 이후 401이다
+setToken(null);
+const off = onUnauthorized(() => {}); // 지금 토큰을 실어 보낸 요청이나 스트림이 401을 받으면 불린다
 ```
 
-- 기본은 메모리 보관이다. `persist`를 켜면 같은 origin에서 도는 모든 스크립트(XSS 버그, 브라우저 확장)가 sessionStorage에서 토큰을 읽을 수 있다. 짧게 쓰는 토큰에만 켜고, 공용 PC에서는 operator 토큰에 켜지 않는다.
-- 토큰은 로그에 찍지 않고 오류 메시지에도 넣지 않는다. 화면에서도 토큰 값을 다시 보여 주지 않는다.
+- `client.ts`는 토큰을 메모리에만 둔다. 세션 보관은 `src/data/live.ts`가 맡는다. 로그인하면 `Session`을 localStorage `hopcharlie.session`에 JSON으로 저장하고 `setToken`으로 넘긴다. 그래서 새로고침하거나 새 탭을 열어도 `expiresAt`까지 로그인이 유지된다. 시작할 때 `expiresAt`이 지났거나 읽을 수 없는 세션은 지운다. 열어 둔 동안에도 `expiresAt`에 맞춘 타이머로 세션을 끝낸다. 잠자기에서 깨어난 노트북처럼 타이머가 늦을 수 있어서, 페이지가 다시 보일 때와 일반 모드로 바꿀 때도 확인한다.
+- 모드(`demo`, `live`)는 localStorage `hopcharlie.mode`에 둔다. 저장된 모드가 없으면 모드 선택 화면을 보여 준다. 모드를 바꿔도 세션은 지우지 않는다. 페이지는 `useLive()`로 API와 시뮬레이션 중 하나를 고르는데, 일반 모드이고 세션이 있을 때만 true다. 일반 모드에서 세션이 없으면 로그인 화면이 페이지 자리를 대신한다.
+- localStorage를 쓸 수 없거나 접근이 예외를 던지면 모드와 세션을 그 페이지의 메모리에만 둔다.
+- 401은 한곳에서 처리한다. `client.ts`의 요청과 `sse.ts`의 스트림이 401을 받으면 `onUnauthorized` 리스너를 부른다. 보낸 토큰이 지금 토큰과 같을 때만 부르므로 앞선 세션의 늦은 응답이 새 세션을 끝내지 않는다. `live.ts`는 리스너에서 저장된 세션을 다시 읽는다. 다른 탭이 그사이 새로 로그인해 다른 세션을 저장해 두었으면 그 세션으로 바꾸고, 아니면 세션을 지우고 "세션이 만료되었습니다. 다시 로그인하세요"를 띄운 로그인 화면으로 돌아간다. 페이지는 401을 따로 다루지 않는다.
+- 저장된 세션은 끝내는 세션과 토큰이 같을 때만 지운다(401, 만료, 로그아웃 모두). 오래된 세션을 쥔 탭이 다른 탭의 새 세션을 지우지 않게 하려는 것이다.
+- 탭 사이 동기화: `storage` 이벤트로 다른 탭의 로그인과 로그아웃을 따라간다. 다른 탭에서 로그아웃하면 만료 안내 없이 로그인 화면으로 돌아가고, 다른 탭에서 로그인하면 로그인 화면이 그 세션으로 넘어간다. 모드는 탭마다 따로 둔다.
+- 로그아웃은 `logout()`을 보낸 뒤 응답을 기다리지 않고 바로 세션을 지운다. 서버에 닿지 않아도 이 브라우저에서는 로그아웃된다. `logout`은 fetch `keepalive`로 보내서 로그아웃하고 바로 탭을 닫아도 요청이 끊기지 않는다.
+- 로그인 요청이 끝나기 전에 "로그인하지 않고 데모 모드로 보기"를 누르거나 로그인 화면을 떠나면 그 요청을 취소한다. 늦게 온 응답이 일반 모드로 되돌리지 않는다.
+- localStorage는 같은 origin에서 도는 모든 스크립트(XSS 버그, 브라우저 확장)가 읽을 수 있다. 세션이 12시간이면 끝나고 로그아웃하면 서버에서도 무효가 되게 한 이유다. 공용 PC에서는 다 쓰고 로그아웃한다.
+- 토큰은 로그에 찍지 않고 오류 메시지에도 넣지 않는다. 화면에서도 토큰 값을 보여 주지 않는다.
 
 ## 타입 다시 만들기
 
@@ -60,6 +69,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 영역 | 함수 |
 |------|------|
 | 시스템 | `getHealth`, `getMe` |
+| 인증 | `login`, `logout`, `getDeviceLogin`, `approveDeviceLogin(userCode, role)`, `denyDeviceLogin`, `onUnauthorized(cb)` |
 | 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment` |
 | 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration`, `rollbackMigration`, `getWrittenRecords` |
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
@@ -79,6 +89,11 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - `deleteApp`은 본문 없는 202로 끝난다. Argo CD가 앱과 그 데이터(DB, 버킷)를 지우므로 되돌릴 수 없다. 파일(`PLATFORM_APPS_FILE`)에만 있는 앱은 409 `app_not_registered`다.
 - 앱은 기본 브랜치를 인스턴스 `<app>`으로, 추가한 브랜치를 `<app>--<slug>`로 배포한다(ADR 0015). `createAppInstance`는 브랜치를 더하고 그 인스턴스의 첫 배포를 돌려준다. 이미 배포하는 브랜치는 409 `branch_exists`, 슬러그가 같은 다른 브랜치가 있으면 409 `instance_exists`, 인스턴스가 이미 3개면 409 `instance_limit`이다. `deleteAppInstance`는 `deleteApp`처럼 본문 없는 202로 끝나고, 기본 인스턴스는 409 `default_instance`다.
 - `createDeployment`의 `branch`가 배포할 인스턴스를 고른다. 비우면 기본 인스턴스다.
+- `login`은 토큰 없이 보내고 `Session`(`token`, `expiresAt`, `principal`)을 돌려준다. 아이디나 비밀번호가 틀리면 401 `invalid_credentials`, 10분 안에 10번 틀리면 429 `too_many_attempts`, 서버에 관리자가 없으면 503 `login_not_configured`다. 429의 `Retry-After`(초)는 `ApiError.retryAfter`에 들어 있다. 서버가 CORS로 이 헤더를 노출한다.
+- `logout`은 본문 없는 204로 끝나고, 그 토큰은 이후 401이다.
+- `getDeviceLogin(userCode)`는 CLI가 보여 준 코드로 만료되지 않은 기기 로그인(`DeviceLogin`: `client`, `status`, `createdAt`, `expiresAt`, 승인한 뒤에는 `reviewedBy`와 `role`)을 돌려준다. 서버는 코드의 대소문자, 공백, '-'를 가리지 않는다. 없거나 만료된 코드는 404 `device_login_not_found`다.
+- `approveDeviceLogin(userCode, role)`은 본문 `{ role }`(`DeviceLoginApproveRequest`, `operator`, `agent`, `viewer` 중 하나)을 꼭 보낸다. CLI 토큰은 승인한 관리자의 이름과 이 역할을 30일 동안 갖는다. 승인하면 CLI가 토큰을 받아 갈 시간이 지금부터 10분 늘어나므로 응답의 `expiresAt`이 늦어질 수 있다. 화면은 서버가 돌려준 값을 그대로 보여 준다. 역할이 없거나 모르는 값이면 400 `invalid_request`다.
+- `approveDeviceLogin`, `denyDeviceLogin`은 이미 승인하거나 거절한 요청이면 409 `device_login_state_conflict`다. 세 함수 모두 operator이고 콘솔에 비밀번호로 로그인한 세션이어야 한다. CLI 토큰이나 정적 토큰은 403 `console_session_required`다. CLI가 쓰는 `startDeviceLogin`, `pollDeviceLogin`은 콘솔에 넣지 않았다.
 - `listAgentEvents`는 `format=json`으로 저장된 이벤트를 한 쪽씩 읽는다. `listAllAgentEvents`는 `nextAfter`를 따라 끝까지 읽어 모두 돌려준다.
 
 ## 훅
@@ -116,7 +131,6 @@ import { useEnvironments } from "../api/hooks";
 
 export function Envs() {
   const envs = useEnvironments(10_000); // 10초마다 다시 읽는다
-  if (envs.error?.status === 401) return <p>토큰을 설정하세요.</p>;
   if (envs.loading) return <p>불러오는 중</p>;
   return (
     <Table

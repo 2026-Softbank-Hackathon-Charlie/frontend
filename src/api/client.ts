@@ -21,23 +21,28 @@ import type {
   Deployment,
   DeploymentCreateRequest,
   DeploymentList,
+  DeviceLogin,
+  DeviceLoginApproveRequest,
   EnginePlan,
   Environment,
   EnvironmentList,
   GitHubRepoList,
   Health,
+  LoginRequest,
   Matrix,
   PlanAttachment,
   PlanDraftRequest,
   PlanList,
   PlanRecord,
   Principal,
+  Role,
   ReviewRequest,
   RollbackRequest,
   Run,
   RunList,
   SecurityReport,
   SecuritySeverity,
+  Session,
   StartMigrationRequest,
   StartMigrationResponse,
   TrafficState,
@@ -50,13 +55,16 @@ export class ApiError extends Error {
   readonly code: string;
   /** What failed in platform.yaml, for a 422 invalid_app_spec (the `validation` of AppSpecInvalid). */
   readonly validation?: AppSpecValidation;
+  /** Seconds to wait before trying again, from the Retry-After header of a 429 too_many_attempts. */
+  readonly retryAfter?: number;
 
-  constructor(status: number, code: string, message: string, validation?: AppSpecValidation) {
+  constructor(status: number, code: string, message: string, validation?: AppSpecValidation, retryAfter?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     if (validation) this.validation = validation;
+    if (retryAfter !== undefined) this.retryAfter = retryAfter;
   }
 }
 
@@ -72,37 +80,29 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 
 // --- token ---
 //
-// The token lives in memory. With { persist: true } it is also written to
-// sessionStorage so a reload keeps the login for this tab. Anything that runs
-// script on the console origin (an XSS bug, a malicious extension) can read
-// sessionStorage, so persist only short-lived tokens. The token is never
-// logged and never put in an error message.
+// The token lives in memory only. src/data/live.ts keeps the login session
+// (in localStorage) and sets it here. The token is never logged and never put
+// in an error message.
 
-const TOKEN_KEY = "hopcharlie.token";
+let token: string | null = null;
 
-let token: string | null = readStoredToken();
-
-function readStoredToken(): string | null {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null; // storage disabled or unavailable
-  }
-}
-
-/** Set the bearer token. `null` clears it. Without `persist`, any stored copy is removed. */
-export function setToken(value: string | null, opts: { persist?: boolean } = {}): void {
+/** Set the bearer token. `null` clears it. */
+export function setToken(value: string | null): void {
   token = value && value.trim() ? value.trim() : null;
-  try {
-    if (token && opts.persist) sessionStorage.setItem(TOKEN_KEY, token);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // storage disabled: the in-memory token still works
-  }
 }
 
-export function hasToken(): boolean {
-  return token !== null;
+const unauthorizedListeners = new Set<() => void>();
+
+/**
+ * Calls `cb` when a request or event stream that carried the current token
+ * gets 401: the session is over (expired, logged out elsewhere, or revoked).
+ * Returns the function that removes `cb`.
+ */
+export function onUnauthorized(cb: () => void): () => void {
+  unauthorizedListeners.add(cb);
+  return () => {
+    unauthorizedListeners.delete(cb);
+  };
 }
 
 // --- plumbing shared with sse.ts ---
@@ -124,8 +124,19 @@ export function authHeaders(extra?: Record<string, string>): Headers {
   return h;
 }
 
+/**
+ * @internal Tells the onUnauthorized listeners about a 401 to a request sent
+ * with `sent` headers, if those carried the token that is still current. A
+ * late answer to a request of an earlier session does not end the new one.
+ */
+export function noteUnauthorized(res: Response, sent: Headers): void {
+  if (res.status !== 401 || token === null || sent.get("Authorization") !== "Bearer " + token) return;
+  for (const cb of [...unauthorizedListeners]) cb();
+}
+
 /** @internal Decodes `{"error":{"code","message"}}` (and the `validation` of a 422), falling back to the HTTP status. */
 export async function errorFromResponse(res: Response): Promise<ApiError> {
+  const retryAfter = retryAfterOf(res);
   let text = "";
   try {
     text = await res.text();
@@ -136,12 +147,18 @@ export async function errorFromResponse(res: Response): Promise<ApiError> {
     const body = JSON.parse(text) as { error?: { code?: unknown; message?: unknown }; validation?: unknown };
     const e = body.error;
     if (e && typeof e.code === "string" && typeof e.message === "string") {
-      return new ApiError(res.status, e.code, e.message, asValidation(body.validation));
+      return new ApiError(res.status, e.code, e.message, asValidation(body.validation), retryAfter);
     }
   } catch {
     // not JSON (a proxy page, for example)
   }
-  return new ApiError(res.status, "http_" + res.status, text.trim().slice(0, 200) || res.statusText || "HTTP " + res.status);
+  return new ApiError(res.status, "http_" + res.status, text.trim().slice(0, 200) || res.statusText || "HTTP " + res.status, undefined, retryAfter);
+}
+
+/** Retry-After in seconds. The contract sends an integer; the HTTP-date form is not used and reads as absent. */
+function retryAfterOf(res: Response): number | undefined {
+  const v = res.headers.get("Retry-After")?.trim();
+  return v && /^\d+$/.test(v) ? Number(v) : undefined;
 }
 
 function asValidation(v: unknown): AppSpecValidation | undefined {
@@ -172,6 +189,8 @@ interface Call extends RequestOptions {
   headers?: Record<string, string>;
   /** The answer has no body (DELETE /v1/apps/{name} is a bare 202); resolve with undefined instead of parsing it. */
   noContent?: boolean;
+  /** Let the request finish even if the page unloads (fetch keepalive). */
+  keepalive?: boolean;
 }
 
 async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, c: Call = {}): Promise<T> {
@@ -195,8 +214,12 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
       headers,
       body: c.bytes ?? (c.body === undefined ? undefined : JSON.stringify(c.body)),
       signal: ctrl.signal,
+      keepalive: c.keepalive,
     });
-    if (!res.ok) throw await errorFromResponse(res);
+    if (!res.ok) {
+      noteUnauthorized(res, headers);
+      throw await errorFromResponse(res);
+    }
     if (c.noContent) {
       await res.body?.cancel();
       return undefined as T;
@@ -221,6 +244,33 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
 
 export const getHealth = (o?: RequestOptions) => request<Health>("GET", "/healthz", o);
 export const getMe = (o?: RequestOptions) => request<Principal>("GET", "/v1/me", o);
+
+// --- auth ---
+
+/**
+ * Log an administrator in. The answer is a console session (role operator,
+ * 12 hours); send its token with setToken. 401 invalid_credentials, 429
+ * too_many_attempts (with retryAfter), 503 login_not_configured.
+ */
+export const login = (req: LoginRequest, o?: RequestOptions) => request<Session>("POST", "/v1/auth/login", { ...o, body: req });
+/** End the session that sends it; the token answers 401 from then on. 204, no body. Sent with keepalive, so closing the tab right after does not cancel it. */
+export const logout = (o?: RequestOptions) => request<void>("POST", "/v1/auth/logout", { ...o, noContent: true, keepalive: true });
+// The three below need operator and a console session (a password login): a CLI or static token gets 403 console_session_required.
+
+/** A CLI device login that has not expired, by the code the CLI shows. 404 device_login_not_found. */
+export const getDeviceLogin = (userCode: string, o?: RequestOptions) =>
+  request<DeviceLogin>("GET", `/v1/auth/device/${seg(userCode)}`, o);
+/**
+ * Let the CLI's next poll get a token (30 days) with the caller's name and
+ * `role`. It also gives the CLI 10 more minutes to pick it up, so the answer's
+ * expiresAt may be later. 400 for a missing or unknown role, 404, or 409
+ * device_login_state_conflict.
+ */
+export const approveDeviceLogin = (userCode: string, role: Role, o?: RequestOptions) =>
+  request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/approve`, { ...o, body: { role } satisfies DeviceLoginApproveRequest });
+/** The CLI's next poll gets access_denied. 404, or 409 device_login_state_conflict. */
+export const denyDeviceLogin = (userCode: string, o?: RequestOptions) =>
+  request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/deny`, o);
 
 // --- plans ---
 

@@ -14,6 +14,7 @@ const ROUTES = [
   "agents",
   "security",
   "envs",
+  "device",
   "design-system",
 ];
 

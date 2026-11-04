@@ -1,6 +1,6 @@
 // Server-Sent Events over fetch. EventSource cannot send the Authorization
 // header, so the stream is read from a fetch body instead.
-import { ApiError, apiUrl, authHeaders, errorFromResponse, networkError } from "./client";
+import { ApiError, apiUrl, authHeaders, errorFromResponse, networkError, noteUnauthorized } from "./client";
 import type { AgentEvent, AgentSession, Deployment, DeploymentEvent, DeploymentStatus, Run, RunEvent, RunStatus } from "./types";
 
 // --- parser ---
@@ -261,7 +261,10 @@ async function watchStream<S extends object, E extends { seq: number }>(
       } catch (e) {
         throw timedOut ?? networkError(e);
       }
-      if (!res.ok) throw await errorFromResponse(res);
+      if (!res.ok) {
+        noteUnauthorized(res, headers);
+        throw await errorFromResponse(res);
+      }
       const type = (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
       if (type !== "text/event-stream") throw protocolError(`event stream answered with Content-Type "${type}"`);
       if (!res.body) throw protocolError("event stream has no body");

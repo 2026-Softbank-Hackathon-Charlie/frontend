@@ -110,14 +110,14 @@ button, input, select { font: inherit; color: inherit; }
 .field label, .field legend { font-size: 13px; font-weight: 500; color: var(--heading); padding: 0; }
 .field small { font-size: 12.5px; color: var(--muted); }
 .two { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-input:not([type="checkbox"]), select {
+input:not([type="checkbox"]):not([type="radio"]), select {
   width: 100%; min-width: 0; font-size: 15px; padding: 8px 12px; border: 1px solid var(--hairline);
   border-radius: var(--r-control); background: var(--canvas); color: var(--fg);
 }
 input[readonly] { background: var(--fill); }
 .checks { display: flex; gap: 18px; flex-wrap: wrap; }
 .checks label { display: inline-flex; gap: 8px; align-items: center; font-size: 15px; font-weight: 400; }
-input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--fg); }
+input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-color: var(--fg); }
 
 .code { margin: 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; background: var(--fill); padding: 12px 14px; border-radius: var(--r-control); overflow-x: auto; white-space: pre; }
 .diff { margin: 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; border: 1px solid var(--hairline); border-radius: var(--r-control); overflow-x: auto; }
@@ -220,9 +220,23 @@ a.metric[aria-current="true"] span { color: var(--heading); font-weight: 700; }
 .trafficrow .traffic { height: 32px; }
 small.block { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
 
-/* API connection panel in the header */
-.connect { position: relative; }
-.connectpanel { position: absolute; right: 0; top: calc(100% + 6px); width: min(360px, 90vw); z-index: 20; background: var(--canvas); }
-.connectpanel .field { margin: 8px 0; }
+/* Mode choice and login: full-page screens shown before the console */
+.entry { min-height: 100vh; display: grid; align-content: center; justify-items: center; gap: 28px; padding-block: 48px; }
+.entry-brand { display: block; width: auto; height: 40px; }
+.entry-head { display: grid; gap: 6px; text-align: center; }
+.entry-head h1 { font-size: 24px; font-weight: 700; line-height: 1.35; }
+.entry-head p { color: var(--muted); font-size: 15px; }
+.choices { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); width: min(760px, 100%); }
+@media (min-width: 700px) { .choices { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.choices .bb { height: 100%; grid-template-rows: auto 1fr auto; }
+.choices h2 { font-size: 18px; font-weight: 700; }
+.choices p { font-size: 14px; }
+.entry-col { display: grid; gap: 14px; justify-items: center; width: min(380px, 100%); }
+.entry-col > .box { width: 100%; }
+.entry-err { font-size: 14px; color: var(--bad); }
+.devcode { max-width: 12em; font-family: var(--font-mono); letter-spacing: 0.08em; }
+.roles { display: grid; gap: 8px; }
+.roles label { display: flex; gap: 8px; align-items: center; font-size: 15px; font-weight: 400; color: var(--fg); }
+.roles input { flex: none; margin: 0; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
 .chips .btn[aria-pressed="true"], .tbl .btn[aria-pressed="true"] { border-color: var(--heading); color: var(--heading); font-weight: 600; }

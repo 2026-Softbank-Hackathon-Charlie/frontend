@@ -1,6 +1,6 @@
 // Test doubles for the api tests. Nothing in the app imports this file.
 import { vi } from "vitest";
-import type { AgentEvent, AgentEventType, AgentSession, Deployment, DeploymentEvent, DeploymentEventType, Run, RunEvent } from "./types";
+import type { AgentEvent, AgentEventType, AgentSession, Deployment, DeploymentEvent, DeploymentEventType, Run, RunEvent, Session } from "./types";
 
 export interface FakeCall {
   url: string;
@@ -10,6 +10,7 @@ export interface FakeCall {
   /** The body exactly as given to fetch. */
   raw: RequestInit["body"];
   signal: AbortSignal | undefined;
+  keepalive: boolean | undefined;
 }
 
 export type FakeHandler = (call: FakeCall) => Response | Promise<Response>;
@@ -27,6 +28,7 @@ export function installFetch(route: FakeHandler): FakeCall[] {
       body: typeof init.body === "string" ? init.body : undefined,
       raw: init.body,
       signal: init.signal ?? undefined,
+      keepalive: init.keepalive,
     };
     calls.push(call);
     return new Promise<Response>((resolve, reject) => {
@@ -181,4 +183,14 @@ export function fakeDeployment(p: Partial<Deployment> = {}): Deployment {
 export function deploymentEventMsg(seq: number, type: DeploymentEventType, p: Partial<DeploymentEvent> = {}): string {
   const ev: DeploymentEvent = { seq, deploymentId: "dep_1", time: at(seq), type, ...p };
   return `id: ${seq}\nevent: ${type}\ndata: ${JSON.stringify(ev)}\n\n`;
+}
+
+/** A console session for the administrator "admin", valid for an hour from now. */
+export function fakeSession(p: Partial<Session> = {}): Session {
+  return {
+    token: "test-token",
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    principal: { name: "admin", role: "operator" },
+    ...p,
+  };
 }

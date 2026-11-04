@@ -1,14 +1,15 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setToken } from "../api/client";
-import { at, deploymentEventMsg, fakeDeployment, hang, installFetch, json, snapshotMsg, sse, type FakeCall, type FakeHandler } from "../api/fakes";
+import { at, deploymentEventMsg, fakeDeployment, fakeSession, hang, installFetch, json, snapshotMsg, sse, type FakeCall, type FakeHandler } from "../api/fakes";
 import type { App as ApiApp, AppDeploy, AppInstance, AppSpec, Deployment } from "../api/types";
 import { App } from "../App";
-import { connect } from "../data/live";
+import { initAuth, startSession } from "../data/live";
 import { createSim, SimProvider, type Sim } from "../sim/store";
 
 function setup(hash = "") {
   window.location.hash = hash;
+  localStorage.setItem("hopcharlie.mode", "demo");
+  initAuth();
   const sim = createSim();
   const user = userEvent.setup();
   render(
@@ -29,7 +30,8 @@ function ticks(sim: Sim, n: number) {
 }
 
 afterEach(() => {
-  setToken(null);
+  localStorage.clear();
+  initAuth();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -322,7 +324,7 @@ describe("GitHub deploy screens (platform API)", () => {
       return json(404, { error: { code: "not_found", message: "no" } });
     };
     const calls = installFetch(route);
-    act(() => connect("test-token", false));
+    act(() => startSession(fakeSession()));
     return calls;
   }
 

@@ -1,40 +1,195 @@
-// Live mode: the pages read the platform API (src/api) instead of the simulation.
-// It is on while an API token is set. The token stays in memory unless the operator asks to keep it for this tab.
+// Mode and login.
+//
+// The console runs in demo mode (the simulation in src/sim, no login) or live
+// mode (the platform API in src/api, behind an administrator login). The mode
+// is kept in localStorage under hopcharlie.mode; with none stored the app asks
+// first. The login session (token, expiresAt, principal) is kept under
+// hopcharlie.session, so a reload or another tab stays logged in until it
+// expires (12 hours) or the operator logs out. Script on the console origin
+// can read localStorage, which is why sessions are short and end on logout.
+// When storage is unavailable or throws, both live in memory for this page.
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { ApiError, baseUrl, hasToken, listPlans, networkError, setToken } from "../api/client";
-import type { PlanRecord } from "../api/types";
+import { ApiError, baseUrl, listPlans, login, logout, networkError, onUnauthorized, setToken } from "../api/client";
+import type { PlanRecord, Session } from "../api/types";
+
+export type Mode = "demo" | "live";
+
+export interface AuthState {
+  /** null until the operator picks one. */
+  mode: Mode | null;
+  session: Session | null;
+  /** Shown on the login screen, e.g. after the server ended the session. */
+  notice: string | null;
+}
+
+const MODE_KEY = "hopcharlie.mode";
+const SESSION_KEY = "hopcharlie.session";
+
+export const EXPIRED_NOTICE = "세션이 만료되었습니다. 다시 로그인하세요";
 
 const listeners = new Set<() => void>();
-let version = 0;
+let auth: AuthState = { mode: null, session: null, notice: null };
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
-function bump() {
-  version++;
+function update(next: Partial<AuthState>): void {
+  auth = { ...auth, ...next };
+  setToken(auth.session?.token ?? null);
+  scheduleExpiry();
   listeners.forEach((l) => l());
 }
 
-export function connect(token: string, persist: boolean): void {
-  setToken(token.trim(), { persist });
-  bump();
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; // storage disabled or unavailable
+  }
 }
 
-export function disconnect(): void {
-  setToken(null);
-  bump();
+/** `null` removes the key. */
+function writeStored(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // storage disabled: the in-memory state still works for this page
+  }
 }
 
-/** True while an API token is set: pages read the platform API. */
+/**
+ * Epoch ms of a session's expiresAt. The server sends nanoseconds; cut them to
+ * milliseconds, which Date.parse takes everywhere. components/deploy.tsx has
+ * the same `ms`, but it imports this module, which needs this while loading.
+ */
+const expiresMs = (s: Pick<Session, "expiresAt">) => Date.parse(s.expiresAt.replace(/(\.\d{3})\d*/, "$1"));
+
+/** The stored session if it is well formed and not expired; anything else is removed. */
+function readSession(): Session | null {
+  const raw = readStored(SESSION_KEY);
+  if (raw === null) return null;
+  try {
+    const s = JSON.parse(raw) as Partial<Session> | null;
+    if (s && typeof s.token === "string" && s.token && typeof s.principal?.name === "string" && typeof s.expiresAt === "string" && expiresMs({ expiresAt: s.expiresAt }) > Date.now())
+      return s as Session;
+  } catch {
+    // not JSON
+  }
+  writeStored(SESSION_KEY, null);
+  return null;
+}
+
+/** Removes the stored session only if it is the one with `token`: another tab may have stored a newer one. */
+function forgetStored(token: string): void {
+  if (readSession()?.token === token) writeStored(SESSION_KEY, null);
+}
+
+/**
+ * The session with `token` is over (401 or expired). If another tab logged in
+ * meanwhile, its stored session takes over; otherwise back to the login screen
+ * with `notice`.
+ */
+function endSession(token: string, notice: string): void {
+  const stored = readSession();
+  if (stored && stored.token !== token) return update({ session: stored, notice: null });
+  forgetStored(token);
+  update({ session: null, notice });
+}
+
+function scheduleExpiry(): void {
+  clearTimeout(expiryTimer);
+  if (!auth.session) return;
+  // setTimeout takes at most 2^31-1 ms; checkExpiry schedules again if it fires before the end.
+  expiryTimer = setTimeout(checkExpiry, Math.min(Math.max(0, expiresMs(auth.session) - Date.now()), 2_147_483_647));
+}
+
+/** Drops the session once expiresAt has passed. Timers can fire late (a sleeping laptop), so this also runs when the page shows again and before switching to live. */
+function checkExpiry(): void {
+  const s = auth.session;
+  if (!s) return;
+  if (expiresMs(s) > Date.now()) scheduleExpiry();
+  else endSession(s.token, EXPIRED_NOTICE);
+}
+
+/** Reads the mode and session from storage, dropping an expired session. Runs on load; tests run it again after changing storage. */
+export function initAuth(): void {
+  const mode = readStored(MODE_KEY);
+  update({ mode: mode === "demo" || mode === "live" ? mode : null, session: readSession(), notice: null });
+}
+
+initAuth();
+
+// A request or stream that carried the session token got 401.
+onUnauthorized(() => {
+  if (auth.session) endSession(auth.session.token, EXPIRED_NOTICE);
+});
+
+// Another tab logged in or out (the event never fires in the tab that wrote): follow it. The mode stays per tab.
+window.addEventListener("storage", (e) => {
+  if (e.key !== null && e.key !== SESSION_KEY) return;
+  const stored = readSession();
+  if (stored?.token !== auth.session?.token) update({ session: stored, notice: null });
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkExpiry();
+});
+
+/** Switch modes. The session is kept, so switching back to live needs no new login. */
+export function chooseMode(mode: Mode): void {
+  writeStored(MODE_KEY, mode);
+  update({ mode, notice: null });
+  // in the same event, so an expired session shows the login screen without a frame of the live console
+  if (mode === "live") checkExpiry();
+}
+
+/** Keep `session` as the login and switch to live mode. */
+export function startSession(session: Session): void {
+  writeStored(SESSION_KEY, JSON.stringify(session));
+  writeStored(MODE_KEY, "live");
+  update({ mode: "live", session, notice: null });
+}
+
+/**
+ * POST /v1/auth/login, then startSession. Rejects with the error for
+ * loginErrorText. Once `signal` aborts (the operator went to demo mode
+ * instead), a late answer no longer logs in.
+ */
+export async function logIn(username: string, password: string, signal?: AbortSignal): Promise<void> {
+  const session = await login({ username, password }, { signal });
+  if (!signal?.aborted) startSession(session);
+}
+
+/**
+ * Ends the session on the server, best effort, and forgets it here at once
+ * whatever the answer. The mode stays. The returned promise settles when the
+ * server answered or the request failed.
+ */
+export function logOut(): Promise<void> {
+  const s = auth.session;
+  if (!s) return Promise.resolve();
+  // logout() builds its headers before its first await, so the request carries the token cleared below.
+  const done = logout().catch(() => {});
+  forgetStored(s.token);
+  update({ session: null, notice: null });
+  return done;
+}
+
+function subscribe(l: () => void): () => void {
+  listeners.add(l);
+  return () => listeners.delete(l);
+}
+
+export function useAuth(): AuthState {
+  return useSyncExternalStore(subscribe, () => auth);
+}
+
+/** True in live mode with a session: pages read the platform API. Without a session the login screen replaces them. */
 export function useLive(): boolean {
-  useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => version,
-  );
-  return hasToken();
+  const { mode, session } = useAuth();
+  return mode === "live" && session !== null;
 }
 
-/** Where requests go, for the connection dialog. */
+/** Where requests go, for the live-mode banner and the login screen. */
 export function apiTarget(): string {
   return baseUrl || window.location.origin + " (같은 주소)";
 }
@@ -70,11 +225,26 @@ export function usePlans(pollMs: number, enabled = true): { data: PlanRecord[] |
 export function errorText(e: unknown): string {
   if (!(e instanceof ApiError)) return "알 수 없는 오류";
   if (e.status === 0) return e.code === "timeout" ? "서버가 응답하지 않습니다 (시간 초과)" : "서버에 연결할 수 없습니다 (주소, CORS, 네트워크 확인)";
-  if (e.status === 401) return "토큰이 맞지 않습니다";
-  if (e.status === 403) return "이 토큰의 역할로는 할 수 없습니다 (operator 토큰 필요)";
+  if (e.status === 401) return EXPIRED_NOTICE;
+  if (e.status === 403) return "이 계정의 역할로는 할 수 없습니다 (operator 필요)";
   // Refused by a pre-start check: the reasons are shown in the page's pre-start check box.
   if (e.code === "residency_denied") return "데이터 레지던시 정책에 걸려 이전을 시작하지 않았습니다. Plan은 승인된 채로 남아 있습니다.";
   if (e.code === "capacity_insufficient") return "측정한 용량이 부족해 이전을 시작하지 않았습니다. Plan은 승인된 채로 남아 있습니다.";
   if (e.status === 409) return "상태가 그사이 바뀌었습니다: " + e.message;
   return e.message || "요청 실패 (" + e.status + ")";
+}
+
+/** A short Korean message for a failed login. */
+export function loginErrorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 401) return "아이디 또는 비밀번호가 맞지 않습니다";
+    if (e.status === 429)
+      return e.retryAfter !== undefined
+        ? "로그인 시도가 너무 많습니다. " + e.retryAfter + "초 뒤에 다시 시도하세요"
+        : "로그인 시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요";
+    if (e.code === "login_not_configured") return "서버에 관리자 계정이 설정되어 있지 않습니다";
+    if (e.status === 400) return "아이디나 비밀번호 형식이 맞지 않습니다";
+    if (e.status >= 500) return "서버 오류로 로그인하지 못했습니다. 잠시 뒤에 다시 시도하세요";
+  }
+  return errorText(e);
 }
