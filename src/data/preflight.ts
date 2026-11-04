@@ -1,6 +1,6 @@
 // Pre-start checks the platform runs when a migration starts (platform ADR 0013, 0014):
 // data residency (policy against the source's live table list and buckets) and capacity
-// (target connections, replica catch-up, measured for a few seconds).
+// (target connections, hot standby settings, replica catch-up, measured for a few seconds).
 // The platform records both in the audit entry of the start (POST /v1/migrations) or the
 // rollback, refused or not, so the page reads them from there. Nothing here is invented:
 // a value the entry does not hold is shown as missing.
@@ -37,8 +37,12 @@ export interface CapacityMeasurements {
   walBytesPerSecond?: number;
   sourceSessions?: number;
   sourceMaxConnections?: number;
+  sourceMaxWorkerProcesses?: number;
   targetMaxConnections?: number;
+  /** "target" (read from the running target) or "manifest" (the target does not exist yet) */
   targetMaxConnectionsFrom?: string;
+  targetMaxWorkerProcesses?: number;
+  targetMaxWorkerProcessesFrom?: string;
   lagBefore?: number;
   lagAfter?: number;
   /** nanoseconds */
@@ -76,6 +80,7 @@ const INVENTORY_LABEL: Record<string, string> = {
 
 const CHECK_LABEL: Record<string, string> = {
   connections: "접속 수",
+  standby_settings: "대기 서버 설정",
   catchup: "복제 따라잡기",
   initial_copy: "초기 복사",
 };
@@ -128,6 +133,48 @@ function capacityItem(line: string, m: CapacityMeasurements): PreflightItem | un
   return { label: CHECK_LABEL[id] ?? id, status, detail: capacityDetail(id, code, m) ?? msg, raw: msg };
 }
 
+const fromLabel = (from?: string) => (from === "manifest" ? "manifest 설정" : "실행 중인 대상");
+
+interface StandbySetting {
+  name: string;
+  src?: number;
+  dst?: number;
+  from?: string;
+}
+type Compared = StandbySetting & { src: number; dst: number };
+const compared = (s: StandbySetting): s is Compared => s.src !== undefined && s.dst !== undefined;
+
+/**
+ * Hot standby settings PostgreSQL also requires at or above the primary's, but the platform's
+ * standby_settings check does not read. A pass must not read as covering them.
+ */
+const STANDBY_UNCHECKED = "max_wal_senders, max_prepared_transactions, max_locks_per_transaction";
+
+/**
+ * The target starts as a hot standby of the source, and PostgreSQL refuses to start one whose
+ * setting is below the primary's. Mirrors the platform's capacity.standbySettings: a setting
+ * unknown on either side is not compared, so the sentence names it instead of hiding it.
+ */
+function standbyDetail(code: string, m: CapacityMeasurements): string | undefined {
+  if (code === "not_measured") return "원본이나 대상의 max_connections, max_worker_processes를 읽지 못해 비교하지 않았습니다";
+  const settings: StandbySetting[] = [
+    { name: "max_connections", src: m.sourceMaxConnections, dst: m.targetMaxConnections, from: m.targetMaxConnectionsFrom },
+    { name: "max_worker_processes", src: m.sourceMaxWorkerProcesses, dst: m.targetMaxWorkerProcesses, from: m.targetMaxWorkerProcessesFrom },
+  ];
+  const known = settings.filter(compared);
+  const text = (s: Compared) => s.name + " 대상 " + s.dst + " (" + fromLabel(s.from) + "), 원본 " + s.src;
+  if (code === "target_below_source") {
+    const short = known.filter((s) => s.dst < s.src);
+    if (short.length === 0) return undefined;
+    return short.map(text).join(", ") + ". 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다";
+  }
+  if (code !== "ok" || known.length === 0) return undefined;
+  const unknown = settings.filter((s) => !compared(s));
+  const why = (s: StandbySetting) =>
+    s.name + " 설정은 " + (s.src === undefined && s.dst === undefined ? "원본과 대상 값을" : s.src === undefined ? "원본 값을" : "대상 값을") + " 몰라 비교하지 못했습니다" + (s.dst === undefined ? " (대상에 연결되지 않고 manifest에도 없음)" : "");
+  return [known.map(text).join(", ") + ": 원본 이상입니다", ...unknown.map(why), "이 검사는 " + STANDBY_UNCHECKED + " 설정을 비교하지 않습니다"].join(". ");
+}
+
 /** A Korean sentence from the measurements; undefined falls back to the platform's text. */
 function capacityDetail(id: string, code: string, m: CapacityMeasurements): string | undefined {
   const secs = m.window ? Math.round(m.window / 1e8) / 10 + "초" : "";
@@ -137,9 +184,9 @@ function capacityDetail(id: string, code: string, m: CapacityMeasurements): stri
     if (code === "target_not_measured") return "대상 최대 접속 수를 알 수 없습니다 (대상에 연결되지 않고 manifest에도 없음)";
     if (m.sourceSessions === undefined || m.targetMaxConnections === undefined) return undefined;
     const need = Math.ceil(m.sourceSessions * HEADROOM);
-    const from = m.targetMaxConnectionsFrom === "manifest" ? "manifest 설정" : "실행 중인 대상";
-    return "대상 최대 접속 " + m.targetMaxConnections + " (" + from + "), 필요 " + need + " (원본 접속 " + m.sourceSessions + " × " + HEADROOM + ")";
+    return "대상 최대 접속 " + m.targetMaxConnections + " (" + fromLabel(m.targetMaxConnectionsFrom) + "), 필요 " + need + " (원본 접속 " + m.sourceSessions + " × " + HEADROOM + ")";
   }
+  if (id === "standby_settings") return standbyDetail(code, m);
   if (id === "catchup") {
     if (code === "no_replica") return "스트리밍 중인 replica가 없어 재지 않았습니다. 엔진의 지연 기준이 판단합니다";
     if (!lag) return undefined;

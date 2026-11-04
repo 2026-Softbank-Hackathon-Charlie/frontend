@@ -66,7 +66,7 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 
 ![승인 대기](docs/screenshots/migrate-2-approve.png)
 
-**실행:** 엔진 9단계(사전 확인, 대상 준비, 초기 복사, 변경분 동기화 → 쓰기 보류, 대상 승격, 트래픽 전환 → 검증, 마무리)와 읽기 카나리(10%, 50%, 단계마다 게이트)를 보여 줍니다. 데이터가 맞으면 **전환 승인 대기**(`awaiting_switch`)에서 운영자가 전환을 누릅니다.
+**실행:** 엔진 9단계(사전 확인, 대상 준비, 초기 복사, 변경분 동기화 → 쓰기 보류, 대상 승격, 트래픽 전환 → 검증, 마무리)와 읽기 카나리(10%, 50%, 단계마다 게이트)를 보여 줍니다. 카나리는 플랫폼 게이트웨이(http)를 거치는 Plan에서만 합니다. 데이터가 맞으면 **전환 승인 대기**(`awaiting_switch`)에서 운영자가 전환을 누릅니다. 승인할 때 전환 후 관찰을 켰으면, 전환 뒤에도 정한 시간 동안 대상을 게이트로 판정하고 위반하면 기록하거나 자동 롤백합니다(실제 API 모드).
 
 | 동기화 | 전환 승인 대기 (카나리 통과) |
 | --- | --- |
@@ -138,7 +138,7 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 | Plan | AI 계획 세션이 Plan을 만들고 제출 (`pending_approval`) | `POST /v1/plans/draft` → `POST /v1/plans` |
 | 리허설·진단 | AI 세션(리허설, 진단)과 이벤트, 수정안 첨부로 revision 상승 | `GET /v1/agent/sessions?planRef=`, 세션 SSE |
 | 승인 | 보고 있는 revision으로 승인. 다르면 다시 확인하라는 안내 | `POST /v1/plans/{ref}/approve` `{revision}` (바뀌었으면 409) |
-| 시작 | 읽기 카나리 10%, 50% | `POST /v1/migrations` (Idempotency-Key, `canary.weights`) |
+| 시작 | 게이트웨이(http) Plan은 읽기 카나리 10%, 50%. 승인 화면에서 전환 후 관찰(1~10분)과 위반 시 자동 롤백을 고름 (실제 API 모드) | `POST /v1/migrations` (Idempotency-Key, `canary`, `observe`) |
 | 진행 | 9단계, 카나리 게이트, 복제 지연, 쓰기 보류 | run SSE (`useRun`) |
 | 전환 | `awaiting_switch`에서 전환 버튼 | `POST /v1/migrations/{id}/switch` |
 | 중단·재개 | 승격 요청 전까지 중단 가능, 중단·실패는 이어서 실행 | `/abort`, `/resume` |

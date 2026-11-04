@@ -239,4 +239,6 @@ small.block { display: block; color: var(--muted); font-size: 12.5px; margin-top
 .roles label { display: flex; gap: 8px; align-items: center; font-size: 15px; font-weight: 400; color: var(--fg); }
 .roles input { flex: none; margin: 0; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.obsopts { display: grid; gap: 8px; margin-top: 8px; }
+.obsopts select { width: auto; padding: 4px 8px; font-size: 13px; }
 .chips .btn[aria-pressed="true"], .tbl .btn[aria-pressed="true"] { border-color: var(--heading); color: var(--heading); font-weight: 600; }
