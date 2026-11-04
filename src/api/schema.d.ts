@@ -186,7 +186,13 @@ export interface paths {
      * in the message) and the plan stays approved. A plan's `files` copy is
      * allowed only between buckets the policy registers, and only when the
      * source bucket's classification allows the target bucket's country.
-     * Rollback plans (`rollbackOf`) are exempt. When the server measures
+     * Rollback plans (`rollbackOf`) are exempt. Unless the server turns the
+     * check off, the source's and the target's PostgreSQL major versions are
+     * compared (the target's from its database, or else from the manifest's
+     * `spec.imageCatalogRef.major` or `spec.imageName` tag); different majors
+     * are 409 `version_mismatch` (versions in the message), since physical
+     * replication cannot cross them, and a version that cannot be read does
+     * not block. When the server measures
      * capacity, it reads the source and target for a few seconds first and
      * answers 409 `capacity_insufficient` (measured numbers in the message)
      * if the target accepts too few connections (fewer than the source's
@@ -473,11 +479,17 @@ export interface paths {
      * Error codes: invalid_request (400: an environment that is not in
      * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
      * another registered app has the name, or the platform serves the name
-     * itself under the app domain: `api`, `console` and the gateway's
-     * default app `app`; a name only in PLATFORM_APPS_FILE is not taken),
+     * itself under the app domain: `api`, `console`, `headlamp` and the
+     * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
+     * not taken),
+     * storage_cleanup_pending (409: the bucket and key of a deleted app or
+     * instance with this name are still being deleted; try again later),
      * invalid_app_spec (422: the repository, the branch or
      * platform.yaml could not be read, or platform.yaml breaks a rule),
-     * github_unreachable (502), github_not_configured (503). Role operator.
+     * github_unreachable (502), github_not_configured (503),
+     * storage_not_configured (503: platform.yaml has an s3 resource and
+     * one of the environments has no storage driver, ADR 0016). Role
+     * operator.
      */
     post: operations["createApp"];
   };
@@ -582,9 +594,13 @@ export interface paths {
      * branch_exists (409: the app's own branch, or a branch already added),
      * instance_exists (409: another branch has the same instance name),
      * instance_limit (409: the app already has 3 instances, the default one
-     * included), invalid_app_spec (422: the branch or platform.yaml could
+     * included), storage_cleanup_pending (409: the bucket and key of a
+     * deleted instance with this name are still being deleted; try again
+     * later), invalid_app_spec (422: the branch or platform.yaml could
      * not be read, or platform.yaml breaks a rule), github_unreachable
-     * (502), github_not_configured (503). Role operator.
+     * (502), github_not_configured (503), storage_not_configured (503:
+     * the branch's platform.yaml has an s3 resource and one of the app's
+     * environments has no storage driver). Role operator.
      */
     post: operations["createAppInstance"];
     parameters: {
@@ -642,12 +658,13 @@ export interface paths {
      * names.
      *
      * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-     * set by the platform (PORT, DATABASE_URL, S3_*). Values are at most
-     * 4096 bytes. At most 50 secrets per app-wide set and per instance.
+     * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+     * bytes. At most 50 secrets per app-wide set and per instance, so at
+     * most 50 names in `set` and in `delete`.
      *
-     * Error codes: invalid_request (400: a bad or reserved name, a value
-     * too long, too many secrets, a name both set and deleted, or nothing
-     * to change), app_not_found (404), instance_not_found (404: `instance`
+     * Error codes: invalid_request (400: a bad or reserved name, an empty
+     * value or one too long, too many secrets, a name both set and deleted,
+     * or nothing to change), app_not_found (404), instance_not_found (404: `instance`
      * is not one of the app's instances), app_not_registered (409),
      * secrets_not_configured (503). Role operator.
      */
@@ -662,11 +679,14 @@ export interface paths {
     /**
      * @description One secret's value, for the console's show button. Every call is
      * written to the audit log (with the name, never the value), and the
-     * answer is not cached (`Cache-Control: no-store`).
+     * answer is not cached (`Cache-Control: no-store`). The audit entry is
+     * written before the value is sent: when it cannot be written, the
+     * value is not returned.
      *
      * Error codes: app_not_found (404), instance_not_found (404),
      * secret_not_found (404), app_not_registered (409),
-     * secrets_not_configured (503). Role operator.
+     * secrets_not_configured (503), audit_unavailable (503: the audit
+     * entry could not be written). Role operator.
      */
     get: operations["getAppSecret"];
     parameters: {
@@ -694,17 +714,29 @@ export interface paths {
      *
      * With `redeploy: true` (trigger `redeploy`) nothing is built and
      * GitHub is not read: the instance's last healthy deployment is
-     * deployed again, same commit and same images, with the secrets as
-     * they are now (`PUT /v1/apps/{name}/secrets`). Use it after changing
-     * secrets. `ref` is not allowed with it.
+     * deployed again, same commit, same images and same platform.yaml,
+     * with the secrets as they are now (`PUT /v1/apps/{name}/secrets`).
+     * Use it after changing secrets. `ref` is not allowed with it. It goes
+     * only to environments that deployment went to, as another
+     * environment may run another version: by default all of them the
+     * app still deploys to; `environments` must name only such
+     * environments. While the instance has an unfinished deployment, a
+     * redeploy is refused: that deployment already uses the secrets as
+     * they were at its gitops commit, so deploy again once it is done. A
+     * deployment that comes in meanwhile supersedes a redeploy, and a
+     * redeploy queued beside an unfinished deployment ends superseded.
      *
      * Error codes: invalid_request (400: a `branch` the app does not
      * deploy, an environment the app is not registered for, a ref the
      * repository does not have, or `ref` with `redeploy`), app_not_found
      * (404), app_not_registered (409: the app is only in
      * PLATFORM_APPS_FILE), nothing_to_redeploy (409: `redeploy` but the
-     * instance has no healthy deployment), invalid_app_spec (422),
-     * github_unreachable (502), github_not_configured (503). Role operator.
+     * instance has no healthy deployment, or it did not go to an
+     * environment asked for or to any the app still deploys to),
+     * deployment_in_progress (409:
+     * `redeploy` while the instance has a queued, building, committing or
+     * syncing deployment), invalid_app_spec (422), github_unreachable
+     * (502), github_not_configured (503). Role operator.
      */
     post: operations["createDeployment"];
     parameters: {
@@ -2260,7 +2292,7 @@ export interface components {
       ref?: string;
       /** @description A subset of the app's environments; defaults to all of them. */
       environments?: string[];
-      /** @description Deploy the instance's last healthy deployment again (same commit and images, no build) with the current secrets. Not with ref. */
+      /** @description Deploy the instance's last healthy deployment again (same commit and images, no build) with the current secrets, only to environments it went to. Not with ref. */
       redeploy?: boolean;
     };
     /** @description A secret without its value. */
@@ -2286,12 +2318,12 @@ export interface components {
     };
     AppSecretsUpdate: {
       /**
-       * @description Change this instance's overrides; without it the app-wide secrets change.
+       * @description Change this instance's overrides (the app's name for the default instance); without it, or empty, the app-wide secrets change.
        * @example moimroom--dev
        */
       instance?: string;
       /**
-       * @description Secrets to create or replace, name to value.
+       * @description Secrets to create or replace, name to value. Each value is 1 to 4096 bytes of UTF-8 (maxLength counts characters; the server counts bytes).
        * @example {
        *   "HOST_CODE": "4821"
        * }
@@ -2369,7 +2401,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, device_login_state_conflict, nothing_to_redeploy */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, version_mismatch, device_login_state_conflict, nothing_to_redeploy, storage_cleanup_pending, deployment_in_progress */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -2399,7 +2431,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description gateway_not_configured, github_not_configured, login_not_configured, secrets_not_configured, storage_not_configured */
+    /** @description gateway_not_configured, github_not_configured, login_not_configured, secrets_not_configured, storage_not_configured, audit_unavailable */
     Unavailable: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -2832,7 +2864,13 @@ export interface operations {
    * in the message) and the plan stays approved. A plan's `files` copy is
    * allowed only between buckets the policy registers, and only when the
    * source bucket's classification allows the target bucket's country.
-   * Rollback plans (`rollbackOf`) are exempt. When the server measures
+   * Rollback plans (`rollbackOf`) are exempt. Unless the server turns the
+   * check off, the source's and the target's PostgreSQL major versions are
+   * compared (the target's from its database, or else from the manifest's
+   * `spec.imageCatalogRef.major` or `spec.imageName` tag); different majors
+   * are 409 `version_mismatch` (versions in the message), since physical
+   * replication cannot cross them, and a version that cannot be read does
+   * not block. When the server measures
    * capacity, it reads the source and target for a few seconds first and
    * answers 409 `capacity_insufficient` (measured numbers in the message)
    * if the target accepts too few connections (fewer than the source's
@@ -3531,11 +3569,17 @@ export interface operations {
    * Error codes: invalid_request (400: an environment that is not in
    * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
    * another registered app has the name, or the platform serves the name
-   * itself under the app domain: `api`, `console` and the gateway's
-   * default app `app`; a name only in PLATFORM_APPS_FILE is not taken),
+   * itself under the app domain: `api`, `console`, `headlamp` and the
+   * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
+   * not taken),
+   * storage_cleanup_pending (409: the bucket and key of a deleted app or
+   * instance with this name are still being deleted; try again later),
    * invalid_app_spec (422: the repository, the branch or
    * platform.yaml could not be read, or platform.yaml breaks a rule),
-   * github_unreachable (502), github_not_configured (503). Role operator.
+   * github_unreachable (502), github_not_configured (503),
+   * storage_not_configured (503: platform.yaml has an s3 resource and
+   * one of the environments has no storage driver, ADR 0016). Role
+   * operator.
    */
   createApp: {
     requestBody: {
@@ -3749,9 +3793,13 @@ export interface operations {
    * branch_exists (409: the app's own branch, or a branch already added),
    * instance_exists (409: another branch has the same instance name),
    * instance_limit (409: the app already has 3 instances, the default one
-   * included), invalid_app_spec (422: the branch or platform.yaml could
+   * included), storage_cleanup_pending (409: the bucket and key of a
+   * deleted instance with this name are still being deleted; try again
+   * later), invalid_app_spec (422: the branch or platform.yaml could
    * not be read, or platform.yaml breaks a rule), github_unreachable
-   * (502), github_not_configured (503). Role operator.
+   * (502), github_not_configured (503), storage_not_configured (503:
+   * the branch's platform.yaml has an s3 resource and one of the app's
+   * environments has no storage driver). Role operator.
    */
   createAppInstance: {
     parameters: {
@@ -3866,12 +3914,13 @@ export interface operations {
    * names.
    *
    * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-   * set by the platform (PORT, DATABASE_URL, S3_*). Values are at most
-   * 4096 bytes. At most 50 secrets per app-wide set and per instance.
+   * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+   * bytes. At most 50 secrets per app-wide set and per instance, so at
+   * most 50 names in `set` and in `delete`.
    *
-   * Error codes: invalid_request (400: a bad or reserved name, a value
-   * too long, too many secrets, a name both set and deleted, or nothing
-   * to change), app_not_found (404), instance_not_found (404: `instance`
+   * Error codes: invalid_request (400: a bad or reserved name, an empty
+   * value or one too long, too many secrets, a name both set and deleted,
+   * or nothing to change), app_not_found (404), instance_not_found (404: `instance`
    * is not one of the app's instances), app_not_registered (409),
    * secrets_not_configured (503). Role operator.
    */
@@ -3905,11 +3954,14 @@ export interface operations {
   /**
    * @description One secret's value, for the console's show button. Every call is
    * written to the audit log (with the name, never the value), and the
-   * answer is not cached (`Cache-Control: no-store`).
+   * answer is not cached (`Cache-Control: no-store`). The audit entry is
+   * written before the value is sent: when it cannot be written, the
+   * value is not returned.
    *
    * Error codes: app_not_found (404), instance_not_found (404),
    * secret_not_found (404), app_not_registered (409),
-   * secrets_not_configured (503). Role operator.
+   * secrets_not_configured (503), audit_unavailable (503: the audit
+   * entry could not be written). Role operator.
    */
   getAppSecret: {
     parameters: {
@@ -3973,17 +4025,29 @@ export interface operations {
    *
    * With `redeploy: true` (trigger `redeploy`) nothing is built and
    * GitHub is not read: the instance's last healthy deployment is
-   * deployed again, same commit and same images, with the secrets as
-   * they are now (`PUT /v1/apps/{name}/secrets`). Use it after changing
-   * secrets. `ref` is not allowed with it.
+   * deployed again, same commit, same images and same platform.yaml,
+   * with the secrets as they are now (`PUT /v1/apps/{name}/secrets`).
+   * Use it after changing secrets. `ref` is not allowed with it. It goes
+   * only to environments that deployment went to, as another
+   * environment may run another version: by default all of them the
+   * app still deploys to; `environments` must name only such
+   * environments. While the instance has an unfinished deployment, a
+   * redeploy is refused: that deployment already uses the secrets as
+   * they were at its gitops commit, so deploy again once it is done. A
+   * deployment that comes in meanwhile supersedes a redeploy, and a
+   * redeploy queued beside an unfinished deployment ends superseded.
    *
    * Error codes: invalid_request (400: a `branch` the app does not
    * deploy, an environment the app is not registered for, a ref the
    * repository does not have, or `ref` with `redeploy`), app_not_found
    * (404), app_not_registered (409: the app is only in
    * PLATFORM_APPS_FILE), nothing_to_redeploy (409: `redeploy` but the
-   * instance has no healthy deployment), invalid_app_spec (422),
-   * github_unreachable (502), github_not_configured (503). Role operator.
+   * instance has no healthy deployment, or it did not go to an
+   * environment asked for or to any the app still deploys to),
+   * deployment_in_progress (409:
+   * `redeploy` while the instance has a queued, building, committing or
+   * syncing deployment), invalid_app_spec (422), github_unreachable
+   * (502), github_not_configured (503). Role operator.
    */
   createDeployment: {
     parameters: {
