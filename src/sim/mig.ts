@@ -49,9 +49,26 @@ export const ENGINE_STEPS: EngineStep[] = [
 ];
 
 const SYNC_END = 65;
-// Read share moves to the target gradually; each step is gated (platform ADR
+// Read share moves to the target in steps; each step is gated (platform ADR
 // 0005). Small steps of a quiet app may be inconclusive; the last step decides.
-export const CANARY = { weights: [1, 10, 25, 50, 75, 90, 100], stepSec: 10 };
+export interface CanaryPresetSpec {
+  weights: number[];
+  /** seconds per step; the platform takes 5s to 5m */
+  stepSec: number;
+}
+/**
+ * quick (the default) fits a live demo: three steps, about 15 seconds. gradual is the cautious
+ * rollout for a production app with enough traffic to judge 1%: seven steps, about 70 seconds.
+ */
+export const CANARY_PRESETS = {
+  quick: { weights: [10, 50, 100], stepSec: 5 },
+  gradual: { weights: [1, 10, 25, 50, 75, 90, 100], stepSec: 10 },
+} satisfies Record<string, CanaryPresetSpec>;
+export type CanaryPreset = keyof typeof CANARY_PRESETS;
+export const CANARY_PRESET_ORDER: CanaryPreset[] = ["quick", "gradual"];
+export const DEFAULT_CANARY: CanaryPreset = "quick";
+/** The simulation runs the default canary. */
+export const CANARY: CanaryPresetSpec = CANARY_PRESETS[DEFAULT_CANARY];
 /** Pre-switch clock when the run waits for /switch. */
 export const SWITCH_AT = SYNC_END + CANARY.weights.length * CANARY.stepSec;
 export const POST_END = 13.6;
