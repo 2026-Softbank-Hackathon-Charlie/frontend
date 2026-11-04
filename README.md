@@ -28,7 +28,15 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 
 ## 화면
 
-시연용 시뮬레이션 화면입니다. 숫자와 로그는 모두 가상입니다. (1440px 너비, 전체 페이지)
+### 모드 선택, 로그인, CLI 연결
+처음 열면 전체 화면으로 모드를 고릅니다.
+
+- **데모 모드**: 가상 데이터로 시연합니다. 로그인하지 않습니다. 상단 배너의 "처음 상태로 되돌리기"로 시뮬레이션을 처음 상태로 돌립니다.
+- **일반 모드**: 실제 플랫폼 API를 읽습니다. 로그인 화면에서 관리자 아이디와 비밀번호(플랫폼 서버의 `PLATFORM_ADMINS`)를 넣습니다. 틀린 아이디나 비밀번호, 너무 잦은 시도(기다릴 초를 함께 표시), 관리자가 설정되지 않은 서버, 연결 실패를 각각 한국어로 알려 줍니다. 로그인 화면에서 데모 모드로 바로 갈 수도 있습니다.
+- **헤더**: 일반 모드에서는 로그인한 관리자 이름, "로그아웃", "데모 모드로 전환"이 있고, 데모 모드에서는 "일반 모드로 전환"이 있습니다. 모드를 바꿔도 로그아웃되지 않습니다.
+- **CLI 연결**(`#device`, 일반 모드에서만 메뉴에 보임): 터미널에서 `charlie login`을 실행하면 나오는 코드(XXXX-XXXX, 소문자나 공백을 섞어 넣어도 됨)를 입력하고 "확인"을 누르면 요청한 클라이언트, 요청 시각, 남은 시간이 나옵니다. "승인"하면 그 CLI가 30일 동안 내 이름과 관리자 권한으로 동작하고, "거절"하면 그 CLI 로그인은 끝납니다. 없거나 만료된 코드, 이미 승인하거나 거절한 요청은 따로 알려 줍니다. 로그인하지 않은 채 `#device`를 열면 로그인 화면이 먼저 나오고, 로그인하면 일반 모드로 이 화면에 돌아옵니다.
+
+아래는 데모 모드(시연용 시뮬레이션) 화면입니다. 숫자와 로그는 모두 가상입니다. (1440px 너비, 전체 페이지)
 
 ### 개요
 클러스터 3개의 상태, 6개 경로 결과표, 앱, 최근 활동을 한 화면에서 봅니다.
@@ -111,10 +119,11 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 ## 실제 API에 연결하기
 
 1. 프로젝트 루트에 `.env.local`을 만들고 `VITE_PLATFORM_URL=<플랫폼 주소>`를 적은 뒤 `npm run dev`를 다시 시작합니다 (자세한 내용은 `src/api/README.md`).
-2. 화면 오른쪽 위 **API 연결**에 토큰을 넣습니다. 승인, 시작, 전환, 중단, 롤백은 operator 토큰이 필요합니다.
-3. 연결되면 상단 배너가 바뀌고 개요, 앱, 새 앱 배포, 배포 진행, 이전, 경로별 결과, AI 활동, 보안, 환경 화면이 API를 읽습니다. 기존 앱 가져오기는 아직 시연 화면입니다. 앱 등록, 다시 배포, 앱 삭제는 operator 토큰이 필요합니다.
+2. 처음 화면에서 **일반 모드**를 고르거나, 데모 모드 헤더의 **일반 모드로 전환**을 누릅니다.
+3. 로그인 화면에서 관리자 아이디와 비밀번호를 넣습니다. 관리자 세션의 역할은 operator라서 승인, 시작, 전환, 중단, 롤백, 앱 등록, 다시 배포, 앱 삭제를 모두 할 수 있습니다.
+4. 로그인하면 상단 배너가 바뀌고 개요, 앱, 새 앱 배포, 배포 진행, 이전, 경로별 결과, AI 활동, 보안, 환경, CLI 연결 화면이 API를 읽습니다. 기존 앱 가져오기는 아직 시연 화면입니다.
 
-토큰은 기본으로 메모리에만 두고, "이 탭을 새로고침해도 유지"를 켜면 sessionStorage에 둡니다. 화면과 로그에는 토큰을 다시 보여 주지 않습니다.
+로그인 세션(토큰, 만료 시각, 관리자 이름)은 localStorage `hopcharlie.session`에, 고른 모드는 `hopcharlie.mode`에 둡니다. 새로고침하거나 새 탭을 열어도 세션이 끝날 때(12시간)까지 로그인이 유지되고, 한 탭에서 로그인하거나 로그아웃하면 다른 탭도 따라갑니다. 모드는 탭마다 따로입니다. 세션이 만료되거나 서버가 401로 답하면 "세션이 만료되었습니다. 다시 로그인하세요"와 함께 로그인 화면으로 돌아갑니다. 로그아웃은 서버에서 세션을 끝내고(`POST /v1/auth/logout`), 서버에 닿지 않아도 이 브라우저에서는 바로 로그아웃합니다. 화면과 로그에는 토큰을 보여 주지 않습니다.
 
 ## 이전 흐름
 
@@ -137,15 +146,15 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 ## 구조
 ```
 src/api/            플랫폼 API 데이터 계층 (계약 타입, 클라이언트, SSE, 훅) — #3
-src/data/live.ts    API 연결 상태(토큰), Plan 목록 폴링, 오류 문구
+src/data/live.ts    모드와 로그인 세션(localStorage, 탭 사이 동기화, 만료, 401 처리), Plan 목록 폴링, 오류 문구
 src/data/migration.ts  이전 화면용 보기 모델: 시뮬레이션과 실제 API를 같은 모양으로
 src/data/deploy.ts  새 앱 배포, 앱 목록과 상세, 배포 진행 화면용 보기 모델
 src/sim/mig.ts      계약 모양으로 만드는 이전 시뮬레이션 (Plan, Run, RunEvent, AgentSession)
 src/sim/deploy.ts   계약 모양으로 만드는 GitHub 앱 배포 시뮬레이션 (App, Deployment, DeploymentEvent, AppSpecValidation)
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전)
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #design-system)
-src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나)
+src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #device, #design-system)
+src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나). Entry.tsx는 모드 선택과 로그인, Device.tsx는 CLI 연결
 src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
 ```
 
@@ -173,7 +182,7 @@ Settings → Secrets and variables → Actions → **Variables**에 다음 값�
 | `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR과 같은 리전 |
 | `VITE_PLATFORM_URL` | 선택. 기본 `https://api.hopcharlie.dev`. 빌드에 포함되는 공개 HTTPS API 주소 |
 
-Terraform output의 소유 위치는 infra `terraform/platform/aws`입니다. 그중 `api_url`, `console_url`, `instance_id`는 기존 EC2 호스트용 값이므로 이 EKS 배포의 입력으로 쓰지 않습니다. `PLATFORM_INSTANCE_ID`와 `CONSOLE_URL` 변수는 필요하지 않습니다. 브라우저의 API 연결 토큰은 배포 후 사용자가 별도로 입력합니다.
+Terraform output의 소유 위치는 infra `terraform/platform/aws`입니다. 그중 `api_url`, `console_url`, `instance_id`는 기존 EC2 호스트용 값이므로 이 EKS 배포의 입력으로 쓰지 않습니다. `PLATFORM_INSTANCE_ID`와 `CONSOLE_URL` 변수는 필요하지 않습니다. 콘솔 로그인에 쓰는 관리자 계정(`PLATFORM_ADMINS`)은 플랫폼 서버 설정이라 이 workflow에서 다루지 않습니다.
 
 **Secrets**에는 `INFRA_PR_TOKEN`을 준비합니다. 대상 infra 저장소에만 접근하는 fine-grained PAT 또는 GitHub App installation token이며, `Contents: read/write` 권한이 필요합니다(infra main에 바로 커밋). frontend의 기본 `GITHUB_TOKEN`은 다른 비공개 infra 저장소에 쓸 수 없습니다. 토큰은 helper 단계에서만 전달하며 npm 설치·빌드에는 전달하지 않습니다. 토큰의 유효기간과 조직 승인을 확인하고, installation token을 직접 등록했다면 만료 전에 새 실행용 토큰을 준비합니다.
 
@@ -190,6 +199,6 @@ repo:2026-Softbank-Hackathon-Charlie@350278309/frontend@1441992854:ref:refs/head
 1. main에 push합니다. 다시 게시할 때는 Actions → **Deploy frontend** → **Run workflow**에서 main을 고릅니다.
 2. 실행 요약에서 이미지 digest와 infra main 커밋을 확인합니다.
 3. `charlie-management-hopcharlie-platform` Application이 그 커밋을 동기화했는지 확인합니다.
-4. `https://console.hopcharlie.dev/version.txt`가 전체 frontend SHA와 일치하는지와 화면의 실제 API 연결을 확인합니다.
+4. `https://console.hopcharlie.dev/version.txt`가 전체 frontend SHA와 일치하는지 확인하고, 일반 모드로 로그인해 화면이 실제 API를 읽는지 확인합니다.
 
 롤백은 infra main의 해당 커밋을 되돌리는(revert) 것으로 합니다. workflow는 IAM 역할·토큰·저장소 변수를 만들지 않고, Terraform apply·클러스터 생성·앱 데이터 이전도 수행하지 않습니다.

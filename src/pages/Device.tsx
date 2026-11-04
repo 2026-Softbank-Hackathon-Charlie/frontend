@@ -1,5 +1,5 @@
 // #device: approve or deny a CLI device login (POST /v1/auth/device) by the code the CLI prints.
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, approveDeviceLogin, denyDeviceLogin, getDeviceLogin } from "../api/client";
 import type { DeviceLogin, DeviceLoginStatus } from "../api/types";
 import { ago, ms } from "../components/deploy";
@@ -33,7 +33,15 @@ export function DevicePage() {
   const [done, setDone] = useState<"approved" | "denied">();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [now, setNow] = useState(Date.now);
   const ready = code.length === 9;
+
+  // The remaining minutes count down while a request is on screen.
+  useEffect(() => {
+    if (!login || done) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [login, done]);
 
   async function lookup(e: FormEvent) {
     e.preventDefault();
@@ -44,6 +52,7 @@ export function DevicePage() {
     setDone(undefined);
     try {
       setLogin(await getDeviceLogin(code));
+      setNow(Date.now());
     } catch (err) {
       setError(deviceErrorText(err));
     } finally {
@@ -67,7 +76,6 @@ export function DevicePage() {
     }
   }
 
-  const now = Date.now();
   return (
     <div className="page">
       <PageHead
@@ -90,6 +98,8 @@ export function DevicePage() {
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
+                // no new code while a request is in flight, so an answer always belongs to the code on screen
+                readOnly={busy}
                 value={code}
                 onChange={(e) => {
                   setCode(formatUserCode(e.target.value));

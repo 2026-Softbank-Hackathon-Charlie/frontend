@@ -1,5 +1,5 @@
 // Full-page screens shown instead of the console: the mode choice on a first visit and the administrator login.
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { apiTarget, chooseMode, logIn, loginErrorText, useAuth } from "../data/live";
 import { navigate } from "../router";
 
@@ -50,17 +50,23 @@ export function Login({ device = false }: { device?: boolean }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // The login in flight; going to demo mode or leaving this screen aborts it, so a late answer does not log in.
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => () => pending.current?.abort(), []);
   const can = !busy && username.trim() !== "" && password !== "";
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!can) return;
+    const ctrl = new AbortController();
+    pending.current = ctrl;
     setBusy(true);
     setError(undefined);
     try {
-      await logIn(username.trim(), password);
+      await logIn(username.trim(), password, ctrl.signal);
       // logged in: the console replaces this screen
     } catch (err) {
+      if (ctrl.signal.aborted) return;
       setError(loginErrorText(err));
       setBusy(false);
     }
@@ -70,6 +76,10 @@ export function Login({ device = false }: { device?: boolean }) {
     <main className="entry gut">
       <Brand />
       <div className="entry-col">
+        <div className="entry-head">
+          <h1 id="login-title">관리자 로그인</h1>
+          {device && <p>CLI 로그인을 승인하려면 관리자로 로그인해야 합니다.</p>}
+        </div>
         {notice && (
           <div className="box fillbox" role="status">
             <div className="bb">
@@ -78,18 +88,30 @@ export function Login({ device = false }: { device?: boolean }) {
           </div>
         )}
         <form className="box" onSubmit={submit} aria-labelledby="login-title">
-          <div className="bh">
-            <b id="login-title">관리자 로그인</b>
-          </div>
           <div className="bb">
-            {device && <p>CLI 로그인을 승인하려면 관리자로 로그인해야 합니다.</p>}
             <div className="field">
               <label htmlFor="login-username">아이디</label>
-              <input id="login-username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input
+                id="login-username"
+                autoFocus
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={64}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
             </div>
             <div className="field">
               <label htmlFor="login-password">비밀번호</label>
-              <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input
+                id="login-password"
+                type="password"
+                autoComplete="current-password"
+                maxLength={256}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
             {error && (
               <p className="entry-err" role="alert">
@@ -106,8 +128,10 @@ export function Login({ device = false }: { device?: boolean }) {
           type="button"
           className="linkbtn"
           onClick={() => {
-            chooseMode("demo");
+            pending.current?.abort();
+            // the route first, so the next render already sees #overview and not the #device login
             if (device) navigate("#overview");
+            chooseMode("demo");
           }}
         >
           로그인하지 않고 데모 모드로 보기

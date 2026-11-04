@@ -74,7 +74,7 @@ function SideNav({ r }: { r: string }) {
 }
 
 /** Account and mode switch in the header. Switching modes keeps the session. */
-function Account() {
+function Account({ r }: { r: string }) {
   const { mode, session } = useAuth();
   if (mode !== "live" || !session) {
     return (
@@ -89,7 +89,15 @@ function Account() {
       <button type="button" className="btn ghost" onClick={() => void logOut()}>
         로그아웃
       </button>
-      <button type="button" className="btn ghost" onClick={() => chooseMode("demo")}>
+      <button
+        type="button"
+        className="btn ghost"
+        onClick={() => {
+          // #device is live only: staying there would switch straight back
+          if (r === "device") navigate("#overview");
+          chooseMode("demo");
+        }}
+      >
         데모 모드로 전환
       </button>
     </>
@@ -157,7 +165,7 @@ function Console({ r }: { r: string }) {
             <a className="btn primary" href="#migrate-shop">
               이전하기
             </a>
-            <Account />
+            <Account r={r} />
           </div>
         </div>
       </header>

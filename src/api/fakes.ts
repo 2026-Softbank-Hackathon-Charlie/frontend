@@ -10,6 +10,7 @@ export interface FakeCall {
   /** The body exactly as given to fetch. */
   raw: RequestInit["body"];
   signal: AbortSignal | undefined;
+  keepalive: boolean | undefined;
 }
 
 export type FakeHandler = (call: FakeCall) => Response | Promise<Response>;
@@ -27,6 +28,7 @@ export function installFetch(route: FakeHandler): FakeCall[] {
       body: typeof init.body === "string" ? init.body : undefined,
       raw: init.body,
       signal: init.signal ?? undefined,
+      keepalive: init.keepalive,
     };
     calls.push(call);
     return new Promise<Response>((resolve, reject) => {

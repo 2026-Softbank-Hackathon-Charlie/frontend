@@ -187,6 +187,8 @@ interface Call extends RequestOptions {
   headers?: Record<string, string>;
   /** The answer has no body (DELETE /v1/apps/{name} is a bare 202); resolve with undefined instead of parsing it. */
   noContent?: boolean;
+  /** Let the request finish even if the page unloads (fetch keepalive). */
+  keepalive?: boolean;
 }
 
 async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, c: Call = {}): Promise<T> {
@@ -210,6 +212,7 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
       headers,
       body: c.bytes ?? (c.body === undefined ? undefined : JSON.stringify(c.body)),
       signal: ctrl.signal,
+      keepalive: c.keepalive,
     });
     if (!res.ok) {
       noteUnauthorized(res, headers);
@@ -248,8 +251,8 @@ export const getMe = (o?: RequestOptions) => request<Principal>("GET", "/v1/me",
  * too_many_attempts (with retryAfter), 503 login_not_configured.
  */
 export const login = (req: LoginRequest, o?: RequestOptions) => request<Session>("POST", "/v1/auth/login", { ...o, body: req });
-/** End the session that sends it; the token answers 401 from then on. 204, no body. */
-export const logout = (o?: RequestOptions) => request<void>("POST", "/v1/auth/logout", { ...o, noContent: true });
+/** End the session that sends it; the token answers 401 from then on. 204, no body. Sent with keepalive, so closing the tab right after does not cancel it. */
+export const logout = (o?: RequestOptions) => request<void>("POST", "/v1/auth/logout", { ...o, noContent: true, keepalive: true });
 /** A CLI device login that has not expired, by the code the CLI shows. 404 device_login_not_found. Role operator. */
 export const getDeviceLogin = (userCode: string, o?: RequestOptions) =>
   request<DeviceLogin>("GET", `/v1/auth/device/${seg(userCode)}`, o);

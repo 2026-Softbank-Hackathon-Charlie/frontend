@@ -29,10 +29,12 @@ export const EXPIRED_NOTICE = "세션이 만료되었습니다. 다시 로그인
 
 const listeners = new Set<() => void>();
 let auth: AuthState = { mode: null, session: null, notice: null };
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
 function update(next: Partial<AuthState>): void {
   auth = { ...auth, ...next };
   setToken(auth.session?.token ?? null);
+  scheduleExpiry();
   listeners.forEach((l) => l());
 }
 
@@ -54,20 +56,58 @@ function writeStored(key: string, value: string | null): void {
   }
 }
 
+/**
+ * Epoch ms of a session's expiresAt. The server sends nanoseconds; cut them to
+ * milliseconds, which Date.parse takes everywhere. components/deploy.tsx has
+ * the same `ms`, but it imports this module, which needs this while loading.
+ */
+const expiresMs = (s: Pick<Session, "expiresAt">) => Date.parse(s.expiresAt.replace(/(\.\d{3})\d*/, "$1"));
+
 /** The stored session if it is well formed and not expired; anything else is removed. */
 function readSession(): Session | null {
   const raw = readStored(SESSION_KEY);
   if (raw === null) return null;
   try {
     const s = JSON.parse(raw) as Partial<Session> | null;
-    // The server sends nanoseconds; cut them to milliseconds, which Date.parse takes everywhere.
-    const expires = typeof s?.expiresAt === "string" ? Date.parse(s.expiresAt.replace(/(\.\d{3})\d*/, "$1")) : NaN;
-    if (s && typeof s.token === "string" && s.token && typeof s.principal?.name === "string" && expires > Date.now()) return s as Session;
+    if (s && typeof s.token === "string" && s.token && typeof s.principal?.name === "string" && typeof s.expiresAt === "string" && expiresMs({ expiresAt: s.expiresAt }) > Date.now())
+      return s as Session;
   } catch {
     // not JSON
   }
   writeStored(SESSION_KEY, null);
   return null;
+}
+
+/** Removes the stored session only if it is the one with `token`: another tab may have stored a newer one. */
+function forgetStored(token: string): void {
+  if (readSession()?.token === token) writeStored(SESSION_KEY, null);
+}
+
+/**
+ * The session with `token` is over (401 or expired). If another tab logged in
+ * meanwhile, its stored session takes over; otherwise back to the login screen
+ * with `notice`.
+ */
+function endSession(token: string, notice: string): void {
+  const stored = readSession();
+  if (stored && stored.token !== token) return update({ session: stored, notice: null });
+  forgetStored(token);
+  update({ session: null, notice });
+}
+
+function scheduleExpiry(): void {
+  clearTimeout(expiryTimer);
+  if (!auth.session) return;
+  // setTimeout takes at most 2^31-1 ms; checkExpiry schedules again if it fires before the end.
+  expiryTimer = setTimeout(checkExpiry, Math.min(Math.max(0, expiresMs(auth.session) - Date.now()), 2_147_483_647));
+}
+
+/** Drops the session once expiresAt has passed. Timers can fire late (a sleeping laptop), so this also runs when the page shows again and before switching to live. */
+function checkExpiry(): void {
+  const s = auth.session;
+  if (!s) return;
+  if (expiresMs(s) > Date.now()) scheduleExpiry();
+  else endSession(s.token, EXPIRED_NOTICE);
 }
 
 /** Reads the mode and session from storage, dropping an expired session. Runs on load; tests run it again after changing storage. */
@@ -78,16 +118,28 @@ export function initAuth(): void {
 
 initAuth();
 
-// A request or stream that carried the session token got 401: back to the login screen.
+// A request or stream that carried the session token got 401.
 onUnauthorized(() => {
-  writeStored(SESSION_KEY, null);
-  update({ session: null, notice: EXPIRED_NOTICE });
+  if (auth.session) endSession(auth.session.token, EXPIRED_NOTICE);
+});
+
+// Another tab logged in or out (the event never fires in the tab that wrote): follow it. The mode stays per tab.
+window.addEventListener("storage", (e) => {
+  if (e.key !== null && e.key !== SESSION_KEY) return;
+  const stored = readSession();
+  if (stored?.token !== auth.session?.token) update({ session: stored, notice: null });
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkExpiry();
 });
 
 /** Switch modes. The session is kept, so switching back to live needs no new login. */
 export function chooseMode(mode: Mode): void {
   writeStored(MODE_KEY, mode);
   update({ mode, notice: null });
+  // in the same event, so an expired session shows the login screen without a frame of the live console
+  if (mode === "live") checkExpiry();
 }
 
 /** Keep `session` as the login and switch to live mode. */
@@ -97,9 +149,14 @@ export function startSession(session: Session): void {
   update({ mode: "live", session, notice: null });
 }
 
-/** POST /v1/auth/login, then startSession. Rejects with the error for loginErrorText. */
-export async function logIn(username: string, password: string): Promise<void> {
-  startSession(await login({ username, password }));
+/**
+ * POST /v1/auth/login, then startSession. Rejects with the error for
+ * loginErrorText. Once `signal` aborts (the operator went to demo mode
+ * instead), a late answer no longer logs in.
+ */
+export async function logIn(username: string, password: string, signal?: AbortSignal): Promise<void> {
+  const session = await login({ username, password }, { signal });
+  if (!signal?.aborted) startSession(session);
 }
 
 /**
@@ -108,9 +165,11 @@ export async function logIn(username: string, password: string): Promise<void> {
  * server answered or the request failed.
  */
 export function logOut(): Promise<void> {
+  const s = auth.session;
+  if (!s) return Promise.resolve();
   // logout() builds its headers before its first await, so the request carries the token cleared below.
-  const done = auth.session ? logout().catch(() => {}) : Promise.resolve();
-  writeStored(SESSION_KEY, null);
+  const done = logout().catch(() => {});
+  forgetStored(s.token);
   update({ session: null, notice: null });
   return done;
 }
@@ -184,6 +243,8 @@ export function loginErrorText(e: unknown): string {
         ? "로그인 시도가 너무 많습니다. " + e.retryAfter + "초 뒤에 다시 시도하세요"
         : "로그인 시도가 너무 많습니다. 잠시 뒤에 다시 시도하세요";
     if (e.code === "login_not_configured") return "서버에 관리자 계정이 설정되어 있지 않습니다";
+    if (e.status === 400) return "아이디나 비밀번호 형식이 맞지 않습니다";
+    if (e.status >= 500) return "서버 오류로 로그인하지 못했습니다. 잠시 뒤에 다시 시도하세요";
   }
   return errorText(e);
 }

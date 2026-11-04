@@ -242,6 +242,7 @@ describe("auth", () => {
     expect(calls[0].headers.has("Authorization")).toBe(false);
     expect(calls[1].body).toBeUndefined();
     expect(calls[1].headers.get("Authorization")).toBe("Bearer s1");
+    expect([calls[0].keepalive, calls[1].keepalive]).toEqual([undefined, true]);
   });
 
   it("looks up, approves and denies a device login by its code", async () => {

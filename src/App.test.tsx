@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fakeSession, installFetch, json, type FakeCall } from "./api/fakes";
 import { App } from "./App";
@@ -37,6 +37,7 @@ async function logInAs(user: ReturnType<typeof userEvent.setup>, password = "pw"
 const storeSession = (expiresAt?: string) => localStorage.setItem("hopcharlie.session", JSON.stringify(fakeSession(expiresAt ? { expiresAt } : {})));
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -267,9 +268,11 @@ describe("mode choice and login", () => {
   it("asks for a login after choosing live mode", async () => {
     const { user } = setup("", null);
     await user.click(screen.getByRole("button", { name: "일반 모드로 시작" }));
+    expect(screen.getByRole("heading", { level: 1, name: "관리자 로그인" })).toBeInTheDocument();
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
-    expect(screen.getByLabelText("아이디")).toBeInTheDocument();
-    expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
+    expect(screen.getByLabelText("아이디")).toHaveFocus();
+    expect(screen.getByLabelText("아이디")).toHaveAttribute("maxLength", "64");
+    expect(screen.getByLabelText("비밀번호")).toHaveAttribute("maxLength", "256");
     expect(localStorage.getItem("hopcharlie.mode")).toBe("live");
 
     // the way back to demo mode
@@ -315,6 +318,14 @@ describe("mode choice and login", () => {
     await user.click(screen.getByRole("button", { name: "로그인" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("서버에 관리자 계정이 설정되어 있지 않습니다"));
 
+    answer = () => error(400, "invalid_request");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("아이디나 비밀번호 형식이 맞지 않습니다"));
+
+    answer = () => error(500, "internal");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("서버 오류로 로그인하지 못했습니다. 잠시 뒤에 다시 시도하세요"));
+
     answer = () => {
       throw new TypeError("Failed to fetch");
     };
@@ -348,6 +359,7 @@ describe("mode choice and login", () => {
     const out = calls.find((c) => c.url.endsWith("/v1/auth/logout"))!;
     expect(out.method).toBe("POST");
     expect(out.headers.get("Authorization")).toBe("Bearer test-token");
+    expect(out.keepalive).toBe(true);
 
     // a server that cannot be reached does not keep anyone logged in
     cleanup();
@@ -386,6 +398,55 @@ describe("mode choice and login", () => {
     setup("", "live");
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
     expect(localStorage.getItem("hopcharlie.session")).toBeNull();
+  });
+
+  it("does not log in when the operator goes to demo mode while the login is in flight", async () => {
+    let answer!: (r: Response) => void;
+    const held = new Promise<Response>((r) => (answer = r));
+    const calls = installFetch(() => held);
+    const { user } = setup("", "live");
+    await logInAs(user);
+    expect(screen.getByRole("button", { name: "로그인하는 중" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "로그인하지 않고 데모 모드로 보기" }));
+    expect(calls[0].signal?.aborted).toBe(true);
+    answer(json(200, fakeSession()));
+    await act(async () => {});
+    expect(screen.getByText(/시연용 화면입니다/)).toBeInTheDocument();
+    expect(localStorage.getItem("hopcharlie.mode")).toBe("demo");
+    expect(localStorage.getItem("hopcharlie.session")).toBeNull();
+  });
+
+  it("drops the session when it expires while the console is open", async () => {
+    installFetch(notFound);
+    storeSession(new Date(Date.now() + 300).toISOString());
+    setup("", "live");
+    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(await screen.findByText("세션이 만료되었습니다. 다시 로그인하세요", undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
+    expect(localStorage.getItem("hopcharlie.session")).toBeNull();
+  });
+
+  it("checks the expiry again when the page shows after a sleep and before switching to live", async () => {
+    installFetch(notFound);
+    storeSession();
+    setup("", "live");
+    // the timer has not fired yet, as after a laptop slept past expiresAt
+    const later = Date.now() + 2 * 3_600_000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(screen.getByText("세션이 만료되었습니다. 다시 로그인하세요")).toBeInTheDocument();
+    vi.restoreAllMocks();
+
+    cleanup();
+    storeSession();
+    const { user } = setup("", "demo");
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
+    expect(screen.queryByText(/실제 플랫폼 API/)).not.toBeInTheDocument();
+    expect(screen.getByText("세션이 만료되었습니다. 다시 로그인하세요")).toBeInTheDocument();
   });
 
   it("works when storage throws", async () => {
@@ -498,6 +559,49 @@ describe("CLI login approval (#device)", () => {
     expect(localStorage.getItem("hopcharlie.mode")).toBe("live");
   });
 
+  it("keeps the code fixed while a lookup is in flight", async () => {
+    storeSession();
+    let answer!: (r: Response) => void;
+    const held = new Promise<Response>((r) => (answer = r));
+    installFetch(() => held);
+    const { user } = setup("#device", "live");
+    await lookUp(user, "bcdf-ghjk");
+    const input = screen.getByLabelText("CLI가 보여 준 코드");
+    expect(input).toHaveAttribute("readonly");
+    await user.type(input, "x");
+    expect(input).toHaveValue("BCDF-GHJK");
+    answer(json(200, pending));
+    expect(await screen.findByRole("region", { name: "CLI 로그인 요청" })).toBeInTheDocument();
+    expect(input).not.toHaveAttribute("readonly");
+  });
+
+  it("counts the remaining minutes down", async () => {
+    // only the interval and the clock: React and Testing Library keep their real timers
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    storeSession();
+    installFetch(route());
+    setup("#device", "live");
+    fireEvent.change(screen.getByLabelText("CLI가 보여 준 코드"), { target: { value: "bcdf-ghjk" } });
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    const req = await screen.findByRole("region", { name: "CLI 로그인 요청" });
+    expect(within(req).getByText("9분")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(2 * 60_000);
+    });
+    expect(within(req).getByText("7분")).toBeInTheDocument();
+    expect(within(req).getByText(/3분 전/)).toBeInTheDocument();
+  });
+
+  it("leaves #device when switching to demo mode from the header", async () => {
+    storeSession();
+    installFetch(route());
+    const { user } = setup("#device", "live");
+    await user.click(screen.getByRole("button", { name: "데모 모드로 전환" }));
+    await waitFor(() => expect(window.location.hash).toBe("#overview"));
+    expect(screen.getByText(/시연용 화면입니다/)).toBeInTheDocument();
+    expect(localStorage.getItem("hopcharlie.mode")).toBe("demo");
+  });
+
   it("switches to live mode when opened in demo mode with a session", async () => {
     storeSession();
     installFetch(route());
@@ -505,5 +609,83 @@ describe("CLI login approval (#device)", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "CLI 연결" })).toBeInTheDocument();
     expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
     expect(localStorage.getItem("hopcharlie.mode")).toBe("live");
+  });
+});
+
+describe("several tabs", () => {
+  const notFound = () => json(404, { error: { code: "not_found", message: "no" } });
+  const s1 = fakeSession({ token: "s1" });
+  const s2 = fakeSession({ token: "s2", principal: { name: "admin2", role: "operator" } });
+  const KEY = "hopcharlie.session";
+
+  /** Another tab writes `value` (null removes it); only this tab gets the storage event, as in a browser. */
+  function otherTab(value: string | null) {
+    const oldValue = localStorage.getItem(KEY);
+    if (value === null) localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, value);
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: KEY, oldValue, newValue: value }));
+    });
+  }
+
+  it("goes back to the login screen without the expired message after a logout in another tab", () => {
+    localStorage.setItem(KEY, JSON.stringify(s1));
+    installFetch(notFound);
+    setup("", "live");
+    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    otherTab(null);
+    expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
+    expect(screen.queryByText(/세션이 만료되었습니다/)).not.toBeInTheDocument();
+  });
+
+  it("picks up a login made in another tab", () => {
+    installFetch(notFound);
+    setup("", "live");
+    expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
+    otherTab(JSON.stringify(s2));
+    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).getByText("admin2")).toBeInTheDocument();
+  });
+
+  it("takes over a newer session stored by another tab instead of wiping it on a 401", async () => {
+    localStorage.setItem(KEY, JSON.stringify(s1));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const calls = installFetch(async (c) => {
+      if (c.headers.get("Authorization") === "Bearer s1") {
+        await gate;
+        return json(401, { error: { code: "unauthorized", message: "missing or invalid token" } });
+      }
+      return notFound();
+    });
+    const { user } = setup("", "live");
+    // meanwhile another tab logged out and in again, and this tab missed the event
+    localStorage.setItem(KEY, JSON.stringify(s2));
+    release();
+    await waitFor(() => expect(within(screen.getByRole("banner")).getByText("admin2")).toBeInTheDocument());
+    expect(screen.queryByRole("form", { name: "관리자 로그인" })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(KEY)!).token).toBe("s2");
+
+    await user.click(screen.getByRole("link", { name: "환경" }));
+    await waitFor(() => expect(calls.some((c) => c.headers.get("Authorization") === "Bearer s2")).toBe(true));
+  });
+
+  it("does not remove another tab's newer session when logging out", async () => {
+    localStorage.setItem(KEY, JSON.stringify(s1));
+    const calls = installFetch((c) => (c.url.endsWith("/v1/auth/logout") ? new Response(null, { status: 204 }) : notFound()));
+    const { user } = setup("", "live");
+    localStorage.setItem(KEY, JSON.stringify(s2)); // no event: this tab still holds s1
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "로그아웃" }));
+    expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
+    expect(calls.find((c) => c.url.endsWith("/v1/auth/logout"))!.headers.get("Authorization")).toBe("Bearer s1");
+    expect(JSON.parse(localStorage.getItem(KEY)!).token).toBe("s2");
+  });
+
+  it("ends a session on 401 when no other tab stored a newer one", async () => {
+    localStorage.setItem(KEY, JSON.stringify(s1));
+    installFetch(() => json(401, { error: { code: "unauthorized", message: "missing or invalid token" } }));
+    setup("", "live");
+    expect(await screen.findByText("세션이 만료되었습니다. 다시 로그인하세요")).toBeInTheDocument();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });
