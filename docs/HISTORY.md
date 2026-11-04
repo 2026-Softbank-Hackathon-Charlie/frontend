@@ -11,8 +11,20 @@ main에 머지된 PR 순서대로, 그 시점의 콘솔이 어떤 모습이었�
 | [v5](#v5--pr-6-github-레포로-앱-등록과-배포) | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | 10장 | GitHub 레포로 앱 등록, 배포 진행 화면 |
 | [v6](#v6--pr-5-gitops-배포-workflow) | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | 변화 없음 | GitOps로 콘솔 이미지 배포 |
 | [v7](#v7--pr-7-버전별-화면-히스토리) | [#7](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/7) | 11/3 14:07 | 변화 없음 | 버전별 화면 히스토리 문서 |
+| [v8](#v8--pr-8-버전-표-정리) | [#8](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/8) | 11/3 15:04 | 변화 없음 | 버전 표에서 작성자 빼고 칸 비율 정리 |
+| [v9](#v9--pr-9-개요-스크린샷-갱신) | [#9](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/9) | 11/3 15:29 | 변화 없음 | README 개요 스크린샷을 지금 화면으로 |
+| [v10](#v10--pr-10-시작-전-검사-표시) | [#10](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/10) | 11/3 16:28 | 2장 | 이전 시작 전 검사 결과 표시 |
+| [v11](#v11--pr-11-보안-매트릭스) | [#11](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/11) | 11/3 16:58 | 2장 | 보안 화면에 환경 × 분류 매트릭스 |
+| [v12](#v12--pr-12-배포-workflow-테스트-수정) | [#12](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/12) | 11/3 17:00 | 변화 없음 | 배포 workflow의 테스트 실패 수정 |
+| [v13](#v13--pr-13-main-push마다-콘솔-배포) | [#13](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/13) | 11/3 18:06 | 변화 없음 | main push마다 콘솔 배포 |
+| [v14](#v14--pr-14-브랜치-인스턴스) | [#14](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/14) | 11/3 22:27 | 4장 | 브랜치 인스턴스 추가, 삭제, 브랜치별 배포 |
+| [v15](#v15--pr-15-로고와-아이콘) | [#15](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/15) | 11/4 00:35 | 2장 | HopCharlie 로고와 아이콘 |
+| [v16](#v16--pr-16-모드-선택과-로그인) | [#16](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/16) | 11/4 11:35 | 4장 | 데모·일반 모드 선택, 관리자 로그인, CLI 연결 |
+| [v17](#v17--pr-17-대기-서버-설정-검사) | [#17](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/17) | 11/4 14:42 | 실제 API만 | 시작 전 검사의 대기 서버 설정 문장 |
+| [v18](#v18--pr-18-전환-후-관찰-시작-옵션) | [#18](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/18) | 11/4 16:01 | 실제 API만 | 승인 화면에서 전환 후 관찰과 자동 롤백 선택 |
+| [v19](#v19--pr-19-샘플-앱-moimroom) | [#19](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/19) | 11/4 16:12 | 3장 | 데모 모드의 이전 대상을 moimroom으로 |
 
-머지 시각은 한국 시간입니다. 지금 main의 화면은 [README의 화면](../README.md#화면)에 있습니다. v6 이후 화면 변화는 없어서 v5와 같습니다.
+머지 시각은 한국 시간입니다. 지금 main의 화면은 [README의 화면](../README.md#화면)에 있습니다. 화면이 "변화 없음"인 버전은 바로 앞 버전과 화면이 같고, "실제 API만"인 버전은 플랫폼에 연결한 일반 모드에서만 바뀌어서 시뮬레이션 스크린샷이 없습니다. v16부터는 처음에 모드를 고르므로 데모 모드를 고른 뒤 찍었습니다.
 
 ---
 
@@ -190,8 +202,163 @@ platform #30(GitHub 앱 배포 계약, ADR 0011)을 콘솔에 연결했습니다
 
 ---
 
+## v8 · PR #8: 버전 표 정리
+
+머지 커밋 `04bd85b` · 11/3 15:04 · **화면 변화 없음**
+
+README와 이 문서의 버전 표에서 작성자 열을 빼고, 칸이 두 줄로 꺾이지 않게 내용을 줄였습니다. 문서만 바뀌었습니다.
+
+---
+
+## v9 · PR #9: 개요 스크린샷 갱신
+
+머지 커밋 `098b7b7` · 11/3 15:29 · **화면 변화 없음**
+
+README의 개요 스크린샷이 v3 화면이라, v5(#6)에서 바뀐 앱 목록이 빠져 있었습니다. 지금 화면으로 다시 찍고, README가 인용한 팀 문서의 출처를 밝혔습니다. 앱 코드는 바뀌지 않았습니다.
+
+---
+
+## v10 · PR #10: 시작 전 검사 표시
+
+머지 커밋 `afcb787` · 11/3 16:28
+
+플랫폼이 이전을 시작할 때 실행하는 **시작 전 검사**(데이터 레지던시 platform #37, 용량 platform #38) 결과를 이전 화면에 보여 줍니다.
+
+- 승인 화면에 검사 설명을, 이전 설정의 진행 순서에 "시작 전 검사" 단계를 넣었습니다.
+- 실행 화면(읽기 카나리 위)에 검사 표가 나옵니다. 레지던시와 용량(접속 수, 복제 따라잡기, 초기 복사)을 측정값으로 만든 한국어 문장으로 보여 줍니다.
+- 시작이 막히면 원인 문구와 함께 승인된 Plan을 화면에 남기고 **다시 시작**, **새 Plan 작성** 버튼을 둡니다. 막히는 경우는 실제 API에서만 생깁니다.
+
+| 승인 화면 (시작 전 검사 설명) | 실행 화면 (시작 전 검사 표) |
+| --- | --- |
+| ![승인 화면](history/pr10/01-migrate-1-approve.png) | ![시작 전 검사](history/pr10/02-migrate-2-preflight.png) |
+
+---
+
+## v11 · PR #11: 보안 매트릭스
+
+머지 커밋 `6daae9e` · 11/3 16:58
+
+보안 화면 맨 위에 **환경 × 분류 매트릭스**를 넣었습니다. 클라우드마다 다른 보안 서비스(GuardDuty, Security Hub, Security Command Center, Kubernetes 점검)의 결과를 같은 6개 분류와 심각도로 한 표에서 봅니다.
+
+- 칸을 누르면 아래 "찾은 항목"이 그 칸으로 걸러집니다.
+- 항목이 없는 칸은 이상 없음, 확인 못 함, 점검 안 함으로 나눠서 0건을 안전으로 보이지 않게 했습니다.
+
+| 매트릭스 | 칸을 눌러 거른 항목 |
+| --- | --- |
+| ![매트릭스](history/pr11/01-security-matrix.png) | ![거른 항목](history/pr11/02-security-filtered.png) |
+
+---
+
+## v12 · PR #12: 배포 workflow 테스트 수정
+
+머지 커밋 `ceeb50f` · 11/3 17:00 · **화면 변화 없음**
+
+Deploy frontend workflow가 빌드용 API 주소를 테스트에도 넘겨서, 상대 경로를 기대하는 테스트가 실패했습니다. 테스트에서만 그 주소를 뺐습니다.
+
+---
+
+## v13 · PR #13: main push마다 콘솔 배포
+
+머지 커밋 `8deb471` · 11/3 18:06 · **화면 변화 없음**
+
+main에 push하면 테스트, 빌드, ECR 게시를 거쳐 infra main의 콘솔 이미지 고정 값을 바로 바꾸고, Argo CD가 그 커밋을 배포합니다(infra ADR 0025). 사람이 workflow를 실행하고 infra PR을 머지하던 단계가 없어졌습니다.
+
+---
+
+## v14 · PR #14: 브랜치 인스턴스
+
+머지 커밋 `1676409` · 11/3 22:27
+
+platform ADR 0015(등록한 브랜치마다 인스턴스를 따로 띄운다)를 반영했습니다.
+
+- 앱 상세에 **브랜치별 인스턴스** 표가 생겼습니다. 브랜치, 인스턴스, 주소, 환경별 상태, 최근 배포, 자동 배포, 배포 버튼, 추가 인스턴스 삭제(이름 입력 확인)가 있습니다.
+- **브랜치 추가** 폼은 인스턴스 이름을 미리 보여 주고, 기본 인스턴스를 포함해 3개가 되면 꺼집니다.
+- 배포 이력과 배포 화면에 브랜치와 인스턴스가 나오고, 앱 목록에 "브랜치 N"이 붙습니다.
+- 아래 화면은 notice-board를 등록한 뒤 `feature/search` 브랜치를 추가한 것입니다.
+
+| 브랜치 추가 폼 | 추가한 브랜치의 첫 배포 |
+| --- | --- |
+| ![브랜치 추가](history/pr14/01-app-branch-add-form.png) | ![첫 배포](history/pr14/02-deploy-branch-instance.png) |
+| **인스턴스 2개 (main, feature/search)** | **앱 목록** |
+| ![인스턴스](history/pr14/03-app-instances.png) | ![앱 목록](history/pr14/04-apps-branches.png) |
+
+---
+
+## v15 · PR #15: 로고와 아이콘
+
+머지 커밋 `256a441` · 11/4 00:35
+
+헤더 왼쪽 위의 글자 "HopCharlie"를 가로형 로고로 바꾸고, 브라우저 탭, 홈 화면, 링크 미리보기 아이콘을 넣었습니다. 디자인 시스템 페이지에 로고 섹션을 더했습니다.
+
+| 헤더 로고 | 디자인 시스템 |
+| --- | --- |
+| ![헤더 로고](history/pr15/01-overview-logo.png) | ![디자인 시스템](history/pr15/02-design-system.png) |
+
+---
+
+## v16 · PR #16: 모드 선택과 로그인
+
+머지 커밋 `664e8be` · 11/4 11:35
+
+처음 들어오면 **데모 모드**와 **일반 모드** 중 하나를 고릅니다. 일반 모드는 관리자 아이디와 비밀번호로 로그인하고(platform #48, ADR 0018), 토큰을 붙여 넣던 "API 연결"은 없앴습니다.
+
+- 헤더에서 언제든 모드를 바꿀 수 있고, 바꿔도 로그아웃되지 않습니다.
+- 일반 모드의 사이드 메뉴에 **CLI 연결**(`#device`)이 생겼습니다. `charlie login`이 보여 준 코드를 넣고, 역할을 골라 승인하거나 거절합니다.
+- CLI 연결 화면은 플랫폼 없이 찍어서 코드 입력 칸까지만 보입니다.
+
+| 모드 선택 | 관리자 로그인 |
+| --- | --- |
+| ![모드 선택](history/pr16/01-mode-select.png) | ![로그인](history/pr16/02-login.png) |
+| **CLI 연결 (일반 모드)** | **데모 모드 (헤더의 일반 모드로 전환)** |
+| ![CLI 연결](history/pr16/03-cli-device.png) | ![데모 모드](history/pr16/04-demo-overview.png) |
+
+---
+
+## v17 · PR #17: 대기 서버 설정 검사
+
+머지 커밋 `04e6f01` · 11/4 14:42 · **실제 API만**
+
+platform #47이 시작 전 용량 검사에 `standby_settings`를 더했습니다. 대상은 원본의 hot standby로 뜨므로 `max_connections`, `max_worker_processes`가 원본보다 작으면 시작이 막힙니다.
+
+- 검사 이름 "대기 서버 설정"과 결과별 한국어 문장을 넣었습니다. 막히면 원본보다 작은 설정만, 통과면 비교한 설정과 비교하지 못한 설정, 이 검사가 보지 않는 설정 3개를 함께 보여 줍니다.
+- 시뮬레이션은 이 검사를 만들지 않아서 시뮬레이션 화면은 v16과 같습니다.
+
+---
+
+## v18 · PR #18: 전환 후 관찰 시작 옵션
+
+머지 커밋 `a4e1b1e` · 11/4 16:01 · **실제 API만**
+
+승인 화면과 "다시 시작" 화면에 **전환 후 관찰**을 넣었습니다. CLI의 `migrate start --observe --auto-rollback`과 같은 일을 콘솔에서 합니다.
+
+- 관찰 여부, 관찰 시간(1·2·5·10분, 20초마다 판정), 게이트를 어기면 바로 롤백(slo-guard)을 고릅니다. 게이트 기준은 플랫폼 기본값입니다.
+- 카나리와 관찰은 게이트웨이(http) Plan에서만 보냅니다. 게이트웨이가 없는 Plan을 콘솔에서 시작하지 못하던 문제도 고쳤습니다.
+- 데모 모드는 관찰을 흉내 내지 않아 옵션을 보여 주지 않습니다. 그래서 시뮬레이션 화면은 v17과 같습니다.
+
+---
+
+## v19 · PR #19: 샘플 앱 moimroom
+
+머지 커밋 `5cb16f9` · 11/4 16:12
+
+데모 모드의 이전 대상을 서비스 5개짜리 가짜 shop에서 팀 샘플 앱 **moimroom**의 구성으로 바꿨습니다.
+
+- 서비스 `web` 하나(레플리카 2개), CNPG `moimroom-db`, 스키마 `app` 테이블 5개, 사진 버킷, 주소 `moimroom.hopcharlie.dev`를 따릅니다.
+- AI 계획·리허설과 엔진 Plan이 moimroom 기준(namespace, 클러스터, 검증 스키마, 버킷)으로 바뀌었습니다.
+- 이전 화면 주소는 `#migrate-app`이고, 예전 `#migrate-shop`도 열립니다.
+- 기존 앱 가져오기 시안은 shop 줄거리 그대로이고, 가져온 기록에는 "가져오기 시안(shop)"이 붙습니다.
+
+| 이전 설정 | 승인 화면 (moimroom 기준 AI 기록) |
+| --- | --- |
+| ![이전 설정](history/pr19/01-migrate-setup.png) | ![승인 화면](history/pr19/02-migrate-approve.png) |
+| **moimroom 앱 상세** | |
+| ![moimroom](history/pr19/03-app-moimroom.png) | |
+
+---
+
 ## 스크린샷을 다시 찍으려면
 
 1. 버전마다 머지 커밋을 따로 꺼냅니다: `git worktree add --detach ../fe-history/pr2 0064c16`
 2. `node_modules`는 v2 이후 의존성이 같아서 main의 것을 연결해 써도 됩니다(v1도 그대로 동작).
 3. `npx vite ../fe-history/pr2 --port 5202`로 띄우고, 시뮬레이션 화면을 1440px 너비로 진행하면서 전체 페이지를 찍습니다.
+4. v16부터는 처음에 모드 선택 화면이 나오므로 "데모 모드"를 고른 뒤 진행합니다. v19부터 이전 화면 주소는 `#migrate-app`입니다.

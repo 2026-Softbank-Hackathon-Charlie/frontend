@@ -25,6 +25,18 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 | v5 | [#6](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/6) | 11/3 12:07 | GitHub 레포로 앱 등록, 배포 진행 화면 |
 | v6 | [#5](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/5) | 11/3 13:25 | GitOps로 콘솔 이미지 배포 (화면 변화 없음) |
 | v7 | [#7](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/7) | 11/3 14:07 | 버전별 화면 히스토리 문서 (화면 변화 없음) |
+| v8 | [#8](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/8) | 11/3 15:04 | 버전 표 정리 (화면 변화 없음) |
+| v9 | [#9](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/9) | 11/3 15:29 | README 개요 스크린샷 갱신 (화면 변화 없음) |
+| v10 | [#10](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/10) | 11/3 16:28 | 이전 시작 전 검사 결과 표시 |
+| v11 | [#11](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/11) | 11/3 16:58 | 보안 화면에 환경 × 분류 매트릭스 |
+| v12 | [#12](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/12) | 11/3 17:00 | 배포 workflow 테스트 수정 (화면 변화 없음) |
+| v13 | [#13](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/13) | 11/3 18:06 | main push마다 콘솔 배포 (화면 변화 없음) |
+| v14 | [#14](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/14) | 11/3 22:27 | 브랜치 인스턴스 추가, 삭제, 브랜치별 배포 |
+| v15 | [#15](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/15) | 11/4 00:35 | HopCharlie 로고와 아이콘 |
+| v16 | [#16](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/16) | 11/4 11:35 | 데모·일반 모드 선택, 관리자 로그인, CLI 연결 |
+| v17 | [#17](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/17) | 11/4 14:42 | 시작 전 검사의 대기 서버 설정 문장 (실제 API 모드에서만) |
+| v18 | [#18](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/18) | 11/4 16:01 | 승인 화면에서 전환 후 관찰과 자동 롤백 선택 (실제 API 모드에서만) |
+| v19 | [#19](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/19) | 11/4 16:12 | 데모 모드의 이전 대상을 moimroom으로 |
 
 ## 화면
 
