@@ -15,6 +15,101 @@ export interface paths {
     /** @description Who the token belongs to. The CLI calls this to check a login. */
     get: operations["getMe"];
   };
+  "/v1/auth/login": {
+    /**
+     * @description Logs an administrator in with a username and password from
+     * `PLATFORM_ADMINS` and returns a console session token (role
+     * operator, valid for 12 hours or until POST /v1/auth/logout).
+     *
+     * Error codes: invalid_request (400), invalid_credentials (401: an
+     * unknown username or a wrong password; the answer does not say
+     * which), too_many_attempts (429: 10 failed attempts for this
+     * username in the last 10 minutes; `Retry-After` gives the seconds to
+     * wait), login_not_configured (503: the server has no administrators).
+     * Every success and failure is written to the audit log.
+     */
+    post: operations["login"];
+  };
+  "/v1/auth/logout": {
+    /**
+     * @description Ends the console session or CLI token that made the request; the
+     * token answers 401 from then on. A static token from
+     * `PLATFORM_TOKENS` cannot be ended this way and keeps working; the
+     * answer is 204 all the same.
+     */
+    post: operations["logout"];
+  };
+  "/v1/auth/device": {
+    /**
+     * @description Starts a device login for the CLI (after RFC 8628). Show the person
+     * `userCode` and `verificationUri` (the console's CLI login page);
+     * they log in to the console as an administrator and enter the code.
+     * Meanwhile poll POST /v1/auth/device/token with `deviceCode` every
+     * `interval` seconds until it returns a token or `expiresIn` seconds
+     * (10 minutes) pass. `deviceCode` is this client's secret: never show
+     * or log it. `client` is shown to the administrator before they
+     * approve, so say what is asking, e.g. "charlie v0.5.0 on rin-sbx-12".
+     *
+     * Error codes: invalid_request (400), too_many_attempts (429: 50
+     * device logins are already pending).
+     */
+    post: operations["startDeviceLogin"];
+  };
+  "/v1/auth/device/token": {
+    /**
+     * @description Exchanges an approved device login for a CLI token with the name
+     * and role of the administrator who approved it, valid for 30 days or
+     * until POST /v1/auth/logout. One device login gives one token: the
+     * first successful answer ends it.
+     *
+     * Error codes, all 400: invalid_request, authorization_pending (not
+     * approved yet: ask again after `interval` seconds), access_denied (an
+     * administrator denied it; it is gone), expired_token (unknown,
+     * expired, or already exchanged).
+     */
+    post: operations["pollDeviceLogin"];
+  };
+  "/v1/auth/device/{userCode}": {
+    /**
+     * @description A device login that has not expired, so the console can show which
+     * client asks before the administrator approves. Needs operator.
+     * Error codes: device_login_not_found (404: unknown or expired).
+     */
+    get: operations["getDeviceLogin"];
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+  };
+  "/v1/auth/device/{userCode}/approve": {
+    /**
+     * @description Approves a pending device login. The CLI's next poll gets a token
+     * with the caller's name and role. Needs operator.
+     * Error codes: device_login_not_found (404: unknown or expired),
+     * device_login_state_conflict (409: already approved or denied).
+     */
+    post: operations["approveDeviceLogin"];
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+  };
+  "/v1/auth/device/{userCode}/deny": {
+    /**
+     * @description Denies a pending device login. The CLI's next poll gets
+     * access_denied. Needs operator.
+     * Error codes: device_login_not_found (404: unknown or expired),
+     * device_login_state_conflict (409: already approved or denied).
+     */
+    post: operations["denyDeviceLogin"];
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+  };
   "/v1/plans": {
     get: operations["listPlans"];
     /**
@@ -83,8 +178,11 @@ export interface paths {
      * Rollback plans (`rollbackOf`) are exempt. When the server measures
      * capacity, it reads the source and target for a few seconds first and
      * answers 409 `capacity_insufficient` (measured numbers in the message)
-     * if the target accepts too few connections or the replica cannot catch
-     * up within `thresholds.catchupTimeout`; values it cannot measure never
+     * if the target accepts too few connections (fewer than the source's
+     * client sessions x 1.2), has a `max_connections` or
+     * `max_worker_processes` below the source's (a hot standby will not
+     * start then), or the replica cannot catch up within
+     * `thresholds.catchupTimeout`; values it cannot measure never
      * refuse. Rollback plans are exempt here too. Role operator.
      */
     post: operations["startMigration"];
@@ -383,6 +481,15 @@ export interface paths {
      * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
      * - `files` is set when both environments have a bucket, unless `files` is false.
      * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+     * - With `sourceStats: true` the server also measures the source database
+     *   and the response is a `PlanDraftResult`: the plan under `plan`, the
+     *   numbers under `sourceStats`. This takes about five seconds (the WAL
+     *   rate window). It uses the queries of the capacity gate, so a target
+     *   sized from these numbers passes the same check at start. Only numbers
+     *   are returned, never the address, password or a server message; when
+     *   the source cannot be measured, `sourceStats` is absent and
+     *   `sourceStatsReason` is `not_measured`. Without the flag the response
+     *   is the plan itself, as before.
      *
      * Roles: agent, operator.
      */
@@ -613,6 +720,67 @@ export interface components {
     Principal: {
       name: string;
       role: components["schemas"]["Role"];
+    };
+    LoginRequest: {
+      username: string;
+      password: string;
+    };
+    /** @description A console session or CLI token. Send `token` as `Authorization: Bearer <token>`. */
+    Session: {
+      /** @description Opaque. Shown only in this answer; the server keeps only its hash. */
+      token: string;
+      /** Format: date-time */
+      expiresAt: string;
+      principal: components["schemas"]["Principal"];
+    };
+    DeviceLoginStartRequest: {
+      /**
+       * @description What is asking, shown to the administrator before they approve.
+       * @example charlie v0.5.0 on rin-sbx-12
+       */
+      client: string;
+    };
+    DeviceLoginStart: {
+      /** @description The client's secret for POST /v1/auth/device/token. Never show it. */
+      deviceCode: string;
+      /**
+       * @description Eight letters in two groups of four, for the person to enter in the console.
+       * @example BCDF-GHJK
+       */
+      userCode: string;
+      /**
+       * @description The console page where the code is entered.
+       * @example https://console.hopcharlie.dev/#device
+       */
+      verificationUri: string;
+      /**
+       * @description Seconds until the device login expires.
+       * @example 600
+       */
+      expiresIn: number;
+      /**
+       * @description Seconds to wait between polls.
+       * @example 5
+       */
+      interval: number;
+    };
+    DeviceTokenRequest: {
+      deviceCode: string;
+    };
+    /** @enum {string} */
+    DeviceLoginStatus: "pending" | "approved" | "denied";
+    /** @description A device login as the console shows it to an administrator. It never contains the device code. */
+    DeviceLogin: {
+      /** @example BCDF-GHJK */
+      userCode: string;
+      client: string;
+      status: components["schemas"]["DeviceLoginStatus"];
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** @description The administrator who approved or denied it, once reviewed. */
+      reviewedBy?: string;
     };
     /** @description The migration-engine plan (migration-engine/pkg/plan). `${VAR}` references are expanded on the server. */
     EnginePlan: {
@@ -1505,6 +1673,57 @@ export interface components {
       files?: boolean;
       /** @description sets verify.writtenRecords to "stream:<name>" */
       writtenRecordsStream?: string;
+      /**
+       * @description also measure the source database; the response becomes a PlanDraftResult
+       * @default false
+       */
+      sourceStats?: boolean;
+    };
+    PlanDraftResult: {
+      plan: components["schemas"]["EnginePlan"];
+      sourceStats?: components["schemas"]["SourceStats"];
+      /**
+       * @description Why sourceStats is absent. not_measured covers an unset password variable, an unreachable database and a failed query.
+       * @enum {string}
+       */
+      sourceStatsReason?: "not_measured";
+    };
+    /**
+     * @description The source database as the capacity gate measures it. A hot standby
+     * target needs max_connections and max_worker_processes of at least the
+     * source's to start, and the gate wants max_connections of at least
+     * sessions x 1.2.
+     */
+    SourceStats: {
+      /**
+       * @description client sessions now (pg_stat_activity client backends)
+       * @example 80
+       */
+      sessions: number;
+      /** @example 200 */
+      maxConnections: number;
+      /** @example 8 */
+      maxWorkerProcesses: number;
+      /**
+       * Format: int64
+       * @description total size of the databases that accept connections; absent when not measured
+       * @example 2147483648
+       */
+      bytes?: number;
+      /**
+       * Format: double
+       * @description WAL written per second over the window; absent when not measured
+       * @example 1048576
+       */
+      walBytesPerSecond?: number;
+      /**
+       * Format: double
+       * @description length of the WAL window
+       * @example 5
+       */
+      windowSeconds: number;
+      /** Format: date-time */
+      measuredAt: string;
     };
     RollbackRequest: {
       reason?: string;
@@ -2007,13 +2226,13 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found */
+    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found, device_login_not_found */
     NotFound: {
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, device_login_state_conflict */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -2043,8 +2262,18 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description gateway_not_configured, github_not_configured */
+    /** @description gateway_not_configured, github_not_configured, login_not_configured */
     Unavailable: {
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description too_many_attempts */
+    TooManyRequests: {
+      headers: {
+        /** @description Seconds to wait before trying again. */
+        "Retry-After"?: number;
+      };
       content: {
         "application/json": components["schemas"]["Error"];
       };
@@ -2057,6 +2286,8 @@ export interface components {
     AppName: string;
     InstanceName: string;
     DeploymentId: string;
+    /** @description The code the CLI shows. Case, spaces and '-' do not matter. */
+    UserCode: string;
   };
   requestBodies: never;
   headers: never;
@@ -2099,6 +2330,199 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Logs an administrator in with a username and password from
+   * `PLATFORM_ADMINS` and returns a console session token (role
+   * operator, valid for 12 hours or until POST /v1/auth/logout).
+   *
+   * Error codes: invalid_request (400), invalid_credentials (401: an
+   * unknown username or a wrong password; the answer does not say
+   * which), too_many_attempts (429: 10 failed attempts for this
+   * username in the last 10 minutes; `Retry-After` gives the seconds to
+   * wait), login_not_configured (503: the server has no administrators).
+   * Every success and failure is written to the audit log.
+   */
+  login: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LoginRequest"];
+      };
+    };
+    responses: {
+      /** @description Logged in. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["Session"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      /** @description invalid_credentials: unknown username or wrong password */
+      401: {
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Ends the console session or CLI token that made the request; the
+   * token answers 401 from then on. A static token from
+   * `PLATFORM_TOKENS` cannot be ended this way and keeps working; the
+   * answer is 204 all the same.
+   */
+  logout: {
+    responses: {
+      /** @description Logged out. */
+      204: {
+        content: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Starts a device login for the CLI (after RFC 8628). Show the person
+   * `userCode` and `verificationUri` (the console's CLI login page);
+   * they log in to the console as an administrator and enter the code.
+   * Meanwhile poll POST /v1/auth/device/token with `deviceCode` every
+   * `interval` seconds until it returns a token or `expiresIn` seconds
+   * (10 minutes) pass. `deviceCode` is this client's secret: never show
+   * or log it. `client` is shown to the administrator before they
+   * approve, so say what is asking, e.g. "charlie v0.5.0 on rin-sbx-12".
+   *
+   * Error codes: invalid_request (400), too_many_attempts (429: 50
+   * device logins are already pending).
+   */
+  startDeviceLogin: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DeviceLoginStartRequest"];
+      };
+    };
+    responses: {
+      /** @description The device login, pending approval. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeviceLoginStart"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      429: components["responses"]["TooManyRequests"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Exchanges an approved device login for a CLI token with the name
+   * and role of the administrator who approved it, valid for 30 days or
+   * until POST /v1/auth/logout. One device login gives one token: the
+   * first successful answer ends it.
+   *
+   * Error codes, all 400: invalid_request, authorization_pending (not
+   * approved yet: ask again after `interval` seconds), access_denied (an
+   * administrator denied it; it is gone), expired_token (unknown,
+   * expired, or already exchanged).
+   */
+  pollDeviceLogin: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DeviceTokenRequest"];
+      };
+    };
+    responses: {
+      /** @description The CLI token. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["Session"];
+        };
+      };
+      /** @description invalid_request, authorization_pending, access_denied, expired_token */
+      400: {
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description A device login that has not expired, so the console can show which
+   * client asks before the administrator approves. Needs operator.
+   * Error codes: device_login_not_found (404: unknown or expired).
+   */
+  getDeviceLogin: {
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+    responses: {
+      /** @description The device login. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeviceLogin"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Approves a pending device login. The CLI's next poll gets a token
+   * with the caller's name and role. Needs operator.
+   * Error codes: device_login_not_found (404: unknown or expired),
+   * device_login_state_conflict (409: already approved or denied).
+   */
+  approveDeviceLogin: {
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+    responses: {
+      /** @description The device login, now approved. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeviceLogin"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Denies a pending device login. The CLI's next poll gets
+   * access_denied. Needs operator.
+   * Error codes: device_login_not_found (404: unknown or expired),
+   * device_login_state_conflict (409: already approved or denied).
+   */
+  denyDeviceLogin: {
+    parameters: {
+      path: {
+        userCode: components["parameters"]["UserCode"];
+      };
+    };
+    responses: {
+      /** @description The device login, now denied. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeviceLogin"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       default: components["responses"]["Internal"];
     };
   };
@@ -2257,8 +2681,11 @@ export interface operations {
    * Rollback plans (`rollbackOf`) are exempt. When the server measures
    * capacity, it reads the source and target for a few seconds first and
    * answers 409 `capacity_insufficient` (measured numbers in the message)
-   * if the target accepts too few connections or the replica cannot catch
-   * up within `thresholds.catchupTimeout`; values it cannot measure never
+   * if the target accepts too few connections (fewer than the source's
+   * client sessions x 1.2), has a `max_connections` or
+   * `max_worker_processes` below the source's (a hot standby will not
+   * start then), or the replica cannot catch up within
+   * `thresholds.catchupTimeout`; values it cannot measure never
    * refuse. Rollback plans are exempt here too. Role operator.
    */
   startMigration: {
@@ -2993,6 +3420,15 @@ export interface operations {
    * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
    * - `files` is set when both environments have a bucket, unless `files` is false.
    * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+   * - With `sourceStats: true` the server also measures the source database
+   *   and the response is a `PlanDraftResult`: the plan under `plan`, the
+   *   numbers under `sourceStats`. This takes about five seconds (the WAL
+   *   rate window). It uses the queries of the capacity gate, so a target
+   *   sized from these numbers passes the same check at start. Only numbers
+   *   are returned, never the address, password or a server message; when
+   *   the source cannot be measured, `sourceStats` is absent and
+   *   `sourceStatsReason` is `not_measured`. Without the flag the response
+   *   is the plan itself, as before.
    *
    * Roles: agent, operator.
    */
@@ -3003,10 +3439,10 @@ export interface operations {
       };
     };
     responses: {
-      /** @description The draft plan. */
+      /** @description The draft plan, or with `sourceStats` a `PlanDraftResult`. */
       200: {
         content: {
-          "application/json": components["schemas"]["EnginePlan"];
+          "application/json": components["schemas"]["EnginePlan"] | components["schemas"]["PlanDraftResult"];
         };
       };
       400: components["responses"]["BadRequest"];

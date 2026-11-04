@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { Chip } from "./components/ui";
-import { apiTarget, connect, disconnect, useLive } from "./data/live";
+import { apiTarget, chooseMode, logOut, useAuth, useLive } from "./data/live";
 import { Agents } from "./pages/Agents";
 import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
 import { DeploymentPage } from "./pages/Deployment";
 import { DesignSystem } from "./pages/DesignSystem";
+import { DevicePage } from "./pages/Device";
+import { Login, ModeChoice } from "./pages/Entry";
 import { Envs } from "./pages/Envs";
 import { Migrate, MigrateList } from "./pages/Migrate";
 import { NewApp } from "./pages/NewApp";
@@ -30,6 +32,7 @@ function Page({ r }: { r: string }) {
   if (r === "agents") return <Agents />;
   if (r === "security") return <Security />;
   if (r === "envs") return <Envs />;
+  if (r === "device") return <DevicePage />;
   if (r === "design-system") return <DesignSystem />;
   return <Overview />;
 }
@@ -48,6 +51,7 @@ function SideNav({ r }: { r: string }) {
     ["security", "보안", ""],
     ["envs", "환경", ""],
   ];
+  if (live) items.push(["device", "CLI 연결", ""]);
   return (
     <nav className="side" aria-label="주 메뉴">
       <ul>
@@ -69,57 +73,49 @@ function SideNav({ r }: { r: string }) {
   );
 }
 
-function Connect() {
-  const live = useLive();
-  const [open, setOpen] = useState(false);
-  const [token, setTokenText] = useState("");
-  const [keep, setKeep] = useState(false);
-  if (live) {
+/** Account and mode switch in the header. Switching modes keeps the session. */
+function Account() {
+  const { mode, session } = useAuth();
+  if (mode !== "live" || !session) {
     return (
-      <button type="button" className="btn ghost" onClick={disconnect}>
-        API 연결 끊기
+      <button type="button" className="btn ghost" onClick={() => chooseMode("live")}>
+        일반 모드로 전환
       </button>
     );
   }
   return (
-    <div className="connect">
-      <button type="button" className="btn ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
-        API 연결
+    <>
+      <span className="user">{session.principal.name}</span>
+      <button type="button" className="btn ghost" onClick={() => void logOut()}>
+        로그아웃
       </button>
-      {open && (
-        <form
-          className="connectpanel box"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!token.trim()) return;
-            connect(token, keep);
-            setTokenText("");
-            setOpen(false);
-          }}
-        >
-          <div className="bb">
-            <p className="hint">서버: {apiTarget()}</p>
-            <div className="field">
-              <label htmlFor="api-token">토큰 (viewer 또는 operator)</label>
-              <input id="api-token" type="password" autoComplete="off" value={token} onChange={(e) => setTokenText(e.target.value)} />
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> 이 탭을 새로고침해도 유지 (공용 PC에서는 끄기)
-            </label>
-            <div className="actrow">
-              <button type="submit" className="btn primary" disabled={!token.trim()}>
-                연결
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
-    </div>
+      <button type="button" className="btn ghost" onClick={() => chooseMode("demo")}>
+        데모 모드로 전환
+      </button>
+    </>
   );
 }
 
+/**
+ * Picks the screen: the mode choice on a first visit, the login in live mode
+ * without a session, the console otherwise. #device always needs a login,
+ * whatever the mode, and logging in there switches to live mode.
+ */
 export function App() {
   const r = useRoute();
+  const { mode, session } = useAuth();
+  // Opened #device in demo mode while still logged in: no new login is needed, only live mode.
+  const toLive = r === "device" && session !== null && mode !== "live";
+  useEffect(() => {
+    if (toLive) chooseMode("live");
+  }, [toLive]);
+  if (r === "device" && !session) return <Login device />;
+  if (!mode) return <ModeChoice />;
+  if (mode === "live" && !session) return <Login />;
+  return <Console r={r} />;
+}
+
+function Console({ r }: { r: string }) {
   const { reset } = useSim();
   const live = useLive();
   return (
@@ -161,7 +157,7 @@ export function App() {
             <a className="btn primary" href="#migrate-shop">
               이전하기
             </a>
-            <Connect />
+            <Account />
           </div>
         </div>
       </header>

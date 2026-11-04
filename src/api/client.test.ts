@@ -1,21 +1,23 @@
 import {
   ApiError,
+  approveDeviceLogin,
   approvePlan,
   createApp,
   createAppInstance,
   createDeployment,
   deleteApp,
   deleteAppInstance,
+  denyDeviceLogin,
   draftPlan,
   getAgentSession,
   getApp,
   getDeployment,
+  getDeviceLogin,
   getHealth,
   getPlan,
   getSecurity,
   getTraffic,
   getWrittenRecords,
-  hasToken,
   listAgentEvents,
   listAgentSessions,
   listAllAgentEvents,
@@ -23,7 +25,10 @@ import {
   listAudit,
   listDeployments,
   listGitHubRepos,
+  login,
+  logout,
   newIdempotencyKey,
+  onUnauthorized,
   putPlanAttachment,
   rejectPlan,
   rollbackMigration,
@@ -40,7 +45,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   setToken(null);
-  sessionStorage.clear();
 });
 
 describe("client errors", () => {
@@ -208,21 +212,103 @@ describe("client requests", () => {
     await expect(listAllAgentEvents("ags_1")).rejects.toMatchObject({ code: "invalid_response" });
   });
 
-  it("keeps the token in sessionStorage only when asked, and never logs it", async () => {
+  it("keeps the token in memory only, and never logs it", async () => {
     const logs = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m));
-    setToken("t1", { persist: true });
-    expect(sessionStorage.getItem("hopcharlie.token")).toBe("t1");
-    setToken("t2");
-    expect(sessionStorage.getItem("hopcharlie.token")).toBeNull();
-    expect(hasToken()).toBe(true);
-
-    installFetch(() => json(401, { error: { code: "unauthorized", message: "missing or invalid token" } }));
+    setToken(" t2 ");
+    const calls = installFetch(() => json(401, { error: { code: "unauthorized", message: "missing or invalid token" } }));
     const err = await getHealth().catch((e: unknown) => e);
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer t2");
     expect(String((err as Error).message)).not.toContain("t2");
+    expect([sessionStorage.length, localStorage.length]).toEqual([0, 0]);
 
     setToken(null);
-    expect(hasToken()).toBe(false);
+    await getHealth().catch(() => {});
+    expect(calls[1].headers.has("Authorization")).toBe(false);
     for (const spy of logs) expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth", () => {
+  const device = { userCode: "BCDF-GHJK", client: "charlie v0.5.0 on rin-sbx-12", status: "pending", createdAt: at(0), expiresAt: at(10) };
+
+  it("logs in without a token and logs out with one", async () => {
+    const session = { token: "s1", expiresAt: "2026-11-02T15:00:00Z", principal: { name: "admin", role: "operator" } };
+    const calls = installFetch((c) => (c.url === "/v1/auth/login" ? json(200, session) : new Response(null, { status: 204 })));
+    expect(await login({ username: "admin", password: "pw" })).toEqual(session);
+    setToken("s1");
+    await expect(logout()).resolves.toBeUndefined();
+    expect(calls.map((c) => c.method + " " + c.url)).toEqual(["POST /v1/auth/login", "POST /v1/auth/logout"]);
+    expect(JSON.parse(calls[0].body!)).toEqual({ username: "admin", password: "pw" });
+    expect(calls[0].headers.has("Authorization")).toBe(false);
+    expect(calls[1].body).toBeUndefined();
+    expect(calls[1].headers.get("Authorization")).toBe("Bearer s1");
+  });
+
+  it("looks up, approves and denies a device login by its code", async () => {
+    setToken("s1");
+    const calls = installFetch((c) => json(200, { ...device, status: c.url.endsWith("/approve") ? "approved" : c.url.endsWith("/deny") ? "denied" : "pending" }));
+    expect((await getDeviceLogin("BCDF-GHJK")).client).toBe("charlie v0.5.0 on rin-sbx-12");
+    expect((await approveDeviceLogin("BCDF-GHJK")).status).toBe("approved");
+    expect((await denyDeviceLogin("bcdf ghjk")).status).toBe("denied");
+    expect(calls.map((c) => c.method + " " + c.url)).toEqual([
+      "GET /v1/auth/device/BCDF-GHJK",
+      "POST /v1/auth/device/BCDF-GHJK/approve",
+      "POST /v1/auth/device/bcdf%20ghjk/deny",
+    ]);
+    expect(calls.every((c) => c.headers.get("Authorization") === "Bearer s1")).toBe(true);
+
+    installFetch(() => json(409, { error: { code: "device_login_state_conflict", message: "device login is approved" } }));
+    await expect(approveDeviceLogin("BCDF-GHJK")).rejects.toMatchObject({ status: 409, code: "device_login_state_conflict" });
+  });
+
+  it("reads Retry-After in seconds", async () => {
+    const tooMany = (headers: Record<string, string>, body = JSON.stringify({ error: { code: "too_many_attempts", message: "try later" } })) =>
+      installFetch(() => new Response(body, { status: 429, headers: { "Content-Type": "application/json", ...headers } }));
+
+    tooMany({ "Retry-After": "120" });
+    await expect(login({ username: "a", password: "b" })).rejects.toMatchObject({ status: 429, code: "too_many_attempts", retryAfter: 120 });
+    tooMany({ "Retry-After": " 7 " }, "<html>slow down</html>");
+    await expect(login({ username: "a", password: "b" })).rejects.toMatchObject({ code: "http_429", retryAfter: 7 });
+    for (const headers of [{}, { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" }, { "Retry-After": "-1" }] as Record<string, string>[]) {
+      tooMany(headers);
+      const e = (await login({ username: "a", password: "b" }).catch((x: unknown) => x)) as ApiError;
+      expect(e.retryAfter).toBeUndefined();
+    }
+  });
+
+  it("tells listeners about a 401 to a request that carried the current token", async () => {
+    const lost = vi.fn();
+    const off = onUnauthorized(lost);
+    const unauthorized = () => json(401, { error: { code: "unauthorized", message: "missing or invalid token" } });
+
+    // no token: a public call's 401 is its own answer (invalid_credentials), not a lost session
+    installFetch(() => json(401, { error: { code: "invalid_credentials", message: "no" } }));
+    await login({ username: "a", password: "b" }).catch(() => {});
+    expect(lost).not.toHaveBeenCalled();
+
+    setToken("s1");
+    installFetch(() => json(403, { error: { code: "forbidden", message: "no" } }));
+    await getHealth().catch(() => {});
+    expect(lost).not.toHaveBeenCalled();
+
+    installFetch(unauthorized);
+    await expect(getHealth()).rejects.toMatchObject({ status: 401 });
+    expect(lost).toHaveBeenCalledTimes(1);
+
+    // the answer to a request of an earlier session does not end the new one
+    let answer!: (r: Response) => void;
+    const held = new Promise<Response>((r) => (answer = r));
+    installFetch(() => held);
+    const late = getHealth().catch(() => {});
+    setToken("s2");
+    answer(unauthorized());
+    await late;
+    expect(lost).toHaveBeenCalledTimes(1);
+
+    off();
+    installFetch(unauthorized);
+    await getHealth().catch(() => {});
+    expect(lost).toHaveBeenCalledTimes(1);
   });
 });
 

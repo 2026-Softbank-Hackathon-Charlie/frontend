@@ -1,4 +1,4 @@
-import { ApiError, setToken } from "./client";
+import { ApiError, onUnauthorized, setToken } from "./client";
 import { agentEventMsg, deploymentEventMsg, eventMsg, fakeAgentSession, fakeDeployment, fakeRun, hang, installFetch, json, sequence, snapshotMsg, sse } from "./fakes";
 import {
   isFinalDeploymentStatus,
@@ -158,6 +158,16 @@ describe("watchRun", () => {
     expect(err).toMatchObject({ status: 401, code: "unauthorized" });
     expect(r.retries).toEqual(["internal", "network_error"]);
     expect(calls).toHaveLength(3);
+  });
+
+  it("tells the onUnauthorized listeners when the stream answers 401 to the session token", async () => {
+    const lost = vi.fn();
+    const off = onUnauthorized(lost);
+    setToken("tok");
+    installFetch(() => json(401, { error: { code: "unauthorized", message: "missing or invalid token" } }));
+    await expect(watchRun("run_1", {})).rejects.toMatchObject({ status: 401 });
+    expect(lost).toHaveBeenCalledTimes(1);
+    off();
   });
 
   it("rejects a stream that breaks the contract", async () => {
