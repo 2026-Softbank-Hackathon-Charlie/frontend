@@ -3,7 +3,7 @@ import type { Run, RunStatus } from "../api/types";
 import { BlockedTable, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td, type ChipKind } from "../components/ui";
-import { OBSERVE_DURATIONS, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
+import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -399,7 +399,7 @@ function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: 
                   </option>
                 ))}
               </select>
-              {CANARY.stepSec}초마다 판정
+              {OBSERVE_STEP.replace("s", "초")}마다 판정
             </label>
             <label className="check">
               <input type="checkbox" checked={o.autoRollback} disabled={off} onChange={(e) => set({ ...o, autoRollback: e.target.checked })} /> 게이트를 어기면 바로 롤백
@@ -742,10 +742,16 @@ function CanaryBox({ r }: { r: Run }) {
         rows={c.options.weights.map((w, i) => {
           const s = c.steps[i];
           const g = s?.gate;
+          // verdict is new; older runs only have gate.passed.
+          const v = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
+          let chip = s ? <Chip kind="run">관찰 중</Chip> : <Chip>대기</Chip>;
+          if (g && v === "ok") chip = <Chip kind="ok">통과</Chip>;
+          else if (g && v === "inconclusive") chip = <Chip>판단 보류: 요청 부족, 다음 단계로</Chip>;
+          else if (g) chip = <Chip kind="bad">{"실패: " + g.reason}</Chip>;
           return [
             td(i + 1 + "단계", "m"),
             td(w + "%", "m"),
-            td(g ? <Chip kind={g.passed ? "ok" : "bad"}>{g.passed ? "통과" : "실패: " + g.reason}</Chip> : s ? <Chip kind="run">관찰 중</Chip> : <Chip>대기</Chip>),
+            td(chip),
             td(g ? fmt(g.requests) : "-", "m"),
             td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "m"),
             td(g ? g.p95Millis + "ms" : "-", "m"),

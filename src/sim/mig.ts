@@ -49,7 +49,9 @@ export const ENGINE_STEPS: EngineStep[] = [
 ];
 
 const SYNC_END = 65;
-export const CANARY = { weights: [10, 50], stepSec: 20 };
+// Read share moves to the target gradually; each step is gated (platform ADR
+// 0005). Small steps of a quiet app may be inconclusive; the last step decides.
+export const CANARY = { weights: [1, 10, 25, 50, 75, 90, 100], stepSec: 10 };
 /** Pre-switch clock when the run waits for /switch. */
 export const SWITCH_AT = SYNC_END + CANARY.weights.length * CANARY.stepSec;
 export const POST_END = 13.6;
@@ -493,8 +495,14 @@ function runTick(m: MigSim): boolean {
       if (prevT < e && m.t >= e) {
         const step = r.canary!.steps[i];
         step.endedAt = iso(m.now);
-        step.gate = { passed: true, reason: "ok", requests: Math.round(CANARY.stepSec * 30 * (w / 100)) + 40, errorRate: 0, p95Millis: 118 + i * 9 };
-        emit(m, "gate_result", "게이트 통과 (읽기 " + w + "%)", { data: { weight: w, gate: step.gate } });
+        // About 30 reads/s: the 1% step sees too few requests to judge, like a real quiet app.
+        const requests = Math.round(CANARY.stepSec * 30 * (w / 100));
+        const judged = requests >= 20 || i === CANARY.weights.length - 1;
+        step.verdict = judged ? "ok" : "inconclusive";
+        step.gate = judged
+          ? { passed: true, reason: requests + " requests, error rate 0.00%, p95 " + (118 + i * 9) + "ms", requests, errorRate: 0, p95Millis: 118 + i * 9 }
+          : { passed: false, reason: "only " + requests + " requests reached the target (need 20); continuing to the next step", requests, errorRate: 0, p95Millis: 0 };
+        emit(m, "gate_result", (judged ? "게이트 통과" : "판단 보류") + " (읽기 " + w + "%)", { data: { weight: w, verdict: step.verdict, gate: step.gate } });
       }
     });
     if (prevT < SWITCH_AT && m.t >= SWITCH_AT) {

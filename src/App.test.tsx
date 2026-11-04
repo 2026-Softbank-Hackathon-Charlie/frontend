@@ -69,7 +69,8 @@ describe("HopCharlie console (simulation)", () => {
     expect(screen.getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
     ticks(sim, SWITCH_AT);
     expect(screen.getAllByText("전환 승인 대기").length).toBeGreaterThan(0);
-    expect(screen.getByRole("img", { name: /읽기: AWS EKS 50%, 온프레미스 k3s 50%/ })).toBeInTheDocument();
+    // The gradual canary ends at 100%: every read is on the target before the switch.
+    expect(screen.getByRole("img", { name: /읽기: AWS EKS 0%, 온프레미스 k3s 100%/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "전환" }));
     ticks(sim, 68);
@@ -201,7 +202,7 @@ describe("HopCharlie console (platform API)", () => {
     const start = await startCall();
     const approve = calls().find((c) => c.url.includes("/v1/plans/pln_1/approve"))!;
     expect(JSON.parse(approve.body!)).toEqual({ revision: 3 });
-    expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
+    expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [1, 10, 25, 50, 75, 90, 100], stepDuration: "10s" } });
     expect(JSON.parse(start.body!).observe).toBeUndefined(); // observe stays off unless the operator turns it on
     expect(start.headers.get("Idempotency-Key")).toBeTruthy();
     expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
@@ -220,7 +221,7 @@ describe("HopCharlie console (platform API)", () => {
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
     expect(await started()).toMatchObject({
       planRef: "pln_1",
-      canary: { weights: [10, 50], stepDuration: "20s" },
+      canary: { weights: [1, 10, 25, 50, 75, 90, 100], stepDuration: "10s" },
       observe: { duration: "5m", stepDuration: "20s", autoRollback: true },
     });
   });

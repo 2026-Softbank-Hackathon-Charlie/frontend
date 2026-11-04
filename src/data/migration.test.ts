@@ -1,9 +1,8 @@
-import { DEFAULT_START, OBSERVE_DURATIONS, startRequest } from "./migration";
-import { CANARY } from "../sim/mig";
+import { DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, startRequest } from "./migration";
 
 describe("start request", () => {
   it("sends the read canary and no observation by default", () => {
-    expect(startRequest("pln_1", "http", DEFAULT_START)).toEqual({ planRef: "pln_1", canary: { weights: [10, 50], stepDuration: "20s" } });
+    expect(startRequest("pln_1", "http", DEFAULT_START)).toEqual({ planRef: "pln_1", canary: { weights: [1, 10, 25, 50, 75, 90, 100], stepDuration: "10s" } });
   });
 
   it("adds the observation the operator picked", () => {
@@ -26,7 +25,7 @@ describe("start request", () => {
   it("offers only durations the platform accepts", () => {
     const sec = (d: string) => Number(d.slice(0, -1)) * (d.endsWith("m") ? 60 : 1);
     for (const d of OBSERVE_DURATIONS) {
-      expect(sec(d)).toBeGreaterThanOrEqual(Math.max(10, CANARY.stepSec));
+      expect(sec(d)).toBeGreaterThanOrEqual(Math.max(10, sec(OBSERVE_STEP)));
       expect(sec(d)).toBeLessThanOrEqual(30 * 60);
     }
     expect(OBSERVE_DURATIONS).toContain(DEFAULT_START.duration);
