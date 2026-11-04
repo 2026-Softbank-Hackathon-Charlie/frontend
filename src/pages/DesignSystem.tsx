@@ -22,7 +22,7 @@ const COLORS: [string, string, string, string, boolean?][] = [
 
 /** [style, sample, spec] */
 const TYPE: [string, ReactNode, string][] = [
-  ["페이지 제목", <span style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.35, color: "var(--heading)" }}>shop 이전</span>, "32px / 1.35 / 700"],
+  ["페이지 제목", <span style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.35, color: "var(--heading)" }}>moimroom 이전</span>, "32px / 1.35 / 700"],
   ["타이머", <span className="m" style={{ fontSize: 30, fontWeight: 500 }}>02:34</span>, "Mono 30px / 500, 숫자 고정폭"],
   ["지표 숫자", <strong style={{ fontSize: 20, fontWeight: 700, color: "var(--heading)", fontVariantNumeric: "tabular-nums" }}>3,072</strong>, "20px / 700, 숫자 고정폭"],
   ["섹션 제목, 브랜드", <span style={{ fontSize: 18, fontWeight: 700, color: "var(--heading)" }}>경로별 결과</span>, "18px / 700"],
@@ -30,7 +30,7 @@ const TYPE: [string, ReactNode, string][] = [
   ["상자 머리글", <b style={{ fontSize: 15, color: "var(--heading)" }}>이전 경과</b>, "15px / 700"],
   ["메뉴, 버튼, 표", <span style={{ fontSize: 14 }}>이전하기</span>, "14px / 400"],
   ["힌트, 설명", <span className="hint">대상이 쓰기를 받기 전입니다.</span>, "13px / muted"],
-  ["코드, 로그", <span className="m" style={{ fontSize: 12.5 }}>kubectl get secrets -n shop</span>, "Mono 12.5px / 1.6"],
+  ["코드, 로그", <span className="m" style={{ fontSize: 12.5 }}>kubectl get secrets -n moimroom</span>, "Mono 12.5px / 1.6"],
   ["라벨", <span style={{ fontSize: 12, letterSpacing: "0.03em", color: "var(--muted)" }}>성공한 쓰기 (k6)</span>, "12px / 자간 0.03em / muted"],
 ];
 

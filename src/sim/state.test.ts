@@ -1,4 +1,4 @@
-import { AI_END, SWITCH_AT, allSessions, matrixRoutes } from "./mig";
+import { AI_END, SWITCH_AT, allSessions, enginePlan, matrixRoutes } from "./mig";
 import * as dep from "./deploy";
 import { apply, appsIn, fresh, migActive, tick, type SimState } from "./state";
 
@@ -6,7 +6,7 @@ function run(S: SimState, n: number) {
   for (let i = 0; i < n; i++) tick(S);
 }
 
-/** shop imported on EKS, AI done, plan waiting for approval */
+/** moimroom imported on EKS, AI done, plan waiting for approval */
 function reviewed(target: "gcp" | "onprem" = "onprem"): SimState {
   const S = fresh();
   apply(S, { type: "onb-skip" });
@@ -15,6 +15,30 @@ function reviewed(target: "gcp" | "onprem" = "onprem"): SimState {
   run(S, AI_END);
   return S;
 }
+
+describe("sample app", () => {
+  // the migration sample is the team's moimroom repo: one web service, CNPG moimroom-db, tables in schema app
+  it("plans moimroom the way its repo deploys it", () => {
+    const p = enginePlan("aws", "onprem");
+    expect(p.id).toBe("moimroom-eks-to-k3s");
+    expect(p.source).toMatchObject({ namespace: "moimroom", cluster: "moimroom-db-eks" });
+    expect(p.target).toMatchObject({ namespace: "moimroom", cluster: "moimroom-db-k3s" });
+    expect(p.verify?.schemas).toEqual(["app"]);
+    // eks follows the platform's <bucketPrefix><instance> (ADR 0016)
+    expect(p.files).toEqual({ source: "s3:hopcharlie-eks-moimroom", target: "minio:hopcharlie-k3s-moimroom" });
+  });
+
+  it("imports moimroom with its single web service", () => {
+    const S = fresh();
+    apply(S, { type: "onb-skip" });
+    expect(S.apps.moimroom.repo).toBe("2026-Softbank-Hackathon-Charlie/moimroom");
+    expect(S.apps.moimroom.res[0]).toEqual(["서비스", "web", "Deployment 1개, 레플리카 2개, 이미지는 ECR"]);
+    expect(S.apps.moimroom.res[2][1]).toBe("hopcharlie-eks-moimroom");
+    // what the onboarding draft brought along says it came from the draft (shop), not from moimroom
+    expect(S.apps.moimroom.res[3][0]).toBe("가져오기 시안 (shop)");
+    expect(S.apps.moimroom.deploys[0][1]).toMatch(/^가져오기 시안\(shop\): /);
+  });
+});
 
 const POST_TICKS = 68; // 13.6s of cutover and verify at 0.2s per tick
 
@@ -80,8 +104,12 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(r.result.durationMillis).toBeLessThanOrEqual(180_000);
     expect(r.result.downtimeMillis).toBe(6400);
     expect(m.heldDone).toBeGreaterThan(0);
-    expect(S.apps.shop.loc).toBe("onprem");
-    expect(S.apps.shop.prev).toBe("aws");
+    expect(S.apps.moimroom.loc).toBe("onprem");
+    expect(S.apps.moimroom.prev).toBe("aws");
+    // the resources show the bucket each side holds, as the plan moved it
+    const res = S.apps.moimroom.res;
+    expect(res.find((x) => x[0] === "파일 저장소")?.[1]).toBe("hopcharlie-k3s-moimroom");
+    expect(res.find((x) => x[0].startsWith("원본"))?.[1]).toBe("moimroom-db, hopcharlie-eks-moimroom");
     expect(matrixRoutes(m)[0]).toMatchObject({ source: "eks", target: "k3s", status: "succeeded" });
     expect(migActive(S)).toBe(false);
     // the event stream is ordered and carries the platform kinds
@@ -111,7 +139,7 @@ describe("migration simulation (platform contract shapes)", () => {
     apply(S, { type: "mig-switch" });
     run(S, POST_TICKS);
     const first = S.mig.run!;
-    expect(S.apps.shop.loc).toBe("gcp");
+    expect(S.apps.moimroom.loc).toBe("gcp");
 
     apply(S, { type: "mig-rollback" });
     const back = S.mig.run!;
@@ -121,7 +149,7 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(back.autoSwitch).toBe(true);
     run(S, SWITCH_AT + POST_TICKS);
     expect(S.mig.run?.status).toBe("succeeded");
-    expect(S.apps.shop.loc).toBe("aws");
+    expect(S.apps.moimroom.loc).toBe("aws");
     expect(matrixRoutes(S.mig).map((r) => r.source + ">" + r.target)).toEqual(["gke>eks", "eks>gke"]);
     expect(allSessions(S.mig).sessions).toHaveLength(3); // the first migration's AI sessions are kept
   });
@@ -160,7 +188,7 @@ describe("migration simulation (platform contract shapes)", () => {
     apply(S, { type: "onb-pr" });
     apply(S, { type: "onb-approve" });
     run(S, 75);
-    expect(S.apps.shop.loc).toBe("gcp");
+    expect(S.apps.moimroom.loc).toBe("gcp");
     expect(S.mig.src).toBe("gcp");
   });
 

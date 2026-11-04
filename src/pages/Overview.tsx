@@ -74,7 +74,7 @@ function SimRunning() {
 function LiveRunning() {
   const runs = useRuns(5_000);
   const active = (runs.data ?? []).filter((r) => r.status === "running" || r.status === "awaiting_switch");
-  return <RunningList items={active.map((r) => [r.runId + " (" + envName(r.source.env) + " → " + envName(r.target.env) + "): " + statusText(r.status, r.phase), "#migrate-shop"])} />;
+  return <RunningList items={active.map((r) => [r.runId + " (" + envName(r.source.env) + " → " + envName(r.target.env) + "): " + statusText(r.status, r.phase), "#migrate-app"])} />;
 }
 
 function AppsBrief({ m }: { m: AppsModel }) {

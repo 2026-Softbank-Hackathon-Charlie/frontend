@@ -10,7 +10,7 @@ export function Routes() {
         title="경로별 결과"
         sub={"GKE, EKS, 온프레미스 k3s 사이 6개 방향의 이전 결과입니다. 목표는 전체 " + dur(TARGET_SEC) + " 이내, 실패 요청 0건, 누락 0건입니다."}
         acts={
-          <a className="btn primary" href="#migrate-shop">
+          <a className="btn primary" href="#migrate-app">
             이전하기
           </a>
         }

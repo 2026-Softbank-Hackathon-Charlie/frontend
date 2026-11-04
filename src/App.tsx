@@ -27,7 +27,7 @@ function Page({ r }: { r: string }) {
   if (r === "new") return <NewApp />;
   if (r === "onboard") return <Onboard />;
   if (r === "migrate") return <MigrateList />;
-  if (r === "migrate-shop") return <Migrate />;
+  if (r === "migrate-app") return <Migrate />;
   if (r === "routes") return <Routes />;
   if (r === "agents") return <Agents />;
   if (r === "security") return <Security />;
@@ -162,7 +162,7 @@ function Console({ r }: { r: string }) {
             <a className="btn ghost" href="#new">
               새 앱 배포
             </a>
-            <a className="btn primary" href="#migrate-shop">
+            <a className="btn primary" href="#migrate-app">
               이전하기
             </a>
             <Account r={r} />

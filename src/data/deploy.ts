@@ -6,7 +6,7 @@ import { ApiError, createApp, createAppInstance, createDeployment, deleteApp, de
 import { useApp, useApps, useAppSpecValidation, useDeployment, useDeployments, useEnvironments, useGitHubRepos, type SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AppCreateRequest, AppInstance, AppSpecValidation, Deployment, DeploymentEvent, GitHubRepo } from "../api/types";
-import { ENV, ENV_ORDER, SAMPLE } from "../sim/data";
+import { ENV, ENV_ORDER, SAMPLE, sampleBucket } from "../sim/data";
 import * as dep from "../sim/deploy";
 import { iso } from "../sim/mig";
 import { migActive, migLabel, type SimState } from "../sim/state";
@@ -154,12 +154,13 @@ const SIM_ENVS: EnvOption[] = ENV_ORDER.map((k) => ({ value: ENV[k].id, label: E
 /** The simulation's apps as GET /v1/apps lists them: the migration app first, then the registered ones. */
 export function simApps(S: SimState): App[] {
   const files = S.appOrder.map((id): App => {
-    const e = ENV[S.apps[id].loc];
+    const loc = S.apps[id].loc;
+    const e = ENV[loc];
     return {
       name: id,
       namespace: id,
       database: { name: "app", user: "app", schemas: [] },
-      environments: [{ env: e.id, cnpgCluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + id + ":5432", bucket: e.bucket }],
+      environments: [{ env: e.id, cnpgCluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + id + ":5432", bucket: sampleBucket(loc) }],
     };
   });
   return [...files, ...S.deploy.apps];

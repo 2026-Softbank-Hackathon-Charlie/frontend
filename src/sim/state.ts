@@ -1,7 +1,7 @@
 // Demo simulation state machine. Time advances in tick() (called every 100ms);
 // deploy, onboarding, AI plan and rehearsal advance 1 simulated second per tick.
 // The migration lives in mig.ts and the GitHub deploys in deploy.ts; both produce the same shapes as the platform API.
-import { ENV, ONB_END, ONB_LOG, SAMPLE, onbFinishLog, type EnvKey, type LogEntry, type OnbStep } from "./data";
+import { ENV, ONB_END, ONB_LOG, SAMPLE, onbFinishLog, sampleBucketName, type EnvKey, type LogEntry, type OnbStep } from "./data";
 import * as dep from "./deploy";
 import { dur, fmt, mmss } from "./format";
 import * as mig from "./mig";
@@ -78,6 +78,8 @@ export function feed(o: Feed, list: LogEntry[], t: number, off = 0): void {
 
 /* ---------- onboarding ---------- */
 
+// The onboarding draft imports shop from EC2 (3장 7번 결정 전 시안); the migration continues with the team's
+// sample app, so what came from the draft says so instead of reading as moimroom's own history.
 function finishOnboard(S: SimState): void {
   if (S.apps[SAMPLE.id]) return;
   const env = S.onb.env;
@@ -85,16 +87,16 @@ function finishOnboard(S: SimState): void {
     id: SAMPLE.id,
     repo: SAMPLE.repo,
     loc: env,
-    deploys: [["9d2b71f", "플랫폼 배포 형태로 변경 (PR #14, AI 수정안)", "방금", dur(ONB_END[4])]],
+    deploys: [["9d2b71f", "가져오기 시안(shop): 플랫폼 배포 형태로 변경 (PR #14, AI 수정안)", "방금", dur(ONB_END[4])]],
     res: [
-      ["서비스", SAMPLE.services.join(", "), "Deployment " + SAMPLE.services.length + "개, 이미지는 ECR"],
+      ["서비스", SAMPLE.services.join(", "), "Deployment " + SAMPLE.services.length + "개, 레플리카 " + SAMPLE.replicas + "개, 이미지는 ECR"],
       ["PostgreSQL", SAMPLE.db, "CloudNativePG, " + ENV[env].name],
-      ["파일 저장소", SAMPLE.bucket, ENV[env].storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
-      ["기존 AWS", "shop-app-1, shop-db, shop-files", "EC2·RDS·S3, 읽기 전용 보존"],
+      ["파일 저장소", sampleBucketName(env), ENV[env].storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
+      ["가져오기 시안 (shop)", "shop-app-1, shop-db, shop-files", "기존 EC2·RDS·S3, 읽기 전용 보존"],
     ],
   };
   S.appOrder.unshift(SAMPLE.id);
-  S.act.unshift(["방금", SAMPLE.id + " 가져오기 완료 (PR #14 머지, " + ENV[env].name + "에 배포)"]);
+  S.act.unshift(["방금", "가져오기 시안(shop) 완료, 샘플 앱 " + SAMPLE.id + " 배포 (" + ENV[env].name + ")"]);
   if (!migActive(S)) S.mig = mig.freshMig(env, S.mig);
 }
 function startOnb(S: SimState): void {
@@ -140,20 +142,20 @@ export function routeLabel(s: EnvKey, t: EnvKey): string {
 
 function finishMigration(S: SimState, r: Run): void {
   const m = S.mig;
-  const shop = S.apps[SAMPLE.id];
-  if (!shop) return;
+  const app = S.apps[SAMPLE.id];
+  if (!app) return;
   const tg = ENV[m.tgt];
   const total = (r.result.durationMillis ?? 0) / 1000;
-  shop.prev = m.src;
-  shop.loc = m.tgt;
-  shop.res = [
-    shop.res[0],
+  app.prev = m.src;
+  app.loc = m.tgt;
+  app.res = [
+    app.res[0],
     ["PostgreSQL", SAMPLE.db, "CloudNativePG, " + tg.name],
-    ["파일 저장소", SAMPLE.bucket, tg.storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
-    ["원본 (" + ENV[m.src].name + ")", SAMPLE.db + ", " + SAMPLE.bucket, "읽기 전용 보존"],
+    ["파일 저장소", sampleBucketName(m.tgt), tg.storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
+    ["원본 (" + ENV[m.src].name + ")", SAMPLE.db + ", " + sampleBucketName(m.src), "읽기 전용 보존"],
   ];
   const what = r.rollbackOf ? "롤백" : "이전";
-  shop.deploys.unshift([r.runId, what + ": " + routeLabel(m.src, m.tgt), "방금", dur(total)]);
+  app.deploys.unshift([r.runId, what + ": " + routeLabel(m.src, m.tgt), "방금", dur(total)]);
   S.act.unshift(["방금", SAMPLE.id + " " + what + " 완료 (" + routeLabel(m.src, m.tgt) + ", " + dur(total) + ", 실패 0건, 누락 0건)"]);
 }
 
@@ -172,7 +174,7 @@ export function running(S: SimState): [string, string][] {
   for (const d of dep.activeDeployments(S.deploy)) l.push([d.instance + " 배포 중", "#deploy-" + d.id]);
   if (S.onb.run) l.push(["기존 앱 가져오기: " + ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"][S.onb.step], "#onboard"]);
   else if (S.onb.step === 4 && !S.onb.approved) l.push(["기존 앱 가져오기: PR 승인 대기", "#onboard"]);
-  if (migActive(S)) l.push([SAMPLE.id + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-shop"]);
+  if (migActive(S)) l.push([SAMPLE.id + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-app"]);
   return l;
 }
 

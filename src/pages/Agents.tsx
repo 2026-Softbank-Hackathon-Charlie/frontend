@@ -62,7 +62,7 @@ function AgentsView({
           <div className="empty-state">
             <b>AI 세션이 아직 없습니다.</b>
             <p className="hint">이전 화면에서 AI 계획을 시작하면 계획, 리허설, 진단 세션이 여기에 쌓입니다.</p>
-            <a className="btn primary" href="#migrate-shop">
+            <a className="btn primary" href="#migrate-app">
               이전 화면으로
             </a>
           </div>

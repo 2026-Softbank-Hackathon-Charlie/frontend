@@ -20,7 +20,7 @@ import type {
   RunStatus,
   StepRecord,
 } from "../api/types";
-import { ENV, SAMPLE, type EnvKey } from "./data";
+import { ENV, SAMPLE, sampleBucket, type EnvKey } from "./data";
 
 /* ---------- engine timeline ---------- */
 
@@ -73,13 +73,13 @@ type Ev = { at: number; s: "plan" | "rehearsal" | "diagnose"; type: AgentEventTy
 function aiScript(src: EnvKey, tgt: EnvKey): Ev[] {
   const s = ENV[src];
   const t = ENV[tgt];
-  const ns = "sandbox-shop-7f3a";
+  const ns = "sandbox-" + SAMPLE.id + "-7f3a";
   return [
     { at: 1, s: "plan", type: "tool_call", tool: "k8s_get", input: { cluster: s.id, kinds: ["Deployment", "Service", "PersistentVolumeClaim", "Cluster.postgresql.cnpg.io"] } },
     { at: 2, s: "plan", type: "tool_result", tool: "k8s_get", status: "ok", ms: 900, output: { deployments: SAMPLE.services.length, cnpgClusters: 1, pvcs: 2 } },
-    { at: 4, s: "plan", type: "tool_call", tool: "db_stats", input: { cluster: "shop-db-" + s.id } },
+    { at: 4, s: "plan", type: "tool_call", tool: "db_stats", input: { cluster: SAMPLE.db + "-" + s.id } },
     { at: 5, s: "plan", type: "tool_result", tool: "db_stats", status: "ok", ms: 700, output: { size: SAMPLE.dbSize, tables: SAMPLE.tables, tablesWithoutPk: 0 } },
-    { at: 7, s: "plan", type: "tool_call", tool: "bucket_stats", input: { bucket: s.bucket } },
+    { at: 7, s: "plan", type: "tool_call", tool: "bucket_stats", input: { bucket: sampleBucket(src) } },
     { at: 8, s: "plan", type: "tool_result", tool: "bucket_stats", status: "ok", ms: 600, output: { objects: SAMPLE.files } },
     { at: 10, s: "plan", type: "tool_call", tool: "k8s_get", input: { cluster: t.id, kinds: ["StorageClass", "Node"] } },
     { at: 11, s: "plan", type: "tool_result", tool: "k8s_get", status: "ok", ms: 800, output: { storageClasses: [t.sc], freeCpu: 6, freeMemoryGiB: 18 } },
@@ -90,13 +90,13 @@ function aiScript(src: EnvKey, tgt: EnvKey): Ev[] {
 
     { at: 25, s: "rehearsal", type: "tool_call", tool: "sandbox_apply", input: { namespace: ns, cluster: t.id } },
     { at: 28, s: "rehearsal", type: "tool_result", tool: "sandbox_apply", status: "ok", ms: 2600, output: "샌드박스 생성, ResourceQuota와 NetworkPolicy 적용, 토큰 1시간" },
-    { at: 32, s: "rehearsal", type: "blocked", tool: "kubectl", input: { command: "kubectl get secrets -n shop" }, output: "RBAC: 다른 네임스페이스에 접근할 권한 없음" },
-    { at: 36, s: "rehearsal", type: "tool_call", tool: "sandbox_apply", input: { release: "shop", values: "values-" + t.id + ".yaml", attempt: 1 } },
-    { at: 52, s: "rehearsal", type: "tool_result", tool: "sandbox_apply", status: "failed", ms: 15800, output: 'PVC shop-db-1 Pending: storageclass.storage.k8s.io "' + s.sc + '" not found' },
+    { at: 32, s: "rehearsal", type: "blocked", tool: "kubectl", input: { command: "kubectl get secrets -n " + SAMPLE.namespace }, output: "RBAC: 다른 네임스페이스에 접근할 권한 없음" },
+    { at: 36, s: "rehearsal", type: "tool_call", tool: "sandbox_apply", input: { release: SAMPLE.id, values: "values-" + t.id + ".yaml", attempt: 1 } },
+    { at: 52, s: "rehearsal", type: "tool_result", tool: "sandbox_apply", status: "failed", ms: 15800, output: "PVC " + SAMPLE.db + '-1 Pending: storageclass.storage.k8s.io "' + s.sc + '" not found' },
     { at: 54, s: "diagnose", type: "message", output: "values에 원본 클러스터의 StorageClass " + s.sc + "가 남아 있어 " + t.name + "에서 DB 볼륨이 Pending", ms: 2900, tok: [9600, 600] },
     { at: 56, s: "diagnose", type: "decision", status: "ok", output: { kind: "values-patch", file: "values-" + t.id + ".yaml", patch: [{ op: "replace", path: "/cnpg/storageClass", value: t.sc }] } },
     { at: 58, s: "rehearsal", type: "blocked", tool: "curl", input: { command: "curl http://169.254.169.254/latest/meta-data/" }, output: "NetworkPolicy: 메타데이터 주소로 나가는 통신 차단" },
-    { at: 60, s: "rehearsal", type: "tool_call", tool: "sandbox_apply", input: { release: "shop", values: "values-" + t.id + ".yaml", attempt: 2 } },
+    { at: 60, s: "rehearsal", type: "tool_call", tool: "sandbox_apply", input: { release: SAMPLE.id, values: "values-" + t.id + ".yaml", attempt: 2 } },
     { at: 66, s: "rehearsal", type: "tool_call", tool: "sandbox_smoke", input: { k6: "30s", rows: 10000 } },
     { at: 68, s: "rehearsal", type: "tool_result", tool: "sandbox_smoke", status: "ok", ms: 7600, output: { rows: "10000/10000", smoke: "12/12", isolation: "3/3 차단" } },
     { at: 70, s: "rehearsal", type: "decision", status: "ok", output: "리허설 통과, 샌드박스 삭제" },
@@ -179,7 +179,7 @@ const id = (m: MigSim, p: string) => p + "_" + (0x7c2e90 + m.nextId++).toString(
 
 export function endpoint(k: EnvKey): PlanEndpoint {
   const e = ENV[k];
-  return { env: e.id, context: e.id, namespace: "shop", cluster: "shop-db-" + e.id, dbHost: "shop-db-" + e.id + "-rw.shop." + e.id + ".ts.net:5432" };
+  return { env: e.id, context: e.id, namespace: SAMPLE.namespace, cluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + SAMPLE.namespace + "." + e.id + ".ts.net:5432" };
 }
 
 /* ---------- AI ---------- */
@@ -277,14 +277,14 @@ function aiTick(m: MigSim): void {
 export function enginePlan(src: EnvKey, tgt: EnvKey): EnginePlan {
   const s = ENV[src];
   const t = ENV[tgt];
-  const ep = (e: typeof s) => ({ env: e.id, context: e.id, namespace: "shop", cluster: "shop-db-" + e.id, dsn: "${SHOP_DSN_" + e.id.toUpperCase() + "}" });
+  const ep = (e: typeof s) => ({ env: e.id, context: e.id, namespace: SAMPLE.namespace, cluster: SAMPLE.db + "-" + e.id, dsn: "${" + SAMPLE.id.toUpperCase() + "_DSN_" + e.id.toUpperCase() + "}" });
   return {
     id: SAMPLE.id + "-" + s.id + "-to-" + t.id,
     source: ep(s),
     target: { ...ep(t), manifest: "attachment:values-" + t.id + ".yaml" },
-    files: { source: s.bucket, target: t.bucket },
+    files: { source: sampleBucket(src), target: sampleBucket(tgt) },
     gateway: { mode: "http", sourceBackend: s.id, targetBackend: t.id },
-    verify: { schemas: ["public"], fenceGate: true, writtenRecords: "stream:shop-k6" },
+    verify: { schemas: [SAMPLE.schema], fenceGate: true, writtenRecords: "stream:" + SAMPLE.id + "-k6" },
     thresholds: { maxLagBytes: 1048576, catchupTimeout: "10m", switchoverTimeout: "2m", maxDowntime: "30s" },
   };
 }

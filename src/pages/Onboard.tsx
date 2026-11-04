@@ -43,7 +43,7 @@ function Step1() {
             <div className="field">
               <label htmlFor="onb-repo">GitHub 레포</label>
               <select id="onb-repo">
-                <option>{SAMPLE.repo}</option>
+                <option>team-charlie/sample-shop</option>
               </select>
             </div>
             <div className="field">
@@ -98,7 +98,7 @@ function Step1() {
           className="btn ghost"
           onClick={() => {
             dispatch({ type: "onb-skip" });
-            navigate("#migrate-shop");
+            navigate("#migrate-app");
           }}
         >
           가져오기 완료 상태로 건너뛰기
@@ -334,15 +334,15 @@ function Step4() {
           <div className="bb">
             <b>shop을 가져왔습니다.</b>
             <p>
-              ECR 이미지 shop:9d2b71f로 {ENV[o.env].name}에 배포했고, 게이트웨이가 모든 요청을 보냅니다. 기존 EC2·RDS·S3는 읽기 전용으로 남겨 두었습니다. 이제 다른 클러스터로
-              이전할 수 있습니다.
+              ECR 이미지 shop:9d2b71f로 {ENV[o.env].name}에 배포했고, 게이트웨이가 모든 요청을 보냅니다. 기존 EC2·RDS·S3는 읽기 전용으로 남겨 두었습니다. 이 가져오기 시안은 shop을
+              예로 들고, 이전은 팀 샘플 앱 {SAMPLE.id}으로 이어집니다.
             </p>
             <div className="actrow">
-              <a className="btn primary" href="#migrate-shop">
+              <a className="btn primary" href="#migrate-app">
                 이전하러 가기
               </a>
-              <a className="btn ghost" href="#app-shop">
-                shop 보기
+              <a className="btn ghost" href={"#app-" + SAMPLE.id}>
+                {SAMPLE.id} 보기
               </a>
             </div>
           </div>

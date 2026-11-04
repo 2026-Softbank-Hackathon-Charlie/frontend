@@ -56,13 +56,13 @@ describe("HopCharlie console (simulation)", () => {
     const { sim, user } = setup();
     await user.click(screen.getByRole("link", { name: /^이전$/ }));
     await user.click(await screen.findByRole("button", { name: "가져오기 완료 상태로 건너뛰기" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "shop 이전" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "moimroom 이전" })).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
     await user.click(screen.getByRole("button", { name: "AI 계획 시작" }));
     ticks(sim, AI_END);
     expect(screen.getByText(/revision 2\)을 승인할까요\?/)).toBeInTheDocument();
-    expect(screen.getAllByText("kubectl get secrets -n shop").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("kubectl get secrets -n moimroom").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
     expect(screen.getByText("시작 전 검사")).toBeInTheDocument();
@@ -123,12 +123,24 @@ describe("HopCharlie console (simulation)", () => {
     expect(start).toBeDisabled();
   });
 
+  it("shows moimroom's address and pods on its app page", async () => {
+    const { sim } = setup();
+    act(() => sim.dispatch({ type: "onb-skip" }));
+    act(() => {
+      window.location.hash = "#app-moimroom";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(await screen.findByRole("heading", { level: 1, name: "moimroom" })).toBeInTheDocument();
+    expect(screen.getByText("https://moimroom.hopcharlie.dev")).toBeInTheDocument();
+    expect(screen.getByText("Pod 2/2")).toBeInTheDocument();
+  });
+
   it("reset returns to the initial state", async () => {
     const { sim, user } = setup();
     act(() => sim.dispatch({ type: "onb-skip" }));
-    expect(sim.state.apps.shop).toBeDefined();
+    expect(sim.state.apps.moimroom).toBeDefined();
     await user.click(screen.getByRole("button", { name: "처음 상태로 되돌리기" }));
-    expect(sim.state.apps.shop).toBeUndefined();
+    expect(sim.state.apps.moimroom).toBeUndefined();
   });
 });
 

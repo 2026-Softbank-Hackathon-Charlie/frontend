@@ -71,7 +71,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
                   ),
                 ),
                 td(
-                  <a className="btn ghost" href="#migrate-shop">
+                  <a className="btn ghost" href="#migrate-app">
                     {v.stage === "setup" ? "이전 설정" : "열기"}
                   </a>,
                 ),
