@@ -15,7 +15,7 @@ import {
   switchMigration,
 } from "../api/client";
 import { useAgentSession, useAgentSessions, useApps, useRun, useRuns } from "../api/hooks";
-import type { AgentEvent, AgentSession, EnginePlan, PlanRecord, Run, RunEvent } from "../api/types";
+import type { AgentEvent, AgentSession, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY, enginePlan, fixDiff, migCounters } from "../sim/mig";
 import { useSim } from "../sim/store";
@@ -25,6 +25,35 @@ import { latestPreflight, preflightOf, type PreflightView } from "./preflight";
 export interface EnvOption {
   value: string;
   label: string;
+}
+
+/**
+ * What the operator chooses for a start. Observe keeps judging the target at the gateway after the
+ * cutover; with autoRollback the platform starts the rollback itself (actor slo-guard) on a breach.
+ * The gate thresholds stay at the platform's defaults.
+ */
+export interface StartOptions {
+  observe: boolean;
+  /** total observation time, one of OBSERVE_DURATIONS */
+  duration: string;
+  autoRollback: boolean;
+}
+
+export const DEFAULT_START: StartOptions = { observe: false, duration: "2m", autoRollback: false };
+
+/** Within the platform's 10s to 30m, each at least one CANARY step long. */
+export const OBSERVE_DURATIONS = ["1m", "2m", "5m", "10m"] as const;
+
+/**
+ * The start request for a plan. Canary and observe both need the platform gateway (mode http), and
+ * the platform refuses either otherwise, so a plan without it starts with neither.
+ */
+export function startRequest(planRef: string, gatewayMode: string | undefined, o: StartOptions): StartMigrationRequest {
+  if (gatewayMode !== "http") return { planRef };
+  const stepDuration = CANARY.stepSec + "s";
+  const req: StartMigrationRequest = { planRef, canary: { weights: CANARY.weights, stepDuration } };
+  if (o.observe) req.observe = { duration: o.duration, stepDuration, autoRollback: o.autoRollback };
+  return req;
 }
 
 export interface MigrationView {
@@ -55,6 +84,8 @@ export interface MigrationView {
   counters?: { ok: number; held: number; heldDone: number };
   /** the platform's residency and capacity checks of the latest start or rollback of this plan */
   preflight?: PreflightView;
+  /** start options; the simulation does not model observe and leaves them out */
+  start?: { options: StartOptions; set(o: StartOptions): void };
   busy: boolean;
   notice: string;
   makePlan(): void;
@@ -178,6 +209,7 @@ export function useLiveMigration(): MigrationView {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [startKey, setStartKey] = useState(newIdempotencyKey);
+  const [startOptions, setStartOptions] = useState<StartOptions>(DEFAULT_START);
   const [selected, setSelected] = useState<string | null>(null);
 
   const app = (apps.data ?? []).find((a) => a.name === appName) ?? apps.data?.[0];
@@ -243,6 +275,7 @@ export function useLiveMigration(): MigrationView {
     run,
     events: watch.events,
     preflight: preflight.data,
+    start: { options: startOptions, set: setStartOptions },
     busy,
     notice: notice || (apps.error ? errorText(apps.error) : ""),
     makePlan: () =>
@@ -263,7 +296,7 @@ export function useLiveMigration(): MigrationView {
           // approve exactly the revision on screen; a newer attachment makes the server answer 409.
           // Approving an approved plan again is a no-op, so this also retries a refused start.
           await approvePlan(plan.ref, { revision: plan.revision });
-          const res = await startMigration({ planRef: plan.ref, canary: { weights: CANARY.weights, stepDuration: CANARY.stepSec + "s" } }, startKey);
+          const res = await startMigration(startRequest(plan.ref, plan.summary.gatewayMode, startOptions), startKey);
           setRunId(res.runId);
         } finally {
           plans.reload();
@@ -294,6 +327,7 @@ export function useLiveMigration(): MigrationView {
       setEngine(undefined);
       setNotice("");
       setStartKey(newIdempotencyKey());
+      setStartOptions(DEFAULT_START);
     },
   };
 }

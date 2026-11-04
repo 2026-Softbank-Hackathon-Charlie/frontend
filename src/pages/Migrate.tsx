@@ -3,7 +3,7 @@ import type { Run, RunStatus } from "../api/types";
 import { BlockedTable, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td, type ChipKind } from "../components/ui";
-import { useLiveMigration, useSimMigration, type MigrationView } from "../data/migration";
+import { OBSERVE_DURATIONS, useLiveMigration, useSimMigration, type MigrationView } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -317,7 +317,9 @@ function ApproveBox({ v }: { v: MigrationView }) {
           </dd>
           <dt>실행 방식</dt>
           <dd>
-            동기화 뒤 읽기 요청 {CANARY.weights.join("%, ")}%를 대상으로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다.
+            {v.plan.summary.gatewayMode === "http"
+              ? "동기화 뒤 읽기 요청 " + CANARY.weights.join("%, ") + "%를 대상으로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다."
+              : "플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 카나리 없이 동기화 뒤 바로 전환 승인을 기다립니다."}
           </dd>
           <dt>전환</dt>
           <dd>데이터가 맞으면 전환 승인을 기다립니다. 전환 버튼을 누르면 쓰기를 잠시 붙잡고 대상을 승격합니다 (상한 {v.plan.summary.maxDowntime}).</dd>
@@ -340,6 +342,7 @@ function ApproveBox({ v }: { v: MigrationView }) {
           </dd>
           <dt>원복</dt>
           <dd>대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.</dd>
+          <StartOptionsFields v={v} />
         </dl>
         <div className="actrow">
           <button type="button" className="btn primary" disabled={v.busy} onClick={v.approve}>
@@ -351,6 +354,56 @@ function ApproveBox({ v }: { v: MigrationView }) {
         </div>
       </div>
     </div>
+  );
+}
+
+const DURATION_LABEL: Record<(typeof OBSERVE_DURATIONS)[number], string> = { "1m": "1분", "2m": "2분", "5m": "5분", "10m": "10분" };
+
+// Observe and auto rollback for the start (platform ObserveOptions). Live only: the simulation does not model them.
+function StartOptionsFields({ v }: { v: MigrationView }) {
+  if (!v.start || !v.plan) return null;
+  const { options: o, set } = v.start;
+  if (v.plan.summary.gatewayMode !== "http")
+    return (
+      <>
+        <dt>전환 후 관찰</dt>
+        <dd className="hint">플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 전환 후 관찰과 자동 롤백을 쓸 수 없습니다.</dd>
+      </>
+    );
+  return (
+    <>
+      <dt>전환 후 관찰</dt>
+      <dd>
+        <label className="check">
+          <input type="checkbox" checked={o.observe} disabled={v.busy} onChange={(e) => set({ ...o, observe: e.target.checked, autoRollback: e.target.checked && o.autoRollback })} /> 전환 뒤에도
+          대상을 게이트로 계속 판정
+        </label>
+        {o.observe && (
+          <div className="obsopts">
+            <label className="check">
+              관찰 시간
+              <select aria-label="관찰 시간" value={o.duration} disabled={v.busy} onChange={(e) => set({ ...o, duration: e.target.value })}>
+                {OBSERVE_DURATIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {DURATION_LABEL[d]}
+                  </option>
+                ))}
+              </select>
+              {CANARY.stepSec}초마다 판정
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={o.autoRollback} disabled={v.busy} onChange={(e) => set({ ...o, autoRollback: e.target.checked })} /> 게이트를 어기면 바로 롤백
+            </label>
+            <p className="hint">
+              {o.autoRollback
+                ? "게이트를 어긴 단계가 나오면 플랫폼이 바로 롤백 run을 시작합니다(행위자 slo-guard). 롤백은 데이터를 원본으로 다시 옮기는 전체 이전입니다."
+                : "게이트를 어긴 단계가 나오면 관찰을 멈추고 위반을 기록합니다. 롤백할지는 운영자가 정합니다."}{" "}
+              게이트 기준은 플랫폼 기본값(오류율 1% 이하, p95 800ms 이하)이고, 요청이 20개보다 적은 단계는 판정하지 않고 넘어갑니다.
+            </p>
+          </div>
+        )}
+      </dd>
+    </>
   );
 }
 
@@ -370,6 +423,9 @@ function StartAgainBox({ v }: { v: MigrationView }) {
             ? "시작 전 검사에서 막혔습니다. 아래 이유를 해결한 뒤(레지던시 정책이나 대상 설정 변경 등) 다시 시작하세요. 해결하지 않고 다시 시작하면 같은 이유로 막힙니다."
             : "시작 요청이 끝나지 않았습니다. 다시 시작할 수 있습니다."}
         </p>
+        <dl className="kv">
+          <StartOptionsFields v={v} />
+        </dl>
         <div className="actrow">
           <button type="button" className="btn primary" disabled={v.busy} onClick={v.approve}>
             다시 시작

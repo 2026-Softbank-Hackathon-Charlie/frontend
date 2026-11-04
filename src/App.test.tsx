@@ -133,7 +133,7 @@ describe("HopCharlie console (simulation)", () => {
 });
 
 describe("HopCharlie console (platform API)", () => {
-  const plan = {
+  const basePlan = {
     ref: "pln_1",
     status: "pending_approval",
     revision: 3,
@@ -150,7 +150,7 @@ describe("HopCharlie console (platform API)", () => {
     submittedAt: "2026-11-06T01:00:00Z",
   };
 
-  function route(calls: () => FakeCall[]) {
+  function route(calls: () => FakeCall[], plan = basePlan) {
     return (c: FakeCall) => {
       const u = new URL(c.url, "http://x");
       if (u.pathname === "/v1/apps") return json(200, { apps: [{ name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: [{ env: "eks", cnpgCluster: "shop-db-eks", dbHost: "a" }, { env: "gke", cnpgCluster: "shop-db-gke", dbHost: "b" }] }] });
@@ -182,15 +182,70 @@ describe("HopCharlie console (platform API)", () => {
     expect(JSON.parse(approve.body!)).toEqual({ revision: 3 });
     const start = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!;
     expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
+    expect(JSON.parse(start.body!).observe).toBeUndefined(); // observe stays off unless the operator turns it on
     expect(start.headers.get("Idempotency-Key")).toBeTruthy();
     expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
+  });
+
+  async function openApproval(plan = basePlan) {
+    let calls: FakeCall[] = [];
+    calls = installFetch(route(() => calls, plan));
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
+    await logInAs(user);
+    window.location.hash = "#migrate-shop";
+    expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
+    const started = async () => {
+      await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))).toBe(true));
+      return JSON.parse(calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!.body!);
+    };
+    return { user, started };
+  }
+
+  it("starts with the observe options the operator picked", async () => {
+    const { user, started } = await openApproval();
+    // auto rollback is offered only once observe is on
+    expect(screen.queryByRole("checkbox", { name: /바로 롤백/ })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: /전환 뒤에도 대상을 게이트로 계속 판정/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "관찰 시간" }), "5m");
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    expect(screen.getByText(/플랫폼이 바로 롤백 run을 시작합니다/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    expect(await started()).toMatchObject({
+      planRef: "pln_1",
+      canary: { weights: [10, 50], stepDuration: "20s" },
+      observe: { duration: "5m", stepDuration: "20s", autoRollback: true },
+    });
+  });
+
+  it("drops auto rollback when observe is turned off again", async () => {
+    const { user, started } = await openApproval();
+    const observe = screen.getByRole("checkbox", { name: /전환 뒤에도 대상을 게이트로 계속 판정/ });
+    await user.click(observe);
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    await user.click(observe);
+    await user.click(observe);
+    expect(screen.getByRole("checkbox", { name: /바로 롤백/ })).not.toBeChecked();
+    await user.click(observe);
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    const body = await started();
+    expect(body.observe).toBeUndefined();
+  });
+
+  it("starts a plan without the platform gateway with neither canary nor observe", async () => {
+    const { user, started } = await openApproval({ ...basePlan, summary: { ...basePlan.summary, gatewayMode: "none" } });
+    expect(screen.getByText(/전환 후 관찰과 자동 롤백을 쓸 수 없습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /전환 뒤에도/ })).toBeNull();
+    expect(screen.getByText(/카나리 없이 동기화 뒤 바로 전환 승인을 기다립니다/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    expect(await started()).toEqual({ planRef: "pln_1" });
   });
 
   it("shows why a start was refused and lets the operator start again", async () => {
     let started = 0;
     const calls = installFetch((c: FakeCall) => {
       const u = new URL(c.url, "http://x");
-      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...plan, status: started ? "approved" : "pending_approval" }] });
+      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...basePlan, status: started ? "approved" : "pending_approval" }] });
       if (u.pathname === "/v1/migrations" && c.method === "POST") {
         started++;
         return json(409, { error: { code: "residency_denied", message: "residency policy denies this migration: country_not_allowed app.public.customers" } });
