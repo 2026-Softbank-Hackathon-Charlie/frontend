@@ -87,7 +87,7 @@ function finishOnboard(S: SimState): void {
     loc: env,
     deploys: [["9d2b71f", "플랫폼 배포 형태로 변경 (PR #14, AI 수정안)", "방금", dur(ONB_END[4])]],
     res: [
-      ["서비스", SAMPLE.services.join(", "), "Deployment " + SAMPLE.services.length + "개, 이미지는 ECR"],
+      ["서비스", SAMPLE.services.join(", "), "Deployment " + SAMPLE.services.length + "개, 레플리카 " + SAMPLE.replicas + "개, 이미지는 ECR"],
       ["PostgreSQL", SAMPLE.db, "CloudNativePG, " + ENV[env].name],
       ["파일 저장소", SAMPLE.bucket, ENV[env].storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
       ["기존 AWS", "shop-app-1, shop-db, shop-files", "EC2·RDS·S3, 읽기 전용 보존"],

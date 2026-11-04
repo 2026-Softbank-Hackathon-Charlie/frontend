@@ -16,9 +16,9 @@ export interface Env {
 }
 
 export const ENV: Record<EnvKey, Env> = {
-  aws: { id: "eks", name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3", bucket: "s3:shop-uploads-eks" },
-  gcp: { id: "gke", name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo", bucket: "gcs:shop-uploads-gke" },
-  onprem: { id: "k3s", name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path", bucket: "minio:shop-uploads-k3s" },
+  aws: { id: "eks", name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3", bucket: "s3:moimroom-photos-eks" },
+  gcp: { id: "gke", name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo", bucket: "gcs:moimroom-photos-gke" },
+  onprem: { id: "k3s", name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path", bucket: "minio:moimroom-photos-k3s" },
 };
 export const ENV_ORDER: EnvKey[] = ["aws", "gcp", "onprem"];
 
@@ -30,16 +30,24 @@ export function envKeyOf(name: string): EnvKey | undefined {
   return ENV_ORDER.find((k) => ENV[k].id === name || k === name);
 }
 
-// MOCK: 샘플 앱은 서현님이 만드는 MSA 앱으로 교체한다. 서비스 이름과 수치는 자리표시.
+// The migration sample app, moimroom (2026-Softbank-Hackathon-Charlie/moimroom): its shape follows the repo.
+// platform.yaml has one service `web` (port 8080, /healthz, public) with a postgres `db` and an s3 `photos`;
+// the Helm chart runs 2 replicas; deploy/cnpg/cluster.yaml names the cluster moimroom-db; internal/store/schema.sql
+// creates 5 tables in schema `app`. The domain follows the platform's https://<app>.<PLATFORM_APP_DOMAIN>.
+// MOCK: 버킷 이름, 파일 수, DB 크기는 시뮬레이션 수치다. 실제 값은 일반 모드에서 플랫폼이 준다.
 export const SAMPLE = {
-  id: "shop",
-  repo: "team-charlie/sample-shop",
-  services: ["web", "api-gateway", "order", "product", "user"],
-  db: "shop-db",
-  bucket: "shop-files",
+  id: "moimroom",
+  repo: "2026-Softbank-Hackathon-Charlie/moimroom",
+  services: ["web"],
+  replicas: 2,
+  domain: "moimroom.hopcharlie.dev",
+  namespace: "moimroom",
+  db: "moimroom-db",
+  schema: "app",
+  bucket: "moimroom-photos",
   files: 1284,
   dbSize: "2.1 GiB",
-  tables: 38,
+  tables: 5,
 };
 
 /** [at seconds, message] */

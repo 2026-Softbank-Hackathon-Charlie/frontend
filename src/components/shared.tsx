@@ -2,7 +2,7 @@ import { useEnvironments, useMatrix } from "../api/hooks";
 import type { Environment, MatrixRoute } from "../api/types";
 import { errorText, useLive } from "../data/live";
 import { navigate } from "../router";
-import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
+import { ENV, ENV_ORDER, SAMPLE, envKeyOf } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
@@ -160,7 +160,7 @@ export function EmptyShop() {
     <div className="box">
       <div className="empty-state">
         <b>이전할 수 있는 앱이 아직 없습니다.</b>
-        <p className="hint">플랫폼 밖 AWS(EC2)에서 돌고 있는 shop을 먼저 가져오면, 클러스터 사이로 옮길 수 있습니다.</p>
+        <p className="hint">기존 앱 가져오기(시안)를 마치면 샘플 앱 {SAMPLE.id}이 플랫폼에 올라오고, 클러스터 사이로 옮길 수 있습니다.</p>
         <div className="actrow">
           <a className="btn primary" href="#onboard">
             기존 앱 가져오기

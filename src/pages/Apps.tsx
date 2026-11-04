@@ -7,7 +7,7 @@ import { Chip, PageHead, Table, td, type Cell } from "../components/ui";
 import { useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
-import { ENV } from "../sim/data";
+import { ENV, SAMPLE } from "../sim/data";
 import { branchSlug, instanceName, MAX_INSTANCES } from "../sim/deploy";
 import { dur } from "../sim/format";
 import { useSim } from "../sim/store";
@@ -527,11 +527,13 @@ function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string
   );
 }
 
-/** The simulation's migration app (shop): where it runs, its resources and its history. */
+/** The simulation's migration app (SAMPLE, moimroom): where it runs, its resources and its history. */
 function ServiceDetail({ id }: { id: string }) {
   const { S } = useSim();
   const a = S.apps[id];
-  const rows: Cell[][] = [[td(ENV[a.loc].name), td(<Chip kind="ok">정상</Chip>), td("Pod 10/10", "m"), td("shop.charlie.example", "m"), td("100%", "m")]];
+  const n = SAMPLE.services.length * SAMPLE.replicas;
+  const pods = "Pod " + n + "/" + n;
+  const rows: Cell[][] = [[td(ENV[a.loc].name), td(<Chip kind="ok">정상</Chip>), td(pods, "m"), td(SAMPLE.domain, "m"), td("100%", "m")]];
   if (a.prev) rows.push([td(ENV[a.prev].name), td(<Chip>축소됨, 읽기 전용</Chip>), td("-", "m"), td("-", "m"), td("0%", "m")]);
   return (
     <div className="page">
@@ -547,8 +549,9 @@ function ServiceDetail({ id }: { id: string }) {
       />
       <div className="box fillbox">
         <div className="bb">
-          {/* MOCK: 서현님 샘플 앱이 정해지면 서비스 목록과 주소를 바꾼다 */}
-          <p>서비스 도메인은 Cloudflare와 게이트웨이를 거칩니다. 게이트웨이가 모든 요청을 {ENV[a.loc].name}로 보내고 있습니다.</p>
+          <p>
+            서비스 주소 <span className="m">https://{SAMPLE.domain}</span>는 Cloudflare와 게이트웨이를 거칩니다. 게이트웨이가 모든 요청을 {ENV[a.loc].name}로 보내고 있습니다.
+          </p>
         </div>
       </div>
       <section className="sec">
