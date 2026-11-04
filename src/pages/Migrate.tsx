@@ -7,7 +7,7 @@ import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSi
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
-import { CANARY, ENGINE_STEPS, PHASE_LABEL, statusText, targetReadShare, TARGET_SEC } from "../sim/mig";
+import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, PHASE_LABEL, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
 
 const STATUS_KIND: Record<RunStatus, ChipKind> = {
   running: "run",
@@ -212,7 +212,7 @@ function MigrateView({ v }: { v: MigrationView }) {
               <ProgItem
                 st="wait"
                 title="실행"
-                sub={"동기화(사전 확인, 대상 준비, 초기 복사, 변경분) → 읽기 카나리 " + CANARY.weights.join("%, ") + "% → 전환 승인 → 쓰기 보류, 승격, 전환 → 검증"}
+                sub={"동기화(사전 확인, 대상 준비, 초기 복사, 변경분) → 읽기 카나리(기본 " + CANARY.weights.join("%, ") + "%, 승인할 때 7단계 점진 카나리 선택 가능) → 전환 승인 → 쓰기 보류, 승격, 전환 → 검증"}
                 right="3분 이내"
               />
             </ul>
@@ -320,7 +320,9 @@ function ApproveBox({ v }: { v: MigrationView }) {
           <dt>실행 방식</dt>
           <dd>
             {v.plan.summary.gatewayMode === "http"
-              ? "동기화 뒤 읽기 요청 " + CANARY.weights.join("%, ") + "%를 대상으로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다."
+              ? "동기화 뒤 읽기 요청 " +
+                (v.start ? CANARY_PRESETS[v.start.options.canary] : CANARY).weights.join("%, ") +
+                "%를 대상으로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다."
               : "플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 카나리 없이 동기화 뒤 바로 전환 승인을 기다립니다."}
           </dd>
           <dt>전환</dt>
@@ -368,7 +370,15 @@ function ApproveBox({ v }: { v: MigrationView }) {
 
 const DURATION_LABEL: Record<ObserveDuration, string> = { "1m": "1분", "2m": "2분", "5m": "5분", "10m": "10분" };
 
-// Observe and auto rollback for the start (platform ObserveOptions). Live only: the simulation does not model them.
+const CANARY_NAME: Record<CanaryPreset, string> = { quick: "빠른 카나리", gradual: "점진 카나리" };
+
+function canaryLabel(p: CanaryPreset): string {
+  const c = CANARY_PRESETS[p];
+  return `${CANARY_NAME[p]}: ${c.weights.join("% → ")}% (단계마다 ${c.stepSec}초, 약 ${c.weights.length * c.stepSec}초)`;
+}
+
+// Canary steps, observe and auto rollback for the start (platform CanaryOptions, ObserveOptions).
+// Live only: the simulation runs the default canary and does not model observe.
 // `locked` resends a start that did not finish: the platform may already have started it under the same
 // Idempotency-Key and then answers with that run, so changed options would be ignored without a word.
 function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: boolean }) {
@@ -379,11 +389,28 @@ function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: 
     return (
       <>
         <dt>전환 후 관찰</dt>
-        <dd className="hint">플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 전환 후 관찰과 자동 롤백을 쓸 수 없습니다.</dd>
+        <dd className="hint">플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 읽기 카나리, 전환 후 관찰과 자동 롤백을 쓸 수 없습니다.</dd>
       </>
     );
   return (
     <>
+      <dt>읽기 카나리</dt>
+      <dd>
+        <label className="check">
+          <select aria-label="읽기 카나리" value={o.canary} disabled={off} onChange={(e) => set({ ...o, canary: e.target.value as CanaryPreset })}>
+            {CANARY_PRESET_ORDER.map((p) => (
+              <option key={p} value={p}>
+                {canaryLabel(p)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint">
+          {o.canary === "gradual"
+            ? "트래픽이 많은 운영 앱에 맞는 단계입니다. 요청이 " + PLATFORM_GATE.minRequests + "개보다 적은 단계(예: 1%)는 판정하지 않고 넘어가고, 마지막 단계는 반드시 판정합니다."
+            : "세 단계로 빠르게 확인합니다. 요청이 " + PLATFORM_GATE.minRequests + "개보다 적은 단계는 판정하지 않고 넘어가고, 마지막 단계(100%)는 반드시 판정합니다."}
+        </p>
+      </dd>
       <dt>전환 후 관찰</dt>
       <dd>
         <label className="check">

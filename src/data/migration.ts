@@ -19,7 +19,7 @@ import {
 import { useAgentSession, useAgentSessions, useApps, useRun, useRuns } from "../api/hooks";
 import type { AgentEvent, AgentSession, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
-import { CANARY, enginePlan, fixDiff, migCounters } from "../sim/mig";
+import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
 import { latestPreflight, preflightOf, type PreflightView } from "./preflight";
@@ -46,13 +46,15 @@ export const OBSERVE_STEP = "20s";
 export type ObserveDuration = (typeof OBSERVE_DURATIONS)[number];
 
 export interface StartOptions {
+  /** read canary steps before the switch (CANARY_PRESETS) */
+  canary: CanaryPreset;
   observe: boolean;
   /** total observation time */
   duration: ObserveDuration;
   autoRollback: boolean;
 }
 
-export const DEFAULT_START: StartOptions = { observe: false, duration: "2m", autoRollback: false };
+export const DEFAULT_START: StartOptions = { canary: DEFAULT_CANARY, observe: false, duration: "2m", autoRollback: false };
 
 /**
  * The gate the platform applies when a start names none, which the console never does.
@@ -67,7 +69,8 @@ export const PLATFORM_GATE = { maxErrorRate: 0.01, maxP95Millis: 800, minRequest
  */
 export function startRequest(planRef: string, gatewayMode: string | undefined, o: StartOptions): StartMigrationRequest {
   if (gatewayMode !== "http") return { planRef };
-  const req: StartMigrationRequest = { planRef, canary: { weights: CANARY.weights, stepDuration: CANARY.stepSec + "s" } };
+  const c = CANARY_PRESETS[o.canary];
+  const req: StartMigrationRequest = { planRef, canary: { weights: [...c.weights], stepDuration: c.stepSec + "s" } };
   if (o.observe) req.observe = { duration: o.duration, stepDuration: OBSERVE_STEP, autoRollback: o.autoRollback };
   return req;
 }

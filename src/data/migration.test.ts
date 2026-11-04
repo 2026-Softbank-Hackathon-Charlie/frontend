@@ -1,25 +1,44 @@
+import { CANARY_PRESETS } from "../sim/mig";
 import { DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest } from "./migration";
 import { fakeAgentSession } from "../api/fakes";
 import type { AgentEvent } from "../api/types";
 
 describe("start request", () => {
-  it("sends the read canary and no observation by default", () => {
-    expect(startRequest("pln_1", "http", DEFAULT_START)).toEqual({ planRef: "pln_1", canary: { weights: [1, 10, 25, 50, 75, 90, 100], stepDuration: "10s" } });
+  it("sends the quick read canary and no observation by default", () => {
+    expect(startRequest("pln_1", "http", DEFAULT_START)).toEqual({ planRef: "pln_1", canary: { weights: [10, 50, 100], stepDuration: "5s" } });
+  });
+
+  it("sends the gradual canary when the operator picks it", () => {
+    expect(startRequest("pln_1", "http", { ...DEFAULT_START, canary: "gradual" }).canary).toEqual({ weights: [1, 10, 25, 50, 75, 90, 100], stepDuration: "10s" });
+  });
+
+  // the platform takes increasing weights within 1..100 and steps of 5s to 5m (runs: canaryOptions)
+  it("offers only canaries the platform accepts", () => {
+    for (const c of Object.values(CANARY_PRESETS)) {
+      expect(c.stepSec).toBeGreaterThanOrEqual(5);
+      expect(c.stepSec).toBeLessThanOrEqual(300);
+      c.weights.forEach((w, i) => {
+        expect(w).toBeGreaterThanOrEqual(1);
+        expect(w).toBeLessThanOrEqual(100);
+        if (i > 0) expect(w).toBeGreaterThan(c.weights[i - 1]);
+      });
+      expect(c.weights[c.weights.length - 1]).toBe(100);
+    }
   });
 
   it("adds the observation the operator picked", () => {
-    expect(startRequest("pln_1", "http", { observe: true, duration: "5m", autoRollback: true }).observe).toEqual({ duration: "5m", stepDuration: "20s", autoRollback: true });
-    expect(startRequest("pln_1", "http", { observe: true, duration: "1m", autoRollback: false }).observe).toEqual({ duration: "1m", stepDuration: "20s", autoRollback: false });
+    expect(startRequest("pln_1", "http", { ...DEFAULT_START, observe: true, duration: "5m", autoRollback: true }).observe).toEqual({ duration: "5m", stepDuration: "20s", autoRollback: true });
+    expect(startRequest("pln_1", "http", { ...DEFAULT_START, observe: true, duration: "1m", autoRollback: false }).observe).toEqual({ duration: "1m", stepDuration: "20s", autoRollback: false });
   });
 
   it("ignores auto rollback without observation", () => {
-    expect(startRequest("pln_1", "http", { observe: false, duration: "2m", autoRollback: true }).observe).toBeUndefined();
+    expect(startRequest("pln_1", "http", { ...DEFAULT_START, observe: false, duration: "2m", autoRollback: true }).observe).toBeUndefined();
   });
 
   // the platform refuses canary and observe for a plan whose gateway is not http (runs: ErrInvalid)
   it("sends neither canary nor observe without the platform gateway", () => {
     for (const mode of ["none", "", undefined]) {
-      expect(startRequest("pln_1", mode, { observe: true, duration: "2m", autoRollback: true })).toEqual({ planRef: "pln_1" });
+      expect(startRequest("pln_1", mode, { ...DEFAULT_START, observe: true, duration: "2m", autoRollback: true })).toEqual({ planRef: "pln_1" });
     }
   });
 
