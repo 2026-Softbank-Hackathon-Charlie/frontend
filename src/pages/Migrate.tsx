@@ -247,14 +247,31 @@ function MigrateView({ v }: { v: MigrationView }) {
 function PlanBox({ v }: { v: MigrationView }) {
   const p = v.plan;
   if (!p) {
+    // live: the AI runner's plan session, which stays on screen after it ends until its Plan arrives
+    const s = v.live ? v.sessions[0] : undefined;
+    const failed = s?.status === "failed" || s?.status === "cancelled";
+    const done = s?.status === "succeeded";
     return (
       <div className="box">
         <div className="bh">
           <b>Plan</b>
-          <Chip kind="run">AI 작성 중</Chip>
+          {failed ? <Chip kind="bad">AI 계획 실패</Chip> : <Chip kind="run">{done ? "제출 기다리는 중" : "AI 작성 중"}</Chip>}
         </div>
         <div className="bb">
-          <p className="hint">AI가 두 클러스터를 조회하고 있습니다.</p>
+          <p className="hint">
+            {failed
+              ? "AI가 Plan을 내지 못하고 끝났습니다" + (s?.summary ? ": " + s.summary : "") + ". 아래 기록에서 이유를 확인하고 AI 실행기를 다시 시작하거나, 설정으로 돌아가 Plan을 작성하세요."
+              : done
+                ? "AI가 계획을 마쳤습니다. 제출된 Plan이 오면 승인 단계로 넘어갑니다."
+                : "AI가 두 클러스터를 조회하고 있습니다."}
+          </p>
+          {s && s.status !== "running" && (
+            <div className="actrow">
+              <button type="button" className="btn ghost" onClick={v.reset}>
+                설정으로 돌아가기
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
