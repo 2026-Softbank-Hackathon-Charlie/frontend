@@ -223,7 +223,9 @@ function MigrateView({ v }: { v: MigrationView }) {
             {live ? "Plan 작성" : "AI 계획 시작"}
           </button>
           <span className="hint">
-            {live ? "플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다." : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
+            {live
+              ? "AI 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. AI로 계획하려면 AI 실행기(hopai run)를 시작하세요. 계획을 시작하면 이 화면에 AI 작업이 실시간으로 나옵니다."
+              : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
           </span>
         </div>
       </div>

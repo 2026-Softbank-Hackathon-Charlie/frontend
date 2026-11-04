@@ -5,6 +5,8 @@ import {
   abortMigration,
   approvePlan,
   draftPlan,
+  getAgentSession,
+  listAgentEvents,
   listAudit,
   newIdempotencyKey,
   rejectPlan,
@@ -205,6 +207,50 @@ function usePreflight(planRef: string | null, runId: string | null, attempt: str
 
 const ACTIVE = new Set(["running", "awaiting_switch"]);
 
+/*
+ * The AI runner (ai-sandbox hopai) plans before any Plan exists, so its plan session has no planRef.
+ * Two ways tie it to this page:
+ * - while it runs: a running plan session of the app, titled "<app> 이전 계획 (<source> → <target>)" by hopai;
+ * - after the Plan is submitted: the rehearsal session (which has the planRef) names it at its start,
+ *   in a message event with tool "plan" and output {planRef, planSession, planId}.
+ */
+
+/** The plan session hopai has open for `app` before a Plan exists, newest first; undefined when none. */
+export function planningSession(sessions: AgentSession[] | undefined, app: string): AgentSession | undefined {
+  if (!app) return undefined;
+  return sessions?.find((s) => s.kind === "plan" && s.status === "running" && !s.planRef && s.title.startsWith(app + " 이전 계획"));
+}
+
+/** The plan session a rehearsal session's events name; undefined when they name none. */
+export function linkedPlanSessionId(events: AgentEvent[]): string | undefined {
+  for (const e of events) {
+    const o = e.output;
+    if (e.tool !== "plan" || !o || typeof o !== "object") continue;
+    const id = (o as { planSession?: unknown }).planSession;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
+}
+
+/** The plan session behind the plan's rehearsal, read once per rehearsal session. */
+function useLinkedPlanSession(sessions: AgentSession[]): AgentSession | undefined {
+  // newest first: the last rehearsal is the first one, which names the plan session at its start
+  const rid = sessions.filter((s) => s.kind === "rehearsal").at(-1)?.id;
+  const [linked, setLinked] = useState<{ rid: string; session: AgentSession }>();
+  useEffect(() => {
+    if (!rid) return;
+    const ctrl = new AbortController();
+    (async () => {
+      const id = linkedPlanSessionId((await listAgentEvents(rid, { limit: 20 }, { signal: ctrl.signal })).events);
+      if (!id) return;
+      const session = await getAgentSession(id, { signal: ctrl.signal });
+      if (!ctrl.signal.aborted) setLinked({ rid, session });
+    })().catch(() => {}); // without it the page shows the plan's own sessions, as before
+    return () => ctrl.abort();
+  }, [rid]);
+  return linked && linked.rid === rid ? linked.session : undefined;
+}
+
 function envLabel(name: string): string {
   const k = envKeyOf(name);
   return k ? ENV[k].name : name;
@@ -249,7 +295,16 @@ export function useLiveMigration(): MigrationView {
   const watch = useRun(enabled ? runId : null);
   const run = watch.run;
   const sessions = useAgentSessions(enabled && planRef ? 3000 : 0, planRef ? { planRef } : {});
-  const sessionList = useMemo(() => (enabled && planRef ? (sessions.data ?? []) : []), [enabled, planRef, sessions.data]);
+  // Before a Plan exists: the newest sessions, to show a plan hopai is writing for this app as it happens.
+  const recent = useAgentSessions(enabled && !planRef && !runId ? 3000 : 0, { limit: 20 });
+  const planning = !planRef && !runId ? planningSession(recent.data, app?.name ?? "") : undefined;
+  const ofPlan = useMemo(() => (enabled && planRef ? (sessions.data ?? []) : []), [enabled, planRef, sessions.data]);
+  const linked = useLinkedPlanSession(ofPlan);
+  const sessionList = useMemo(() => {
+    if (planning) return [planning];
+    // the plan session is the oldest, so it goes last; a planRef it may get later must not list it twice
+    return linked && !ofPlan.some((s) => s.id === linked.id) ? [...ofPlan, linked] : ofPlan;
+  }, [planning, ofPlan, linked]);
   const follow = selected ?? sessionList[0]?.id ?? null;
   const ses = useAgentSession(enabled ? follow : null);
 
@@ -270,7 +325,8 @@ export function useLiveMigration(): MigrationView {
 
   // An approved plan without a run was refused at start (or not started yet): stay on it so the
   // operator sees why and can start again, instead of falling back to the setup form.
-  const stage: MigrationView["stage"] = run ? "run" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
+  // A plan session hopai is running for this app shows its work as the AI step, before the Plan arrives.
+  const stage: MigrationView["stage"] = run ? "run" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : planning ? "ai" : "setup";
 
   return {
     live: true,

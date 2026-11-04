@@ -149,8 +149,8 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 
 | 단계 | 시뮬레이션 | 실제 API |
 | --- | --- | --- |
-| Plan | AI 계획 세션이 Plan을 만들고 제출 (`pending_approval`) | `POST /v1/plans/draft` → `POST /v1/plans` |
-| 리허설·진단 | AI 세션(리허설, 진단)과 이벤트, 수정안 첨부로 revision 상승 | `GET /v1/agent/sessions?planRef=`, 세션 SSE |
+| Plan | AI 실행기(ai-sandbox `hopai run`)가 계획하는 동안, 그 앱의 진행 중인 계획 세션(아직 planRef 없음, 제목 `<앱> 이전 계획 (…)`)을 AI 계획 단계로 실시간 표시. 제출되면 승인 대기(`pending_approval`)로 넘어감. "Plan 작성" 버튼은 AI 없이 초안을 바로 제출 | `GET /v1/agent/sessions?limit=20`, 세션 SSE / `POST /v1/plans/draft` → `POST /v1/plans` |
+| 리허설·진단 | AI 세션(리허설, 진단, 운영자 데모 설정)과 이벤트, 수정안 첨부로 revision 상승. planRef가 없는 계획 세션은 리허설 세션이 시작할 때 남긴 계획 세션 ID(`tool: plan`)를 따라가 함께 보여 줌 | `GET /v1/agent/sessions?planRef=`, `GET /v1/agent/sessions/{id}/events?format=json`, `GET /v1/agent/sessions/{id}`, 세션 SSE |
 | 승인 | 보고 있는 revision으로 승인. 다르면 다시 확인하라는 안내 | `POST /v1/plans/{ref}/approve` `{revision}` (바뀌었으면 409) |
 | 시작 | 게이트웨이(http) Plan은 읽기 카나리 1→100% 7단계. 승인 화면에서 전환 후 관찰(1~10분)과 위반 시 자동 롤백을 고름 (실제 API 모드) | `POST /v1/migrations` (Idempotency-Key, `canary`, `observe`) |
 | 진행 | 9단계, 카나리 게이트, 복제 지연, 쓰기 보류 | run SSE (`useRun`) |
