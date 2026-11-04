@@ -57,8 +57,8 @@ export interface paths {
   };
   "/v1/auth/device/token": {
     /**
-     * @description Exchanges an approved device login for a CLI token with the name
-     * and role of the administrator who approved it, valid for 30 days or
+     * @description Exchanges an approved device login for a CLI token with the name of
+     * the administrator who approved it and the role they picked, valid for 30 days or
      * until POST /v1/auth/logout. One device login gives one token: the
      * first successful answer ends it.
      *
@@ -72,8 +72,9 @@ export interface paths {
   "/v1/auth/device/{userCode}": {
     /**
      * @description A device login that has not expired, so the console can show which
-     * client asks before the administrator approves. Needs operator.
-     * Error codes: device_login_not_found (404: unknown or expired).
+     * client asks before the administrator approves. Needs operator and
+     * a console session. Error codes: console_session_required (403),
+     * device_login_not_found (404: unknown or expired).
      */
     get: operations["getDeviceLogin"];
     parameters: {
@@ -85,9 +86,16 @@ export interface paths {
   "/v1/auth/device/{userCode}/approve": {
     /**
      * @description Approves a pending device login. The CLI's next poll gets a token
-     * with the caller's name and role. Needs operator.
-     * Error codes: device_login_not_found (404: unknown or expired),
-     * device_login_state_conflict (409: already approved or denied).
+     * with the caller's name and the `role` picked here; give a bot only
+     * what it needs (viewer to read, agent to also submit plans, operator
+     * to deploy and approve). Approving also gives the CLI 10 more minutes
+     * from now to exchange it, so `expiresAt` may move later.
+     * Needs operator and a console session (a password login): CLI tokens
+     * and static tokens get 403 console_session_required.
+     * Error codes: invalid_request (400: no or unknown role),
+     * console_session_required (403), device_login_not_found (404: unknown
+     * or expired), device_login_state_conflict (409: already approved or
+     * denied).
      */
     post: operations["approveDeviceLogin"];
     parameters: {
@@ -99,8 +107,9 @@ export interface paths {
   "/v1/auth/device/{userCode}/deny": {
     /**
      * @description Denies a pending device login. The CLI's next poll gets
-     * access_denied. Needs operator.
-     * Error codes: device_login_not_found (404: unknown or expired),
+     * access_denied. Needs operator and a console session.
+     * Error codes: console_session_required (403),
+     * device_login_not_found (404: unknown or expired),
      * device_login_state_conflict (409: already approved or denied).
      */
     post: operations["denyDeviceLogin"];
@@ -781,6 +790,11 @@ export interface components {
       expiresAt: string;
       /** @description The administrator who approved or denied it, once reviewed. */
       reviewedBy?: string;
+      /** @description The role the CLI token gets, once approved. */
+      role?: components["schemas"]["Role"];
+    };
+    DeviceLoginApproveRequest: {
+      role: components["schemas"]["Role"];
     };
     /** @description The migration-engine plan (migration-engine/pkg/plan). `${VAR}` references are expanded on the server. */
     EnginePlan: {
@@ -2220,7 +2234,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description forbidden: the token's role may not do this */
+    /** @description forbidden: the token's role may not do this; console_session_required: only a console session may do this */
     Forbidden: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -2418,8 +2432,8 @@ export interface operations {
     };
   };
   /**
-   * @description Exchanges an approved device login for a CLI token with the name
-   * and role of the administrator who approved it, valid for 30 days or
+   * @description Exchanges an approved device login for a CLI token with the name of
+   * the administrator who approved it and the role they picked, valid for 30 days or
    * until POST /v1/auth/logout. One device login gives one token: the
    * first successful answer ends it.
    *
@@ -2452,8 +2466,9 @@ export interface operations {
   };
   /**
    * @description A device login that has not expired, so the console can show which
-   * client asks before the administrator approves. Needs operator.
-   * Error codes: device_login_not_found (404: unknown or expired).
+   * client asks before the administrator approves. Needs operator and
+   * a console session. Error codes: console_session_required (403),
+   * device_login_not_found (404: unknown or expired).
    */
   getDeviceLogin: {
     parameters: {
@@ -2476,14 +2491,26 @@ export interface operations {
   };
   /**
    * @description Approves a pending device login. The CLI's next poll gets a token
-   * with the caller's name and role. Needs operator.
-   * Error codes: device_login_not_found (404: unknown or expired),
-   * device_login_state_conflict (409: already approved or denied).
+   * with the caller's name and the `role` picked here; give a bot only
+   * what it needs (viewer to read, agent to also submit plans, operator
+   * to deploy and approve). Approving also gives the CLI 10 more minutes
+   * from now to exchange it, so `expiresAt` may move later.
+   * Needs operator and a console session (a password login): CLI tokens
+   * and static tokens get 403 console_session_required.
+   * Error codes: invalid_request (400: no or unknown role),
+   * console_session_required (403), device_login_not_found (404: unknown
+   * or expired), device_login_state_conflict (409: already approved or
+   * denied).
    */
   approveDeviceLogin: {
     parameters: {
       path: {
         userCode: components["parameters"]["UserCode"];
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DeviceLoginApproveRequest"];
       };
     };
     responses: {
@@ -2493,6 +2520,7 @@ export interface operations {
           "application/json": components["schemas"]["DeviceLogin"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
@@ -2502,8 +2530,9 @@ export interface operations {
   };
   /**
    * @description Denies a pending device login. The CLI's next poll gets
-   * access_denied. Needs operator.
-   * Error codes: device_login_not_found (404: unknown or expired),
+   * access_denied. Needs operator and a console session.
+   * Error codes: console_session_required (403),
+   * device_login_not_found (404: unknown or expired),
    * device_login_state_conflict (409: already approved or denied).
    */
   denyDeviceLogin: {

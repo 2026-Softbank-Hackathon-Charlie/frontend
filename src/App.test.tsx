@@ -476,15 +476,22 @@ describe("CLI login approval (#device)", () => {
     createdAt: new Date(Date.now() - 60_000).toISOString(),
     expiresAt: new Date(Date.now() + 9 * 60_000).toISOString(),
   };
-  const reviewed = (action: string) => json(200, { ...pending, status: action === "approve" ? "approved" : "denied", reviewedBy: "admin" });
+  // an approval answers with the role it got and, as the server does, 10 more minutes to pick the token up
+  const reviewed = (action: string, c: FakeCall) =>
+    json(
+      200,
+      action === "approve"
+        ? { ...pending, status: "approved", reviewedBy: "admin", role: JSON.parse(c.body!).role, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() }
+        : { ...pending, status: "denied", reviewedBy: "admin" },
+    );
 
-  function route(review: (action: string) => Response = reviewed) {
+  function route(review: (action: string, c: FakeCall) => Response = reviewed) {
     return (c: FakeCall) => {
       const u = new URL(c.url, "http://x");
       if (u.pathname === "/v1/auth/login") return json(200, fakeSession());
       if (u.pathname === "/v1/auth/device/BCDF-GHJK" && c.method === "GET") return json(200, pending);
       const m = /^\/v1\/auth\/device\/BCDF-GHJK\/(approve|deny)$/.exec(u.pathname);
-      if (m && c.method === "POST") return review(m[1]);
+      if (m && c.method === "POST") return review(m[1], c);
       if (u.pathname.startsWith("/v1/auth/device/")) return json(404, { error: { code: "device_login_not_found", message: "no such device login" } });
       return json(404, { error: { code: "not_found", message: "no" } });
     };
@@ -514,12 +521,25 @@ describe("CLI login approval (#device)", () => {
     expect(within(req).getByText("charlie v0.5.0 on rin-sbx-12")).toBeInTheDocument();
     expect(within(req).getByText(/1분 전/)).toBeInTheDocument();
     expect(within(req).getByText("9분")).toBeInTheDocument();
-    expect(within(req).getByText(/승인하면 그 CLI가 30일 동안 내 이름과 관리자 권한으로 동작합니다/)).toBeInTheDocument();
-    await user.click(within(req).getByRole("button", { name: "승인" }));
+    expect(within(req).getByText(/승인하면 그 CLI가 30일 동안 내 이름과 고른 역할로 동작합니다/)).toBeInTheDocument();
+    expect(within(req).getByText("봇(Rin 등)에게는 꼭 필요한 역할만 주세요. 배포를 맡길 때만 관리자를 고릅니다.")).toBeInTheDocument();
 
-    expect(await screen.findByText("CLI 로그인을 승인했습니다. CLI가 곧 로그인을 마칩니다.")).toBeInTheDocument();
+    // no role is picked for the administrator, and approving waits for one
+    const roles = within(req).getAllByRole("radio");
+    expect(roles.map((r) => (r as HTMLInputElement).value)).toEqual(["operator", "agent", "viewer"]);
+    expect(roles.some((r) => (r as HTMLInputElement).checked)).toBe(false);
+    expect(within(req).getByRole("radio", { name: "관리자 (배포, 앱 등록과 삭제, Plan 승인까지 모두)" })).toBeInTheDocument();
+    expect(within(req).getByRole("radio", { name: "조회만" })).toBeInTheDocument();
+    const approve = within(req).getByRole("button", { name: "승인" });
+    expect(approve).toBeDisabled();
+    await user.click(within(req).getByRole("radio", { name: "조회와 Plan 제출 (승인과 배포는 못 함)" }));
+    expect(approve).toBeEnabled();
+    await user.click(approve);
+
+    expect(await screen.findByText("CLI 로그인을 승인했습니다 (역할: 조회와 Plan 제출 (agent)). CLI가 곧 로그인을 마칩니다.")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "CLI 로그인 요청" })).not.toBeInTheDocument();
     expect(calls.map((c) => c.method + " " + c.url)).toEqual(["GET /v1/auth/device/BCDF-GHJK", "POST /v1/auth/device/BCDF-GHJK/approve"]);
+    expect(JSON.parse(calls[1].body!)).toEqual({ role: "agent" });
     expect(calls[1].headers.get("Authorization")).toBe("Bearer test-token");
   });
 
@@ -542,9 +562,41 @@ describe("CLI login approval (#device)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("코드가 없거나 만료되었습니다");
 
     await lookUp(user, "BCDF-GHJK");
-    await user.click(within(await screen.findByRole("region", { name: "CLI 로그인 요청" })).getByRole("button", { name: "승인" }));
+    const req = await screen.findByRole("region", { name: "CLI 로그인 요청" });
+    await user.click(within(req).getByRole("radio", { name: "조회만" }));
+    await user.click(within(req).getByRole("button", { name: "승인" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("이미 승인 또는 거절된 요청입니다");
     expect(screen.queryByRole("button", { name: "승인" })).not.toBeInTheDocument();
+  });
+
+  it("explains a session that is not a console login and a role the server refused", async () => {
+    storeSession();
+    let lookupAnswer = () => json(403, { error: { code: "console_session_required", message: "only a console session may approve" } });
+    installFetch((c) => {
+      if (c.method === "GET") return lookupAnswer();
+      return json(400, { error: { code: "invalid_request", message: "unknown role" } });
+    });
+    const { user } = setup("#device", "live");
+    await lookUp(user, "BCDF-GHJK");
+    expect(await screen.findByRole("alert")).toHaveTextContent("CLI 로그인 승인은 콘솔에 비밀번호로 로그인한 세션에서만 할 수 있습니다");
+
+    lookupAnswer = () => json(200, pending);
+    await lookUp(user, "BCDF-GHJK");
+    const req = await screen.findByRole("region", { name: "CLI 로그인 요청" });
+    await user.click(within(req).getByRole("radio", { name: /^관리자/ }));
+    await user.click(within(req).getByRole("button", { name: "승인" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("역할을 고르지 않았거나 서버가 모르는 역할입니다");
+  });
+
+  it("shows who approved an already approved request and the role it got", async () => {
+    storeSession();
+    installFetch(() => json(200, { ...pending, status: "approved", reviewedBy: "admin", role: "operator" }));
+    const { user } = setup("#device", "live");
+    await lookUp(user, "BCDF-GHJK");
+    const req = await screen.findByRole("region", { name: "CLI 로그인 요청" });
+    expect(within(req).getByText("이미 승인된 요청입니다 (admin, 역할: 관리자 (operator)).")).toBeInTheDocument();
+    expect(within(req).queryByRole("button", { name: "승인" })).not.toBeInTheDocument();
+    expect(within(req).queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("asks for a login first when opened logged out, then stays on #device", async () => {

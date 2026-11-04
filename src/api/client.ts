@@ -22,6 +22,7 @@ import type {
   DeploymentCreateRequest,
   DeploymentList,
   DeviceLogin,
+  DeviceLoginApproveRequest,
   EnginePlan,
   Environment,
   EnvironmentList,
@@ -34,6 +35,7 @@ import type {
   PlanList,
   PlanRecord,
   Principal,
+  Role,
   ReviewRequest,
   RollbackRequest,
   Run,
@@ -253,12 +255,19 @@ export const getMe = (o?: RequestOptions) => request<Principal>("GET", "/v1/me",
 export const login = (req: LoginRequest, o?: RequestOptions) => request<Session>("POST", "/v1/auth/login", { ...o, body: req });
 /** End the session that sends it; the token answers 401 from then on. 204, no body. Sent with keepalive, so closing the tab right after does not cancel it. */
 export const logout = (o?: RequestOptions) => request<void>("POST", "/v1/auth/logout", { ...o, noContent: true, keepalive: true });
-/** A CLI device login that has not expired, by the code the CLI shows. 404 device_login_not_found. Role operator. */
+// The three below need operator and a console session (a password login): a CLI or static token gets 403 console_session_required.
+
+/** A CLI device login that has not expired, by the code the CLI shows. 404 device_login_not_found. */
 export const getDeviceLogin = (userCode: string, o?: RequestOptions) =>
   request<DeviceLogin>("GET", `/v1/auth/device/${seg(userCode)}`, o);
-/** Let the CLI's next poll get a token with the caller's name and role (30 days). 404, or 409 device_login_state_conflict. */
-export const approveDeviceLogin = (userCode: string, o?: RequestOptions) =>
-  request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/approve`, o);
+/**
+ * Let the CLI's next poll get a token (30 days) with the caller's name and
+ * `role`. It also gives the CLI 10 more minutes to pick it up, so the answer's
+ * expiresAt may be later. 400 for a missing or unknown role, 404, or 409
+ * device_login_state_conflict.
+ */
+export const approveDeviceLogin = (userCode: string, role: Role, o?: RequestOptions) =>
+  request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/approve`, { ...o, body: { role } satisfies DeviceLoginApproveRequest });
 /** The CLI's next poll gets access_denied. 404, or 409 device_login_state_conflict. */
 export const denyDeviceLogin = (userCode: string, o?: RequestOptions) =>
   request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/deny`, o);

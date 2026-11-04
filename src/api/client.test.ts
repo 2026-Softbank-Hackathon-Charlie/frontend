@@ -249,7 +249,7 @@ describe("auth", () => {
     setToken("s1");
     const calls = installFetch((c) => json(200, { ...device, status: c.url.endsWith("/approve") ? "approved" : c.url.endsWith("/deny") ? "denied" : "pending" }));
     expect((await getDeviceLogin("BCDF-GHJK")).client).toBe("charlie v0.5.0 on rin-sbx-12");
-    expect((await approveDeviceLogin("BCDF-GHJK")).status).toBe("approved");
+    expect((await approveDeviceLogin("BCDF-GHJK", "viewer")).status).toBe("approved");
     expect((await denyDeviceLogin("bcdf ghjk")).status).toBe("denied");
     expect(calls.map((c) => c.method + " " + c.url)).toEqual([
       "GET /v1/auth/device/BCDF-GHJK",
@@ -257,9 +257,10 @@ describe("auth", () => {
       "POST /v1/auth/device/bcdf%20ghjk/deny",
     ]);
     expect(calls.every((c) => c.headers.get("Authorization") === "Bearer s1")).toBe(true);
+    expect([calls[0].body, JSON.parse(calls[1].body!), calls[2].body]).toEqual([undefined, { role: "viewer" }, undefined]);
 
     installFetch(() => json(409, { error: { code: "device_login_state_conflict", message: "device login is approved" } }));
-    await expect(approveDeviceLogin("BCDF-GHJK")).rejects.toMatchObject({ status: 409, code: "device_login_state_conflict" });
+    await expect(approveDeviceLogin("BCDF-GHJK", "operator")).rejects.toMatchObject({ status: 409, code: "device_login_state_conflict" });
   });
 
   it("reads Retry-After in seconds", async () => {

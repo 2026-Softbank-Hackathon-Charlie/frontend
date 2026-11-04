@@ -5,7 +5,7 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Session`, `DeviceLogin`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
+| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
 | `client.ts` | API 함수, `ApiError`, 토큰(메모리), 401 알림(`onUnauthorized`) |
 | `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment` |
 | `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
@@ -69,7 +69,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 영역 | 함수 |
 |------|------|
 | 시스템 | `getHealth`, `getMe` |
-| 인증 | `login`, `logout`, `getDeviceLogin`, `approveDeviceLogin`, `denyDeviceLogin`, `onUnauthorized(cb)` |
+| 인증 | `login`, `logout`, `getDeviceLogin`, `approveDeviceLogin(userCode, role)`, `denyDeviceLogin`, `onUnauthorized(cb)` |
 | 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment` |
 | 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration`, `rollbackMigration`, `getWrittenRecords` |
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
@@ -91,7 +91,9 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - `createDeployment`의 `branch`가 배포할 인스턴스를 고른다. 비우면 기본 인스턴스다.
 - `login`은 토큰 없이 보내고 `Session`(`token`, `expiresAt`, `principal`)을 돌려준다. 아이디나 비밀번호가 틀리면 401 `invalid_credentials`, 10분 안에 10번 틀리면 429 `too_many_attempts`, 서버에 관리자가 없으면 503 `login_not_configured`다. 429의 `Retry-After`(초)는 `ApiError.retryAfter`에 들어 있다. 서버가 CORS로 이 헤더를 노출한다.
 - `logout`은 본문 없는 204로 끝나고, 그 토큰은 이후 401이다.
-- `getDeviceLogin(userCode)`는 CLI가 보여 준 코드로 만료되지 않은 기기 로그인(`DeviceLogin`: `client`, `status`, `createdAt`, `expiresAt`)을 돌려준다. 서버는 코드의 대소문자, 공백, '-'를 가리지 않는다. 없거나 만료된 코드는 404 `device_login_not_found`다. `approveDeviceLogin`, `denyDeviceLogin`은 이미 승인하거나 거절한 요청이면 409 `device_login_state_conflict`다. 세 함수 모두 operator가 필요하다. CLI가 쓰는 `startDeviceLogin`, `pollDeviceLogin`은 콘솔에 넣지 않았다.
+- `getDeviceLogin(userCode)`는 CLI가 보여 준 코드로 만료되지 않은 기기 로그인(`DeviceLogin`: `client`, `status`, `createdAt`, `expiresAt`, 승인한 뒤에는 `reviewedBy`와 `role`)을 돌려준다. 서버는 코드의 대소문자, 공백, '-'를 가리지 않는다. 없거나 만료된 코드는 404 `device_login_not_found`다.
+- `approveDeviceLogin(userCode, role)`은 본문 `{ role }`(`DeviceLoginApproveRequest`, `operator`, `agent`, `viewer` 중 하나)을 꼭 보낸다. CLI 토큰은 승인한 관리자의 이름과 이 역할을 30일 동안 갖는다. 승인하면 CLI가 토큰을 받아 갈 시간이 지금부터 10분 늘어나므로 응답의 `expiresAt`이 늦어질 수 있다. 화면은 서버가 돌려준 값을 그대로 보여 준다. 역할이 없거나 모르는 값이면 400 `invalid_request`다.
+- `approveDeviceLogin`, `denyDeviceLogin`은 이미 승인하거나 거절한 요청이면 409 `device_login_state_conflict`다. 세 함수 모두 operator이고 콘솔에 비밀번호로 로그인한 세션이어야 한다. CLI 토큰이나 정적 토큰은 403 `console_session_required`다. CLI가 쓰는 `startDeviceLogin`, `pollDeviceLogin`은 콘솔에 넣지 않았다.
 - `listAgentEvents`는 `format=json`으로 저장된 이벤트를 한 쪽씩 읽는다. `listAllAgentEvents`는 `nextAfter`를 따라 끝까지 읽어 모두 돌려준다.
 
 ## 훅

@@ -13,6 +13,7 @@ export type LoginRequest = S["LoginRequest"];
 export type Session = S["Session"];
 export type DeviceLoginStatus = S["DeviceLoginStatus"];
 export type DeviceLogin = S["DeviceLogin"];
+export type DeviceLoginApproveRequest = S["DeviceLoginApproveRequest"];
 
 export type EnginePlan = S["EnginePlan"];
 export type EnginePlanEndpoint = S["EnginePlanEndpoint"];
