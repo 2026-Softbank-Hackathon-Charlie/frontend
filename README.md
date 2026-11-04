@@ -1,6 +1,6 @@
 # HopCharlie 콘솔 (frontend)
 
-HopCharlie 운영 콘솔입니다. 플랫폼 API 토큰을 넣으면 **실제 플랫폼 API**(`src/api`)를 읽고, 토큰이 없으면 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`, `App`, `Deployment`, `DeploymentEvent`, `AppSpecValidation`)을 만듭니다.
+HopCharlie 운영 콘솔입니다. 처음 열면 모드를 고릅니다. **일반 모드**는 관리자 아이디와 비밀번호로 로그인해 **실제 플랫폼 API**(`src/api`)를 읽고, **데모 모드**는 로그인 없이 **시연용 시뮬레이션**으로 같은 화면을 보여 줍니다. 모드는 화면 위쪽 버튼으로 언제든 바꿀 수 있고, 바꿔도 로그아웃되지 않습니다. 로그인은 새로고침하거나 새 탭을 열어도 세션이 끝날 때(12시간)까지 유지됩니다. `charlie login`이 보여 준 코드는 일반 모드의 **CLI 연결**(`#device`)에서 승인합니다. 시뮬레이션도 플랫폼 계약과 같은 데이터 모양(`PlanRecord`, `Run`, `RunEvent`, `AgentSession`, `AgentEvent`, `App`, `Deployment`, `DeploymentEvent`, `AppSpecValidation`)을 만듭니다.
 
 - 스택: Vite 8 + React 19 + TypeScript, 테스트는 Vitest + Testing Library
 - 디자인: SoftBank 디자인 시스템 토큰 (`src/styles/tokens.css`)
