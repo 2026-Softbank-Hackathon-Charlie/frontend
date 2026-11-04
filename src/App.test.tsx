@@ -133,7 +133,7 @@ describe("HopCharlie console (simulation)", () => {
 });
 
 describe("HopCharlie console (platform API)", () => {
-  const plan = {
+  const basePlan = {
     ref: "pln_1",
     status: "pending_approval",
     revision: 3,
@@ -150,7 +150,7 @@ describe("HopCharlie console (platform API)", () => {
     submittedAt: "2026-11-06T01:00:00Z",
   };
 
-  function route(calls: () => FakeCall[]) {
+  function route(calls: () => FakeCall[], plan = basePlan) {
     return (c: FakeCall) => {
       const u = new URL(c.url, "http://x");
       if (u.pathname === "/v1/apps") return json(200, { apps: [{ name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: [{ env: "eks", cnpgCluster: "shop-db-eks", dbHost: "a" }, { env: "gke", cnpgCluster: "shop-db-gke", dbHost: "b" }] }] });
@@ -165,32 +165,82 @@ describe("HopCharlie console (platform API)", () => {
     };
   }
 
-  it("approves the revision on screen and starts with a read canary", async () => {
+  async function openApproval(plan = basePlan) {
     let calls: FakeCall[] = [];
-    calls = installFetch(route(() => calls));
+    calls = installFetch(route(() => calls, plan));
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
     await logInAs(user);
     expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
-
     window.location.hash = "#migrate-shop";
     expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
+    const startCall = async () => {
+      await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))).toBe(true));
+      return calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!;
+    };
+    const started = async () => JSON.parse((await startCall()).body!);
+    return { user, started, startCall, calls: () => calls };
+  }
+
+  it("approves the revision on screen and starts with a read canary", async () => {
+    const { user, startCall, calls } = await openApproval();
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
 
-    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))).toBe(true));
-    const approve = calls.find((c) => c.url.includes("/v1/plans/pln_1/approve"))!;
+    const start = await startCall();
+    const approve = calls().find((c) => c.url.includes("/v1/plans/pln_1/approve"))!;
     expect(JSON.parse(approve.body!)).toEqual({ revision: 3 });
-    const start = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/migrations"))!;
     expect(JSON.parse(start.body!)).toMatchObject({ planRef: "pln_1", canary: { weights: [10, 50] } });
+    expect(JSON.parse(start.body!).observe).toBeUndefined(); // observe stays off unless the operator turns it on
     expect(start.headers.get("Idempotency-Key")).toBeTruthy();
     expect(approve.headers.get("Authorization")).toBe("Bearer test-token");
+  });
+
+  it("starts with the observe options the operator picked", async () => {
+    const { user, started } = await openApproval();
+    // auto rollback is offered only once observe is on
+    expect(screen.queryByRole("checkbox", { name: /바로 롤백/ })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: /전환 뒤에도 대상을 게이트로 계속 판정/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "관찰 시간" }), "5m");
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    expect(screen.getByText(/플랫폼이 바로 롤백 run을 시작합니다/)).toBeInTheDocument();
+    // the rollback row says the same, instead of "the operator decides" only
+    expect(screen.getByText(/관찰 중에 게이트를 어기면 플랫폼이 롤백 run을 시작합니다\(자동 롤백\)/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    expect(await started()).toMatchObject({
+      planRef: "pln_1",
+      canary: { weights: [10, 50], stepDuration: "20s" },
+      observe: { duration: "5m", stepDuration: "20s", autoRollback: true },
+    });
+  });
+
+  it("drops auto rollback when observe is turned off again", async () => {
+    const { user, started } = await openApproval();
+    const observe = screen.getByRole("checkbox", { name: /전환 뒤에도 대상을 게이트로 계속 판정/ });
+    await user.click(observe);
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    await user.click(observe);
+    await user.click(observe);
+    expect(screen.getByRole("checkbox", { name: /바로 롤백/ })).not.toBeChecked();
+    await user.click(observe);
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    const body = await started();
+    expect(body.observe).toBeUndefined();
+  });
+
+  it("starts a plan without the platform gateway with neither canary nor observe", async () => {
+    const { user, started } = await openApproval({ ...basePlan, summary: { ...basePlan.summary, gatewayMode: "none" } });
+    expect(screen.getByText(/전환 후 관찰과 자동 롤백을 쓸 수 없습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /전환 뒤에도/ })).toBeNull();
+    expect(screen.getByText(/카나리 없이 동기화 뒤 바로 전환 승인을 기다립니다/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    expect(await started()).toEqual({ planRef: "pln_1" });
   });
 
   it("shows why a start was refused and lets the operator start again", async () => {
     let started = 0;
     const calls = installFetch((c: FakeCall) => {
       const u = new URL(c.url, "http://x");
-      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...plan, status: started ? "approved" : "pending_approval" }] });
+      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...basePlan, status: started ? "approved" : "pending_approval" }] });
       if (u.pathname === "/v1/migrations" && c.method === "POST") {
         started++;
         return json(409, { error: { code: "residency_denied", message: "residency policy denies this migration: country_not_allowed app.public.customers" } });
@@ -228,9 +278,67 @@ describe("HopCharlie console (platform API)", () => {
     // the plan stays approved and on screen instead of falling back to the setup form
     expect(await screen.findByText(/은 승인됐지만 시작하지 않았습니다/)).toBeInTheDocument();
 
+    // a refused start stored no Idempotency-Key, so the options may change before starting again
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "다시 시작" }));
     await waitFor(() => expect(started).toBe(2));
     expect(calls.filter((c) => c.url.includes("/approve"))).toHaveLength(2);
+  });
+
+  it("locks the options when it resends a start that did not finish", async () => {
+    let started = 0;
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") return json(200, { plans: [{ ...basePlan, status: started ? "approved" : "pending_approval" }] });
+      if (u.pathname === "/v1/migrations" && c.method === "POST") {
+        started++;
+        return json(502, { error: { code: "bad_gateway", message: "upstream closed" } });
+      }
+      if (u.pathname === "/v1/audit") return json(200, { entries: [] });
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("checkbox", { name: /전환 뒤에도/ }));
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+
+    expect(await screen.findByText(/은 승인됐지만 시작하지 않았습니다/)).toBeInTheDocument();
+    // the platform may have started it under the same key and would answer with that run
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).toBeChecked();
+    expect(screen.getByText(/끝나지 않은 시작 요청을 같은 옵션으로 다시 보냅니다/)).toBeInTheDocument();
+  });
+
+  it("starts the next plan from the default options after a reject", async () => {
+    let rejected = false;
+    let submitted = false;
+    const next = { ...basePlan, ref: "pln_2", revision: 1 };
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans" && c.method === "GET") return json(200, { plans: rejected ? [{ ...basePlan, status: "rejected" }, ...(submitted ? [next] : [])] : [basePlan] });
+      if (u.pathname === "/v1/plans/pln_1/reject") {
+        rejected = true;
+        return json(200, { ...basePlan, status: "rejected" });
+      }
+      if (u.pathname === "/v1/plans/draft") return json(200, { id: "shop-eks-to-gke" });
+      if (u.pathname === "/v1/plans" && c.method === "POST") {
+        submitted = true;
+        return json(201, next);
+      }
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("checkbox", { name: /전환 뒤에도/ }));
+    await user.click(screen.getByRole("checkbox", { name: /바로 롤백/ }));
+    await user.click(screen.getByRole("button", { name: "반려" }));
+    await user.click(await screen.findByRole("button", { name: "Plan 작성" }));
+
+    expect(await screen.findByText(/Plan pln_2 \(revision 1\)을 승인할까요\?/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /전환 뒤에도/ })).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: /바로 롤백/ })).toBeNull();
   });
 
   it("makes no API calls in simulation mode", () => {
