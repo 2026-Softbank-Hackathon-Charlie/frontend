@@ -1,10 +1,11 @@
 import { useId, useState, type ReactNode } from "react";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { AppSpecValidation } from "../api/types";
+import type { AppInstance, AppSpecValidation } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
+import { AppSecrets } from "../components/secrets";
 import { envName } from "../components/shared";
 import { Chip, PageHead, Table, td, type Cell } from "../components/ui";
-import { useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
+import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 import { ENV, SAMPLE } from "../sim/data";
@@ -124,7 +125,7 @@ function NotFound({ id }: { id: string }) {
 }
 
 /** What the app page is doing. Every button waits while one action is in flight. */
-type Busy = "" | "deploy" | "delete" | "add" | "remove";
+type Busy = "" | "deploy" | "redeploy" | "delete" | "add" | "remove";
 
 function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -156,6 +157,20 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
       if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
       else if ("validation" in r) setInvalid(r.validation);
       else setMsg(r.error);
+    } finally {
+      setBusy("");
+    }
+  }
+  /** Deploys the instance's last healthy deployment again without a build, with the secrets as they are now. */
+  async function redeployNoBuild(i: AppInstance) {
+    setBusy("redeploy");
+    setMsg("");
+    setInvalid(undefined);
+    try {
+      const r = await m.redeployNoBuild(i.branch);
+      if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
+      else if ("validation" in r) setInvalid(r.validation);
+      else setMsg(i.name + " 재배포: " + r.error);
     } finally {
       setBusy("");
     }
@@ -256,7 +271,8 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
               </div>
             </div>
           </section>
-          <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} />
+          <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} redeployNoBuild={redeployNoBuild} />
+          <AppSecrets m={m} app={a.name} busy={!!busy} setRedeploying={(on) => setBusy(on ? "redeploy" : "")} />
           <section className="sec">
             <h2>{def} 환경별 상태</h2>
             <div className="box">
@@ -358,8 +374,25 @@ function namePreview(app: string, branch: string): string {
   return "인스턴스 이름: " + (inst === app + "--" + branchSlug(branch) ? inst : inst.slice(0, -6) + "(해시 6자리)");
 }
 
+/** The no-build redeploy button's text, with the short commit it deploys again when known. */
+const noBuildLabel = (commit?: string) => "재배포 (빌드 없이" + (commit ? ", " + short(commit) : "") + ")";
+
 /** One row per instance (ADR 0015), the form that adds a branch, and the typed confirmation that removes one. */
-function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string; busy: Busy; setBusy: (b: Busy) => void; deploy: (branch?: string) => void }) {
+function Instances({
+  m,
+  app,
+  busy,
+  setBusy,
+  deploy,
+  redeployNoBuild,
+}: {
+  m: AppModel;
+  app: string;
+  busy: Busy;
+  setBusy: (b: Busy) => void;
+  deploy: (branch?: string) => void;
+  redeployNoBuild: (i: AppInstance) => void;
+}) {
   const [branch, setBranch] = useState("");
   const [autoDeploy, setAutoDeploy] = useState(true);
   /** what the last add got back instead of a deployment */
@@ -370,6 +403,8 @@ function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string
   // A server from before ADR 0015 lists no instances: only the default one, so there is nothing to add or remove.
   const listed = Array.isArray(m.app?.deploy?.instances);
   const full = m.instances.length >= MAX_INSTANCES;
+  const again = new Map(m.instances.map((i) => [i.name, redeployState(app, i, m.deployments)]));
+  const waiting = listed ? m.instances.filter((i) => again.get(i.name)!.running) : [];
 
   async function add() {
     setBusy("add");
@@ -439,6 +474,18 @@ function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string
                 <button type="button" className="btn ghost" aria-label={i.name + " 배포"} disabled={!!busy} onClick={() => deploy(i.default ? undefined : i.branch)}>
                   배포
                 </button>
+                {/* A server that lists no instances predates ADR 0015, and redeploy (ADR 0019) with it. */}
+                {listed && (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    aria-label={i.name + " " + noBuildLabel(again.get(i.name)!.commit)}
+                    disabled={!!busy || again.get(i.name)!.running}
+                    onClick={() => redeployNoBuild(i)}
+                  >
+                    {noBuildLabel(again.get(i.name)!.commit)}
+                  </button>
+                )}
                 {listed && !i.default && (
                   <button
                     type="button"
@@ -459,6 +506,11 @@ function Instances({ m, app, busy, setBusy, deploy }: { m: AppModel; app: string
           ])}
         />
       </div>
+      {waiting.length > 0 && (
+        <p className="hint">
+          {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
+        </p>
+      )}
       {removing && (
         <ConfirmDelete
           key={removing}

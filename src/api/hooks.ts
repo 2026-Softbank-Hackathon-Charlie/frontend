@@ -10,6 +10,7 @@ import {
   getTraffic,
   listAgentSessions,
   listApps,
+  listAppSecrets,
   listAudit,
   listDeployments,
   listEnvironments,
@@ -25,6 +26,7 @@ import type {
   AgentEvent,
   AgentSession,
   App,
+  AppSecrets,
   AppSpecValidation,
   AuditEntry,
   CanaryStepData,
@@ -130,6 +132,11 @@ export function useApp(name: string | null | undefined, pollMs = 0): Resource<Ap
 export function useDeployments(name: string | null | undefined, pollMs = 0, limit?: number): Resource<Deployment[]> {
   const key = name ? "deployments:" + JSON.stringify([name, limit]) : null;
   return usePolled(key, pollMs, async (signal) => (await listDeployments(name!, { limit }, { signal })).deployments);
+}
+
+/** The names of an app's secrets, app-wide and per instance, without values. A falsy `name` loads nothing. */
+export function useAppSecrets(name: string | null | undefined, pollMs = 0): Resource<AppSecrets> {
+  return usePolled(name ? "secrets:" + name : null, pollMs, (signal) => listAppSecrets(name!, { signal }));
 }
 
 /** The repositories the GitHub App can see, by full name. */

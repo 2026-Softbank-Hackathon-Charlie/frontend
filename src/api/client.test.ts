@@ -11,6 +11,7 @@ import {
   draftPlan,
   getAgentSession,
   getApp,
+  getAppSecret,
   getDeployment,
   getDeviceLogin,
   getHealth,
@@ -22,6 +23,7 @@ import {
   listAgentSessions,
   listAllAgentEvents,
   listApps,
+  listAppSecrets,
   listAudit,
   listDeployments,
   listGitHubRepos,
@@ -36,6 +38,7 @@ import {
   specInvalid,
   startMigration,
   switchMigration,
+  updateAppSecrets,
   validateAppSpec,
 } from "./client";
 import { at, hang, installFetch, json, sequence } from "./fakes";
@@ -410,5 +413,53 @@ describe("apps from GitHub", () => {
     expect(specInvalid(await createAppInstance("moimroom", { branch: "dev" }).catch((x: unknown) => x))).toEqual(validation);
     installFetch(() => json(409, { error: { code: "default_instance", message: "moimroom goes only with the app" } }));
     await expect(deleteAppInstance("moimroom", "moimroom")).rejects.toMatchObject({ status: 409, code: "default_instance" });
+  });
+
+  it("lists, changes and reads app secrets, with the instance as a query only when set", async () => {
+    setToken("op");
+    const names = { app: [{ name: "HOST_CODE", updatedAt: at(0), updatedBy: "admin" }], instances: [] };
+    const calls = installFetch((c) => {
+      if (c.url.includes("/secrets/")) return json(200, { name: "HOST_CODE", value: "4821", updatedAt: at(0), updatedBy: "admin" });
+      return json(200, names);
+    });
+    expect(await listAppSecrets("moimroom")).toEqual(names);
+    await updateAppSecrets("moimroom", { set: { HOST_CODE: "4821" }, delete: ["OLD"] });
+    await updateAppSecrets("moimroom", { instance: "moimroom--dev", delete: ["HOST_CODE"] });
+    expect((await getAppSecret("moimroom", "HOST_CODE")).value).toBe("4821");
+    await getAppSecret("moimroom", "HOST_CODE", { instance: "moimroom--dev" });
+    await getAppSecret("moimroom", "HOST_CODE", { instance: "" });
+    await getAppSecret("a/b", "X Y");
+    expect(calls.map((c) => c.method + " " + c.url)).toEqual([
+      "GET /v1/apps/moimroom/secrets",
+      "PUT /v1/apps/moimroom/secrets",
+      "PUT /v1/apps/moimroom/secrets",
+      "GET /v1/apps/moimroom/secrets/HOST_CODE",
+      "GET /v1/apps/moimroom/secrets/HOST_CODE?instance=moimroom--dev",
+      "GET /v1/apps/moimroom/secrets/HOST_CODE",
+      "GET /v1/apps/a%2Fb/secrets/X%20Y",
+    ]);
+    expect(JSON.parse(calls[1].body!)).toEqual({ set: { HOST_CODE: "4821" }, delete: ["OLD"] });
+    expect(calls[1].headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(calls[2].body!)).toEqual({ instance: "moimroom--dev", delete: ["HOST_CODE"] });
+    expect(calls[3].body).toBeUndefined();
+    expect(calls.every((c) => c.headers.get("Authorization") === "Bearer op")).toBe(true);
+  });
+
+  it("reports why a secret call failed", async () => {
+    installFetch(() => json(503, { error: { code: "secrets_not_configured", message: "no secrets key" } }));
+    await expect(listAppSecrets("moimroom")).rejects.toMatchObject({ status: 503, code: "secrets_not_configured" });
+    installFetch(() => json(404, { error: { code: "secret_not_found", message: "no HOST_CODE" } }));
+    await expect(getAppSecret("moimroom", "HOST_CODE")).rejects.toMatchObject({ status: 404, code: "secret_not_found" });
+    installFetch(() => json(400, { error: { code: "invalid_request", message: "PORT is reserved" } }));
+    await expect(updateAppSecrets("moimroom", { set: { PORT: "1" } })).rejects.toMatchObject({ status: 400, code: "invalid_request", message: "PORT is reserved" });
+  });
+
+  it("asks for a redeploy without a build, and reports when there is nothing to redeploy", async () => {
+    const calls = installFetch(() => json(202, { id: "dep_5", trigger: "redeploy" }));
+    expect((await createDeployment("moimroom", { branch: "dev", redeploy: true })).id).toBe("dep_5");
+    expect(calls[0]).toMatchObject({ method: "POST", url: "/v1/apps/moimroom/deployments" });
+    expect(JSON.parse(calls[0].body!)).toEqual({ branch: "dev", redeploy: true });
+    installFetch(() => json(409, { error: { code: "nothing_to_redeploy", message: "moimroom--dev has no healthy deployment" } }));
+    await expect(createDeployment("moimroom", { branch: "dev", redeploy: true })).rejects.toMatchObject({ status: 409, code: "nothing_to_redeploy" });
   });
 });

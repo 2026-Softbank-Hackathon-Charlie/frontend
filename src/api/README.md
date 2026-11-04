@@ -5,10 +5,10 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo` 같은 짧은 이름 |
+| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo`, `AppSecrets`, `AppSecretsUpdate`, `AppSecretValue` 같은 짧은 이름 |
 | `client.ts` | API 함수, `ApiError`, 토큰(메모리), 401 알림(`onUnauthorized`) |
 | `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment` |
-| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
+| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useAppSecrets`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
 | `fakes.ts` | 테스트 전용 가짜 fetch. 앱 코드에서 import하지 않는다 |
 | `gen-schema.mjs` | `npm run gen:api` 스크립트 |
 
@@ -75,7 +75,8 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
 | 보안 | `getSecurity({ environment, severity, refresh })` |
 | 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
-| GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { branch, ref, environments })`, `listDeployments(name, { branch, limit })`, `createAppInstance(name, { branch, autoDeploy })`, `deleteAppInstance(name, instance)`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
+| GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { branch, ref, environments, redeploy })`, `listDeployments(name, { branch, limit })`, `createAppInstance(name, { branch, autoDeploy })`, `deleteAppInstance(name, instance)`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
+| 앱 시크릿 | `listAppSecrets(name)`, `updateAppSecrets(name, { instance, set, delete })`, `getAppSecret(name, secret, { instance })` |
 | 기타 | `getMatrix`, `listAudit({ limit, before })` |
 
 - 실패하면 `ApiError`를 던진다. `status`는 HTTP 상태, `code`와 `message`는 서버의 `{"error":{"code","message"}}` 값이다.
@@ -89,6 +90,15 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - `deleteApp`은 본문 없는 202로 끝난다. Argo CD가 앱과 그 데이터(DB, 버킷)를 지우므로 되돌릴 수 없다. 파일(`PLATFORM_APPS_FILE`)에만 있는 앱은 409 `app_not_registered`다.
 - 앱은 기본 브랜치를 인스턴스 `<app>`으로, 추가한 브랜치를 `<app>--<slug>`로 배포한다(ADR 0015). `createAppInstance`는 브랜치를 더하고 그 인스턴스의 첫 배포를 돌려준다. 이미 배포하는 브랜치는 409 `branch_exists`, 슬러그가 같은 다른 브랜치가 있으면 409 `instance_exists`, 인스턴스가 이미 3개면 409 `instance_limit`이다. `deleteAppInstance`는 `deleteApp`처럼 본문 없는 202로 끝나고, 기본 인스턴스는 409 `default_instance`다.
 - `createDeployment`의 `branch`가 배포할 인스턴스를 고른다. 비우면 기본 인스턴스다.
+- `createDeployment(name, { branch, redeploy: true })`는 빌드하지 않고 GitHub도 읽지 않는다. 그 인스턴스의 마지막 healthy 배포를 같은 커밋과 이미지로, 지금 시크릿을 넣어 다시 배포한다(trigger `redeploy`). healthy 배포가 없으면 409 `nothing_to_redeploy`, 그 인스턴스에 끝나지 않은 배포(queued, building, committing, syncing)가 있으면 409 `deployment_in_progress`, `ref`와 함께 보내면 400 `invalid_request`다. 진행 중인 배포도 gitops에 커밋할 때의 시크릿을 쓰므로, 콘솔은 그동안 그 인스턴스의 재배포 버튼을 끄고 "진행 중인 배포가 끝난 뒤 재배포할 수 있습니다"라고 적는다. 버튼에는 다시 배포할 커밋(배포 목록이나 인스턴스의 마지막 healthy 배포)의 앞 7자리를 붙이고, `branch`를 늘 채워 보낸다.
+- 앱 시크릿(ADR 0019)은 앱 공통 시크릿과 인스턴스별 덮어쓰기로 나뉜다. 인스턴스는 앱 공통 시크릿 위에 자기 덮어쓰기를 얹은 값을 받는다.
+  - `listAppSecrets`는 앱 공통(`app`)과 덮어쓰기가 하나라도 있는 인스턴스(`instances`)의 이름, 바꾼 시각, 바꾼 사람만 돌려준다. 값은 없다. 역할 viewer로 된다.
+  - `updateAppSecrets`는 한 범위를 한 번에 바꾼다. `instance`가 없으면 앱 공통, 있으면 그 인스턴스의 덮어쓰기다. `set`은 넣거나 바꿀 이름과 값, `delete`는 지울 이름이다. 덮어쓰기를 지우면 그 인스턴스는 앱 공통 값으로 돌아간다. 응답은 바뀐 뒤의 이름 목록이다.
+  - 이름은 `^[A-Z_][A-Z0-9_]*$`에 64자까지이고 PORT, DATABASE_URL, S3_로 시작하는 이름은 쓸 수 없다. 값은 1바이트에서 4096바이트까지(빈 값은 안 된다), 범위마다 50개까지다. 어기거나 같은 이름을 넣으면서 지우거나 바꿀 것이 없으면 400 `invalid_request`, 앱에 없는 인스턴스는 404 `instance_not_found`, 파일에만 있는 앱은 409 `app_not_registered`다. 콘솔은 같은 규칙을 `src/sim/secrets.ts`로 먼저 확인하고, 서버의 400 메시지도 그대로 보여 준다.
+  - `getAppSecret(name, secret, { instance })`는 값 하나를 돌려준다. `instance`를 주면 그 인스턴스의 덮어쓰기를 읽고, 비우면 쿼리를 붙이지 않는다. 부를 때마다 서버 감사 로그에 이름이 남는다. 없는 이름은 404 `secret_not_found`다.
+  - 세 함수 모두 서버에 시크릿 키가 없으면 503 `secrets_not_configured`다. `updateAppSecrets`와 `getAppSecret`은 operator이고 다른 역할은 403이다. 콘솔은 세션 역할이 operator가 아니거나 403을 받으면 이름만 보여 주고 보기와 수정 버튼을 숨긴다.
+  - 값은 PUT 본문과 `getAppSecret`의 응답에만 실린다. URL에 넣지 않고, 로그에 찍지 않고, localStorage나 sessionStorage에 두지 않는다. 화면(`src/components/secrets.tsx`)은 보기를 누른 값만 컴포넌트 state에 두고, 다시 누르거나 페이지나 인스턴스를 떠나거나(언마운트) 60초가 지나면 지운다. 진행 중인 요청은 취소한다. 수정 칸은 가린 입력(type password, 비밀번호 관리자 저장 끔)이고 React state가 아니라 입력의 DOM 값에만 두어 HTML value 속성에 나오지 않는다. 불러온 값은 고치지 않으면 60초 뒤 지운다. 저장하지 않은 변경은 저장, 취소, 페이지를 떠날 때, 그리고 403으로 이름만 보게 될 때 사라진다. 저장하는 동안에는 표의 버튼과 추가 칸을 끄고, 저장이 끝나면 보낸 변경만 지운다.
+  - 저장해도 실행 중인 인스턴스는 다시 배포할 때까지 이전 값을 쓴다. 그래서 저장한 뒤 `createDeployment`의 `redeploy`로 재배포한다.
 - `login`은 토큰 없이 보내고 `Session`(`token`, `expiresAt`, `principal`)을 돌려준다. 아이디나 비밀번호가 틀리면 401 `invalid_credentials`, 10분 안에 10번 틀리면 429 `too_many_attempts`, 서버에 관리자가 없으면 503 `login_not_configured`다. 429의 `Retry-After`(초)는 `ApiError.retryAfter`에 들어 있다. 서버가 CORS로 이 헤더를 노출한다.
 - `logout`은 본문 없는 204로 끝나고, 그 토큰은 이후 401이다.
 - `getDeviceLogin(userCode)`는 CLI가 보여 준 코드로 만료되지 않은 기기 로그인(`DeviceLogin`: `client`, `status`, `createdAt`, `expiresAt`, 승인한 뒤에는 `reviewedBy`와 `role`)을 돌려준다. 서버는 코드의 대소문자, 공백, '-'를 가리지 않는다. 없거나 만료된 코드는 404 `device_login_not_found`다.
@@ -109,6 +119,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | `useApps(pollMs)` | `App[]` (파일 앱 먼저, 그다음 GitHub에서 등록한 앱. 등록한 앱은 `deploy`가 있다) |
 | `useApp(name, pollMs)` | `App` |
 | `useDeployments(name, pollMs, limit)` | `Deployment[]` (최신순) |
+| `useAppSecrets(name, pollMs)` | `AppSecrets` (이름만, 값 없음) |
 | `useGitHubRepos()` | `GitHubRepo[]` |
 | `useAppSpecValidation(repo, branch, debounceMs)` | `{ data, error, loading, reload }` |
 | `useDeployment(id)` | `{ deployment, events, error, connected }` |
@@ -119,7 +130,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - 목록 훅은 `{ data, error, loading, reload }`를 돌려준다. `pollMs`가 0이거나 없으면 한 번만 읽고, 있으면 응답을 받은 뒤 `pollMs`마다 다시 읽는다.
 - 폴링 중 실패하면 마지막 `data`는 그대로 두고 `error`만 채운다. 다음 성공에서 `error`가 지워진다.
 - 모든 훅은 언마운트할 때 요청과 타이머, 스트림을 정리한다.
-- `useApp`, `useDeployments`는 이름이 비어 있으면 아무것도 읽지 않는다.
+- `useApp`, `useDeployments`, `useAppSecrets`는 이름이 비어 있으면 아무것도 읽지 않는다.
 - `useAppSpecValidation`은 레포나 브랜치가 바뀐 뒤 `debounceMs`(기본 0.4초)가 지나면 한 번만 확인하고, 앞선 요청은 취소한다. `reload()`는 같은 레포와 브랜치를 다시 확인한다(고친 커밋을 push한 뒤).
 
 ## 페이지를 src/sim에서 훅으로 바꾸는 방법

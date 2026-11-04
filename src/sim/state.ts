@@ -5,7 +5,8 @@ import { ENV, ONB_END, ONB_LOG, SAMPLE, onbFinishLog, sampleBucketName, type Env
 import * as dep from "./deploy";
 import { dur, fmt, mmss } from "./format";
 import * as mig from "./mig";
-import type { AppCreateRequest, Run } from "../api/types";
+import * as sec from "./secrets";
+import type { AppCreateRequest, AppSecretsUpdate, Run } from "../api/types";
 
 /** [mm:ss, message] */
 export type LogLine = [string, string];
@@ -202,6 +203,8 @@ export function tick(S: SimState): void {
 export type Action =
   | { type: "app-create"; req: AppCreateRequest }
   | { type: "app-redeploy"; name: string; branch?: string }
+  | { type: "app-redeploy-nobuild"; name: string; branch: string }
+  | { type: "secrets-update"; name: string; body: AppSecretsUpdate }
   | { type: "app-delete"; name: string }
   | { type: "instance-create"; name: string; branch: string; autoDeploy: boolean }
   | { type: "instance-delete"; name: string; instance: string }
@@ -229,6 +232,12 @@ export function apply(S: SimState, a: Action): void {
       break;
     case "app-redeploy":
       dep.redeploy(S.deploy, a.name, a.branch);
+      break;
+    case "app-redeploy-nobuild":
+      dep.redeployNoBuild(S.deploy, a.name, a.branch);
+      break;
+    case "secrets-update":
+      sec.updateSecrets(S.deploy, a.name, a.body);
       break;
     case "app-delete": {
       const dirs = (S.deploy.apps.find((x) => x.name === a.name)?.deploy?.instances ?? []).map((i) => "apps/" + i.name + "/").join(", ");
