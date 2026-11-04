@@ -24,7 +24,8 @@ describe("sample app", () => {
     expect(p.source).toMatchObject({ namespace: "moimroom", cluster: "moimroom-db-eks" });
     expect(p.target).toMatchObject({ namespace: "moimroom", cluster: "moimroom-db-k3s" });
     expect(p.verify?.schemas).toEqual(["app"]);
-    expect(p.files).toEqual({ source: "s3:moimroom-photos-eks", target: "minio:moimroom-photos-k3s" });
+    // eks follows the platform's <bucketPrefix><instance> (ADR 0016)
+    expect(p.files).toEqual({ source: "s3:hopcharlie-eks-moimroom", target: "minio:hopcharlie-k3s-moimroom" });
   });
 
   it("imports moimroom with its single web service", () => {
@@ -32,6 +33,10 @@ describe("sample app", () => {
     apply(S, { type: "onb-skip" });
     expect(S.apps.moimroom.repo).toBe("2026-Softbank-Hackathon-Charlie/moimroom");
     expect(S.apps.moimroom.res[0]).toEqual(["서비스", "web", "Deployment 1개, 레플리카 2개, 이미지는 ECR"]);
+    expect(S.apps.moimroom.res[2][1]).toBe("hopcharlie-eks-moimroom");
+    // what the onboarding draft brought along says it came from the draft (shop), not from moimroom
+    expect(S.apps.moimroom.res[3][0]).toBe("가져오기 시안 (shop)");
+    expect(S.apps.moimroom.deploys[0][1]).toMatch(/^가져오기 시안\(shop\): /);
   });
 });
 
@@ -101,6 +106,10 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(m.heldDone).toBeGreaterThan(0);
     expect(S.apps.moimroom.loc).toBe("onprem");
     expect(S.apps.moimroom.prev).toBe("aws");
+    // the resources show the bucket each side holds, as the plan moved it
+    const res = S.apps.moimroom.res;
+    expect(res.find((x) => x[0] === "파일 저장소")?.[1]).toBe("hopcharlie-k3s-moimroom");
+    expect(res.find((x) => x[0].startsWith("원본"))?.[1]).toBe("moimroom-db, hopcharlie-eks-moimroom");
     expect(matrixRoutes(m)[0]).toMatchObject({ source: "eks", target: "k3s", status: "succeeded" });
     expect(migActive(S)).toBe(false);
     // the event stream is ordered and carries the platform kinds

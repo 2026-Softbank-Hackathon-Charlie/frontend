@@ -170,7 +170,7 @@ export function EmptyShop() {
             className="btn ghost"
             onClick={() => {
               dispatch({ type: "onb-skip" });
-              navigate("#migrate-shop");
+              navigate("#migrate-app");
             }}
           >
             가져오기 완료 상태로 건너뛰기

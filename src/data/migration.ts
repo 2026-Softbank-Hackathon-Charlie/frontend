@@ -99,7 +99,7 @@ function simPreflight(time: string): PreflightView | undefined {
 export function useSimMigration(): MigrationView {
   const { S, dispatch } = useSim();
   const m = S.mig;
-  const shop = S.apps[SAMPLE.id];
+  const app = S.apps[SAMPLE.id];
   return {
     live: false,
     app: SAMPLE.id,
@@ -110,7 +110,7 @@ export function useSimMigration(): MigrationView {
     tgtLabel: ENV[m.tgt].name,
     targets: ENV_ORDER.filter((k) => k !== m.src).map((k) => ({ value: k, label: ENV[k].name })),
     setTarget: (v) => dispatch({ type: "mig-target", env: v as EnvKey }),
-    ready: !!shop,
+    ready: !!app,
     plan: m.plan ?? undefined,
     engine: m.plan ? enginePlan(m.src, m.tgt) : undefined,
     sessions: m.sessions,

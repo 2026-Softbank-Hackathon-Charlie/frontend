@@ -180,7 +180,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
         </button>
       )}
       {a.environments.length > 0 && (
-        <a className="btn ghost" href="#migrate-shop">
+        <a className="btn ghost" href="#migrate-app">
           이전
         </a>
       )}
@@ -541,7 +541,7 @@ function ServiceDetail({ id }: { id: string }) {
         title={id}
         sub={<span className="m">{a.repo}</span>}
         acts={
-          <a className="btn primary" href="#migrate-shop">
+          <a className="btn primary" href="#migrate-app">
             이전
           </a>
         }

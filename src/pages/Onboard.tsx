@@ -98,7 +98,7 @@ function Step1() {
           className="btn ghost"
           onClick={() => {
             dispatch({ type: "onb-skip" });
-            navigate("#migrate-shop");
+            navigate("#migrate-app");
           }}
         >
           가져오기 완료 상태로 건너뛰기
@@ -338,7 +338,7 @@ function Step4() {
               예로 들고, 이전은 팀 샘플 앱 {SAMPLE.id}으로 이어집니다.
             </p>
             <div className="actrow">
-              <a className="btn primary" href="#migrate-shop">
+              <a className="btn primary" href="#migrate-app">
                 이전하러 가기
               </a>
               <a className="btn ghost" href={"#app-" + SAMPLE.id}>

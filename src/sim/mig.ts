@@ -20,7 +20,7 @@ import type {
   RunStatus,
   StepRecord,
 } from "../api/types";
-import { ENV, SAMPLE, type EnvKey } from "./data";
+import { ENV, SAMPLE, sampleBucket, type EnvKey } from "./data";
 
 /* ---------- engine timeline ---------- */
 
@@ -79,7 +79,7 @@ function aiScript(src: EnvKey, tgt: EnvKey): Ev[] {
     { at: 2, s: "plan", type: "tool_result", tool: "k8s_get", status: "ok", ms: 900, output: { deployments: SAMPLE.services.length, cnpgClusters: 1, pvcs: 2 } },
     { at: 4, s: "plan", type: "tool_call", tool: "db_stats", input: { cluster: SAMPLE.db + "-" + s.id } },
     { at: 5, s: "plan", type: "tool_result", tool: "db_stats", status: "ok", ms: 700, output: { size: SAMPLE.dbSize, tables: SAMPLE.tables, tablesWithoutPk: 0 } },
-    { at: 7, s: "plan", type: "tool_call", tool: "bucket_stats", input: { bucket: s.bucket } },
+    { at: 7, s: "plan", type: "tool_call", tool: "bucket_stats", input: { bucket: sampleBucket(src) } },
     { at: 8, s: "plan", type: "tool_result", tool: "bucket_stats", status: "ok", ms: 600, output: { objects: SAMPLE.files } },
     { at: 10, s: "plan", type: "tool_call", tool: "k8s_get", input: { cluster: t.id, kinds: ["StorageClass", "Node"] } },
     { at: 11, s: "plan", type: "tool_result", tool: "k8s_get", status: "ok", ms: 800, output: { storageClasses: [t.sc], freeCpu: 6, freeMemoryGiB: 18 } },
@@ -282,7 +282,7 @@ export function enginePlan(src: EnvKey, tgt: EnvKey): EnginePlan {
     id: SAMPLE.id + "-" + s.id + "-to-" + t.id,
     source: ep(s),
     target: { ...ep(t), manifest: "attachment:values-" + t.id + ".yaml" },
-    files: { source: s.bucket, target: t.bucket },
+    files: { source: sampleBucket(src), target: sampleBucket(tgt) },
     gateway: { mode: "http", sourceBackend: s.id, targetBackend: t.id },
     verify: { schemas: [SAMPLE.schema], fenceGate: true, writtenRecords: "stream:" + SAMPLE.id + "-k6" },
     thresholds: { maxLagBytes: 1048576, catchupTimeout: "10m", switchoverTimeout: "2m", maxDowntime: "30s" },

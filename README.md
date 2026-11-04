@@ -58,6 +58,8 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 | ![샌드박스 테스트](docs/screenshots/onboard-3-sandbox.png) | ![첫 배포](docs/screenshots/onboard-4-done.png) |
 
 ### 이전
+> 아래 스크린샷은 데모 모드의 샘플 앱을 moimroom으로 바꾸기 전에 찍어서 이전 대상이 shop으로 나옵니다.
+
 **설정:** 원본은 앱이 지금 쓰기를 받는 클러스터이고, 옮겨 갈 클러스터를 고릅니다.
 
 ![이전 설정](docs/screenshots/migrate-1-setup.png)
@@ -105,7 +107,7 @@ GitHub 레포로 앱을 등록하고 배포하는 화면입니다(ADR 0011).
 | ![규칙 위반](docs/history/pr6/04-new-app-2-rule-violation.png) | ![platform.yaml 없음](docs/history/pr6/05-new-app-3-no-platform-yaml.png) |
 | **배포 진행 (진행 중, 2/4 빌드)** | **앱 목록: 문제 있음 필터** |
 | ![배포 진행 중](docs/history/pr6/06-deploy-1-in-progress.png) | ![문제 있음](docs/history/pr6/10-apps-filter-problem.png) |
-| **앱 상세 (todo-api, GitHub에서 등록)** | **앱 상세 (shop, 이전 대상)** |
+| **앱 상세 (todo-api, GitHub에서 등록)** | **앱 상세 (이전 대상, 샘플 앱을 moimroom으로 바꾸기 전 화면)** |
 | ![todo-api](docs/screenshots/app-todo-api.png) | ![shop](docs/screenshots/app-shop.png) |
 | **배포 진행 (완료)** | **배포 진행 (빌드 실패)** |
 | ![배포 완료](docs/screenshots/deploy.png) | ![빌드 실패](docs/screenshots/deploy-failed.png) |
@@ -158,7 +160,7 @@ src/sim/mig.ts      계약 모양으로 만드는 이전 시뮬레이션 (Plan, 
 src/sim/deploy.ts   계약 모양으로 만드는 GitHub 앱 배포 시뮬레이션 (App, Deployment, DeploymentEvent, AppSpecValidation)
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전)
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-shop, #routes, #agents, #security, #envs, #device, #design-system)
+src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-app, #routes, #agents, #security, #envs, #device, #design-system)
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나). Entry.tsx는 모드 선택과 로그인, Device.tsx는 CLI 연결
 src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
 ```

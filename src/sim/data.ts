@@ -12,13 +12,12 @@ export interface Env {
   k8s: string;
   storage: string;
   sc: string;
-  bucket: string;
 }
 
 export const ENV: Record<EnvKey, Env> = {
-  aws: { id: "eks", name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3", bucket: "s3:moimroom-photos-eks" },
-  gcp: { id: "gke", name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo", bucket: "gcs:moimroom-photos-gke" },
-  onprem: { id: "k3s", name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path", bucket: "minio:moimroom-photos-k3s" },
+  aws: { id: "eks", name: "AWS EKS", short: "EKS", region: "ap-northeast-2 (서울)", nodes: 3, k8s: "1.34", storage: "S3", sc: "gp3" },
+  gcp: { id: "gke", name: "GCP GKE", short: "GKE", region: "asia-northeast3 (서울)", nodes: 3, k8s: "1.34", storage: "GCS (S3 API)", sc: "standard-rwo" },
+  onprem: { id: "k3s", name: "온프레미스 k3s", short: "k3s", region: "팀 서버 VM", nodes: 3, k8s: "1.34", storage: "MinIO", sc: "local-path" },
 };
 export const ENV_ORDER: EnvKey[] = ["aws", "gcp", "onprem"];
 
@@ -34,7 +33,7 @@ export function envKeyOf(name: string): EnvKey | undefined {
 // platform.yaml has one service `web` (port 8080, /healthz, public) with a postgres `db` and an s3 `photos`;
 // the Helm chart runs 2 replicas; deploy/cnpg/cluster.yaml names the cluster moimroom-db; internal/store/schema.sql
 // creates 5 tables in schema `app`. The domain follows the platform's https://<app>.<PLATFORM_APP_DOMAIN>.
-// MOCK: 버킷 이름, 파일 수, DB 크기는 시뮬레이션 수치다. 실제 값은 일반 모드에서 플랫폼이 준다.
+// MOCK: 파일 수와 DB 크기는 시뮬레이션 수치다. 실제 값은 일반 모드에서 플랫폼이 준다.
 export const SAMPLE = {
   id: "moimroom",
   repo: "2026-Softbank-Hackathon-Charlie/moimroom",
@@ -44,11 +43,18 @@ export const SAMPLE = {
   namespace: "moimroom",
   db: "moimroom-db",
   schema: "app",
-  bucket: "moimroom-photos",
   files: 1284,
   dbSize: "2.1 GiB",
   tables: 5,
 };
+
+// The platform names an app's bucket <bucketPrefix><instance> (platform ADR 0016), and eks's prefix is hopcharlie-eks-.
+// MOCK: gke와 k3s는 플랫폼이 아직 접두어를 정하지 않아 eks와 같은 모양으로 지어 둔 이름이다.
+const BUCKET_REMOTE: Record<EnvKey, string> = { aws: "s3:hopcharlie-eks-", gcp: "gcs:hopcharlie-gke-", onprem: "minio:hopcharlie-k3s-" };
+/** The sample app's bucket on an environment as an rclone remote path, e.g. s3:hopcharlie-eks-moimroom. */
+export const sampleBucket = (k: EnvKey) => BUCKET_REMOTE[k] + SAMPLE.id;
+/** The bucket's own name, without the remote: what the console shows. */
+export const sampleBucketName = (k: EnvKey) => sampleBucket(k).split(":")[1];
 
 /** [at seconds, message] */
 export type LogEntry = [number, string];

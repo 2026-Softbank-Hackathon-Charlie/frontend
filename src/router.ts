@@ -9,7 +9,7 @@ const ROUTES = [
   "new",
   "onboard",
   "migrate",
-  "migrate-shop",
+  "migrate-app",
   "routes",
   "agents",
   "security",
@@ -18,9 +18,13 @@ const ROUTES = [
   "design-system",
 ];
 
+/** Old routes that still open their page: #migrate-shop was the migration page while the sample app was shop. */
+const ALIASES: Record<string, string> = { "migrate-shop": "migrate-app" };
+
 /** #app-<name> is one app, #deploy-<id> one deployment, #apps-<filter> the app list filtered by status. */
 export function parseRoute(hash: string): string {
-  const h = hash.replace(/^#/, "") || "overview";
+  const raw = hash.replace(/^#/, "") || "overview";
+  const h = ALIASES[raw] ?? raw;
   if (ROUTES.includes(h) || /^app-[a-z0-9-]+$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h)) return h;
   return "overview";
 }
