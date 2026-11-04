@@ -78,14 +78,15 @@ describe("migration simulation (platform contract shapes)", () => {
 
     run(S, 70);
     expect(m.run?.phase).toBe("canary");
-    expect(m.run?.canary?.steps[0].weight).toBe(1);
+    expect(m.run?.canary?.steps[0].weight).toBe(10);
 
     run(S, SWITCH_AT - 70);
     expect(m.run?.status).toBe("awaiting_switch");
-    // 1% sees too few requests (inconclusive); every later step passes, the last one decides.
+    // The default quick canary: 10% of a quiet app's reads over 5s is too few to judge (inconclusive);
+    // 50% passes and the last step (100%) decides.
     const steps = m.run?.canary?.steps ?? [];
-    expect(steps.map((s) => s.verdict)).toEqual(["inconclusive", "ok", "ok", "ok", "ok", "ok", "ok"]);
-    expect(steps.map((s) => s.weight)).toEqual([1, 10, 25, 50, 75, 90, 100]);
+    expect(steps.map((s) => s.verdict)).toEqual(["inconclusive", "ok", "ok"]);
+    expect(steps.map((s) => s.weight)).toEqual([10, 50, 100]);
     expect(m.run?.engine.promoteRequested).toBe(false);
     run(S, 10); // waiting does not advance the engine
     expect(m.run?.status).toBe("awaiting_switch");
