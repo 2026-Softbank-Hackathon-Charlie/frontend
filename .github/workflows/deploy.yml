@@ -21,7 +21,7 @@ concurrency:
 jobs:
   publish:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, hopcharlie]
     timeout-minutes: 30
     defaults:
       run:
@@ -95,6 +95,8 @@ jobs:
         env:
           REGISTRY: ${{ steps.config.outputs.registry }}
         run: |
+          # Self-hosted runners keep ~/.docker between jobs: log in to ECR in this job's temp dir.
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker"
           aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
           export IMAGE_TAG="${GITHUB_SHA:0:7}"
           # Keep this Dockerfile in sync with platform/deploy/console/Dockerfile.
