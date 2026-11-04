@@ -107,7 +107,12 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
     }
     const sub: Record<string, string> = {
       queued: "배포 실행기가 가져가기를 기다립니다",
-      building: d.images.length ? d.images.map((x) => x.service).join(", ") + " 이미지, digest로 고정" : "서비스마다 이미지를 빌드합니다" + (d.buildId ? " (" + d.buildId + ")" : ""),
+      building:
+        d.trigger === "redeploy"
+          ? "빌드하지 않고 마지막 정상 배포의 이미지를 다시 씁니다"
+          : d.images.length
+            ? d.images.map((x) => x.service).join(", ") + " 이미지, digest로 고정"
+            : "서비스마다 이미지를 빌드합니다" + (d.buildId ? " (" + d.buildId + ")" : ""),
       committing: "gitops 저장소에 apps/" + instance + "/<환경>.yaml을 씁니다",
       syncing: "Argo CD가 환경 " + d.environments.length + "곳에 동시에 적용합니다",
     };
@@ -134,7 +139,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
         sub={
           <>
             {d.branch && <>{d.branch} 브랜치, </>}
-            {TRIGGER_LABEL[d.trigger]} 배포, {d.ref !== d.branch && d.ref + " "}
+            {d.trigger === "redeploy" ? "빌드 없이 재배포" : TRIGGER_LABEL[d.trigger] + " 배포"}, {d.ref !== d.branch && d.ref + " "}
             <span className="m">{short(d.commit)}</span>, {d.triggeredBy}, <span className="m">{d.id}</span>
           </>
         }

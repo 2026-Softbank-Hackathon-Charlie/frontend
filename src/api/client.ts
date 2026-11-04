@@ -15,6 +15,9 @@ import type {
   AppInstanceCreated,
   AppInstanceCreateRequest,
   AppList,
+  AppSecrets,
+  AppSecretsUpdate,
+  AppSecretValue,
   AppSpecValidateRequest,
   AppSpecValidation,
   AuditList,
@@ -427,7 +430,10 @@ export const validateAppSpec = (req: AppSpecValidateRequest, o?: RequestOptions)
  * Deploy a registered app now (trigger manual). `branch` picks the instance
  * (default: the app's own branch, the default instance), `ref` defaults to
  * that branch, `environments` to all of the app's. 400 for a branch the app
- * does not deploy; 422 as for createApp.
+ * does not deploy; 422 as for createApp. With `redeploy: true` (trigger
+ * redeploy) nothing is built: the instance's last healthy deployment goes out
+ * again with the secrets as they are now; 409 nothing_to_redeploy when it has
+ * none, 400 with `ref`.
  */
 export const createDeployment = (name: string, req?: DeploymentCreateRequest, o?: RequestOptions) =>
   request<Deployment>("POST", `/v1/apps/${seg(name)}/deployments`, { ...o, body: req });
@@ -449,5 +455,22 @@ export const deleteAppInstance = (name: string, instance: string, o?: RequestOpt
   request<void>("DELETE", `/v1/apps/${seg(name)}/instances/${seg(instance)}`, { ...o, noContent: true });
 export const getDeployment = (id: string, o?: RequestOptions) =>
   request<Deployment>("GET", `/v1/deployments/${seg(id)}`, o);
+
+// --- app secrets (ADR 0019) ---
+// Values travel only in the PUT body and the getAppSecret answer, never in a URL, and are never logged.
+
+/** The names of the app-wide secrets and of each instance's overrides, without values. 503 secrets_not_configured when the server has no secrets key. Role viewer. */
+export const listAppSecrets = (name: string, o?: RequestOptions) => request<AppSecrets>("GET", `/v1/apps/${seg(name)}/secrets`, o);
+/**
+ * Set and delete secrets in one change: app-wide without `instance`, or that
+ * instance's overrides with it. Answers the names after the change. Running
+ * instances keep the old values until a deployment (createDeployment with
+ * `redeploy`). 400 invalid_request, 404 instance_not_found. Role operator.
+ */
+export const updateAppSecrets = (name: string, body: AppSecretsUpdate, o?: RequestOptions) =>
+  request<AppSecrets>("PUT", `/v1/apps/${seg(name)}/secrets`, { ...o, body });
+/** One value, for the show button; with `instance`, that instance's override. Every call is audited. 404 secret_not_found or instance_not_found. Role operator. */
+export const getAppSecret = (name: string, secret: string, q: { instance?: string } = {}, o?: RequestOptions) =>
+  request<AppSecretValue>("GET", `/v1/apps/${seg(name)}/secrets/${seg(secret)}`, { ...o, query: { instance: q.instance || undefined } });
 /** The repositories the GitHub App installation can see, by full name. */
 export const listGitHubRepos = (o?: RequestOptions) => request<GitHubRepoList>("GET", "/v1/github/repos", o);

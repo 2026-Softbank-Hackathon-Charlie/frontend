@@ -151,3 +151,10 @@ export type DeploymentEventType = S["DeploymentEventType"];
 export type DeploymentEvent = S["DeploymentEvent"];
 export type GitHubRepo = S["GitHubRepo"];
 export type GitHubRepoList = S["GitHubRepoList"];
+
+// App secrets (ADR 0019).
+export type AppSecretInfo = S["AppSecretInfo"];
+export type InstanceSecrets = S["InstanceSecrets"];
+export type AppSecrets = S["AppSecrets"];
+export type AppSecretsUpdate = S["AppSecretsUpdate"];
+export type AppSecretValue = S["AppSecretValue"];

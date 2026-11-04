@@ -22,6 +22,7 @@ import type {
 import { DEP_READY, ENV, ENV_ORDER, envKeyOf } from "./data";
 import { dur } from "./format";
 import { iso } from "./mig";
+import { freshSecrets, type SecretsSim } from "./secrets";
 
 export const APP_DOMAIN = "hopcharlie.dev";
 /** Names the platform serves itself under the app domain (409 app_exists, ADR 0012). */
@@ -233,6 +234,8 @@ export interface DeploySim {
   active: Record<string, Active>;
   seq: number;
   nextId: number;
+  /** the registered apps' secrets (sim/secrets.ts) */
+  secrets: SecretsSim;
 }
 
 /** Deterministic hex for ids, digests and commits. */
@@ -256,8 +259,10 @@ export function isFinal(s: DeploymentStatus): boolean {
 function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, commit: string, envs: string[], trigger: DeploymentTrigger): Step[] {
   const c7 = commit.slice(0, 7);
   const s: Step[] = [{ at: 0, type: "phase", phase: "queued", message: "대기열에 들어갔습니다 (trigger " + trigger + ")" }];
-  s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
-  const broken = Object.values(f?.branches ?? {}).find((b) => b.commit === commit)?.buildError;
+  // A redeploy builds nothing: the last healthy deployment's images go out again with the current secrets.
+  const again = trigger === "redeploy";
+  if (!again) s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
+  const broken = again ? undefined : Object.values(f?.branches ?? {}).find((b) => b.commit === commit)?.buildError;
   if (broken) {
     const v = spec.services[0];
     const p = (at: number, message: string) => s.push({ at, type: "log", phase: "building", message: "[" + v.name + "] " + message });
@@ -271,7 +276,7 @@ function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, comm
     s.push({ at: 38, type: "done", phase: "failed", message: v.name + ": " + broken });
     return s;
   }
-  spec.services.forEach((v, i) => {
+  if (!again) spec.services.forEach((v, i) => {
     const o = 2 + i; // services build side by side
     const p = (at: number, message: string) => s.push({ at: o + at, type: "log", phase: "building", message: "[" + v.name + "] " + message });
     p(1, "#1 [internal] load build definition from " + (v.path === "." ? "" : v.path + "/") + v.dockerfile);
@@ -285,13 +290,14 @@ function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, comm
     p(47, "#9 pushing " + REGISTRY + "/hopcharlie/apps/" + spec.name + "/" + v.name + ":" + c7);
     p(49, "#9 digest: sha256:" + hex(commit + v.name, 64));
   });
-  s.push({ at: 52, type: "phase", phase: "committing", message: "gitops에 apps/" + instance + "/<env>.yaml 커밋" });
-  for (const e of envs) s.push({ at: 52, type: "log", phase: "committing", message: "apps/" + instance + "/" + e + ".yaml: " + c7 + ", 이미지 digest 고정" });
-  s.push({ at: 54, type: "log", phase: "committing", message: "commit " + hex(commit + "gitops", 7) + " (2026-Softbank-Hackathon-Charlie/gitops)" });
-  s.push({ at: 55, type: "phase", phase: "syncing", message: "Argo CD에 refresh 요청, 환경 " + envs.length + "곳에 동시에 적용" });
-  for (const e of envs) s.push({ at: 56, type: "environment", env: e, envStatus: "syncing", message: "OutOfSync, Progressing" });
-  for (const e of envs) s.push({ at: ready(e), type: "environment", env: e, envStatus: "healthy", message: "Synced, Healthy" });
-  const end = Math.max(...envs.map(ready)) + 1;
+  const o = again ? -50 : 0;
+  s.push({ at: 52 + o, type: "phase", phase: "committing", message: (again ? "빌드 없이 마지막 정상 배포의 이미지로 " : "") + "gitops에 apps/" + instance + "/<env>.yaml 커밋" });
+  for (const e of envs) s.push({ at: 52 + o, type: "log", phase: "committing", message: "apps/" + instance + "/" + e + ".yaml: " + c7 + (again ? ", 시크릿 다시 봉인, appChecksum 갱신" : ", 이미지 digest 고정") });
+  s.push({ at: 54 + o, type: "log", phase: "committing", message: "commit " + hex(commit + (again ? "gitops-redeploy" : "gitops"), 7) + " (2026-Softbank-Hackathon-Charlie/gitops)" });
+  s.push({ at: 55 + o, type: "phase", phase: "syncing", message: "Argo CD에 refresh 요청, 환경 " + envs.length + "곳에 동시에 적용" });
+  for (const e of envs) s.push({ at: 56 + o, type: "environment", env: e, envStatus: "syncing", message: "OutOfSync, Progressing" });
+  for (const e of envs) s.push({ at: ready(e) + o, type: "environment", env: e, envStatus: "healthy", message: "Synced, Healthy" });
+  const end = Math.max(...envs.map(ready)) + o + 1;
   s.push({ at: end, type: "done", phase: "healthy", message: "모든 환경이 Synced, Healthy" });
   return s.sort((a, b) => a.at - b.at);
 }
@@ -434,7 +440,7 @@ function register(d: DeploySim, repo: string, branch: string, environments: stri
 }
 
 export function freshDeploy(): DeploySim {
-  const d: DeploySim = { now: 0, apps: [], deployments: [], events: {}, active: {}, seq: 0, nextId: 1 };
+  const d: DeploySim = { now: 0, apps: [], deployments: [], events: {}, active: {}, seq: 0, nextId: 1, secrets: freshSecrets() };
   // todo-api: registered yesterday, deployed again by a push 12 minutes ago.
   const envs = ENV_ORDER.map((k) => ENV[k].id);
   const app = register(d, ORG + "/todo-api", "main", envs, true, -86_700);
@@ -492,6 +498,27 @@ export function redeploy(d: DeploySim, name: string, branch?: string): string | 
   return newDeployment(d, app, inst, "manual", "operator", inst.branch, v.commit!, d.now).id;
 }
 
+const lastHealthy = (d: DeploySim, instance: string) => d.deployments.find((x) => x.instance === instance && x.status === "healthy");
+
+/** What POST /v1/apps/{name}/deployments with `redeploy` would refuse, or null when it would deploy. */
+export function checkRedeploy(d: DeploySim, name: string, branch: string): Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  const inst = app.deploy.instances.find((i) => i.branch === branch);
+  if (!inst) return { status: 400, code: "invalid_request", message: `app ${name} does not deploy branch ${branch}` };
+  if (!lastHealthy(d, inst.name)) return { status: 409, code: "nothing_to_redeploy", message: `instance ${inst.name} has no healthy deployment to deploy again` };
+  return null;
+}
+
+/** The instance's last healthy deployment again (trigger redeploy): same commit and images, no build. Returns the deployment id. */
+export function redeployNoBuild(d: DeploySim, name: string, branch: string): string | null {
+  if (checkRedeploy(d, name, branch)) return null;
+  const app = d.apps.find((a) => a.name === name)!;
+  const inst = app.deploy!.instances.find((i) => i.branch === branch)!;
+  const last = lastHealthy(d, inst.name)!;
+  return newDeployment(d, app, inst, "redeploy", "operator", last.ref, last.commit, d.now).id;
+}
+
 /**
  * What POST /v1/apps/{name}/instances would refuse, in the server's order
  * (createAppInstance, then the store): a bad branch name, the app's own
@@ -536,6 +563,7 @@ export function removeInstance(d: DeploySim, name: string, instance: string): bo
   const inst = instanceOf(app, instance);
   if (!app?.deploy || !inst || inst.default) return false;
   app.deploy.instances = app.deploy.instances.filter((i) => i !== inst);
+  delete d.secrets[name]?.[instance];
   for (const dep of d.deployments.filter((x) => x.instance === instance)) {
     delete d.events[dep.id];
     delete d.active[dep.id];
@@ -548,6 +576,7 @@ export function removeInstance(d: DeploySim, name: string, instance: string): bo
 export function deleteApp(d: DeploySim, name: string): boolean {
   if (!d.apps.some((a) => a.name === name)) return false;
   d.apps = d.apps.filter((a) => a.name !== name);
+  delete d.secrets[name];
   for (const dep of d.deployments.filter((x) => x.app === name)) {
     delete d.events[dep.id];
     delete d.active[dep.id];

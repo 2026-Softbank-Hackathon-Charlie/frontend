@@ -53,6 +53,8 @@ export interface AppModel {
   now: number;
   /** Deploys the head of `branch` into its instance; without one, the app's own branch (the default instance). */
   redeploy(branch?: string): Promise<SubmitResult>;
+  /** Deploys the last healthy deployment of `branch`'s instance again without a build (trigger redeploy), with the secrets as they are now. */
+  redeployNoBuild(branch: string): Promise<SubmitResult>;
   /** Deploys another branch as its own instance; the result is its first deployment. */
   addBranch(branch: string, autoDeploy: boolean): Promise<SubmitResult>;
   /** Resolves with an error message, or "" once the instance is removed. */
@@ -87,6 +89,9 @@ const DEPLOY_ERRORS: Record<string, string> = {
   instance_limit: "앱 하나에 인스턴스는 기본 인스턴스를 포함해 " + dep.MAX_INSTANCES + "개까지입니다. 인스턴스를 하나 지운 뒤 추가하세요",
   default_instance: "기본 인스턴스는 앱을 삭제할 때만 지울 수 있습니다",
   instance_not_found: "인스턴스를 찾을 수 없습니다. 이미 지워졌을 수 있습니다",
+  nothing_to_redeploy: "이 인스턴스에는 아직 정상(healthy) 배포가 없어 재배포할 수 없습니다. 먼저 배포를 한 번 끝내세요",
+  secrets_not_configured: "서버에 시크릿 키가 설정되어 있지 않습니다",
+  secret_not_found: "시크릿을 찾을 수 없습니다. 다른 곳에서 지웠을 수 있습니다",
 };
 
 /** A short Korean message for a failed deploy call. */
@@ -207,6 +212,12 @@ export function useSimApp(name: string): AppModel {
       dispatch({ type: "app-redeploy", name, branch });
       return { deploymentId: S.deploy.deployments[0].id };
     },
+    redeployNoBuild: async (branch) => {
+      const refused = dep.checkRedeploy(S.deploy, name, branch);
+      if (refused) return { error: deployErrorText(new ApiError(refused.status, refused.code, refused.message)) };
+      dispatch({ type: "app-redeploy-nobuild", name, branch });
+      return { deploymentId: S.deploy.deployments[0].id };
+    },
     addBranch: async (branch, autoDeploy) => {
       const refused = dep.checkAddInstance(S.deploy, name, branch);
       if (refused && "code" in refused) return { error: deployErrorText(new ApiError(refused.status, refused.code, refused.message)) };
@@ -285,6 +296,12 @@ export function useLiveApp(name: string): AppModel {
     redeploy: (branch) =>
       submitting(async () => {
         const d = await createDeployment(name, branch ? { branch } : undefined);
+        deployments.reload();
+        return d;
+      }),
+    redeployNoBuild: (branch) =>
+      submitting(async () => {
+        const d = await createDeployment(name, { branch, redeploy: true });
         deployments.reload();
         return d;
       }),
