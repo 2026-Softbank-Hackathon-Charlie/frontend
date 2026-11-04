@@ -135,25 +135,44 @@ function capacityItem(line: string, m: CapacityMeasurements): PreflightItem | un
 
 const fromLabel = (from?: string) => (from === "manifest" ? "manifest 설정" : "실행 중인 대상");
 
+interface StandbySetting {
+  name: string;
+  src?: number;
+  dst?: number;
+  from?: string;
+}
+type Compared = StandbySetting & { src: number; dst: number };
+const compared = (s: StandbySetting): s is Compared => s.src !== undefined && s.dst !== undefined;
+
+/**
+ * Hot standby settings PostgreSQL also requires at or above the primary's, but the platform's
+ * standby_settings check does not read. A pass must not read as covering them.
+ */
+const STANDBY_UNCHECKED = "max_wal_senders, max_prepared_transactions, max_locks_per_transaction";
+
 /**
  * The target starts as a hot standby of the source, and PostgreSQL refuses to start one whose
  * setting is below the primary's. Mirrors the platform's capacity.standbySettings: a setting
- * unknown on either side is left out.
+ * unknown on either side is not compared, so the sentence names it instead of hiding it.
  */
 function standbyDetail(code: string, m: CapacityMeasurements): string | undefined {
   if (code === "not_measured") return "원본이나 대상의 max_connections, max_worker_processes를 읽지 못해 비교하지 않았습니다";
-  const pairs = [
+  const settings: StandbySetting[] = [
     { name: "max_connections", src: m.sourceMaxConnections, dst: m.targetMaxConnections, from: m.targetMaxConnectionsFrom },
     { name: "max_worker_processes", src: m.sourceMaxWorkerProcesses, dst: m.targetMaxWorkerProcesses, from: m.targetMaxWorkerProcessesFrom },
-  ].flatMap((p) => (p.src === undefined || p.dst === undefined ? [] : [{ ...p, src: p.src, dst: p.dst }]));
-  const text = (p: (typeof pairs)[number]) => p.name + " 대상 " + p.dst + " (" + fromLabel(p.from) + "), 원본 " + p.src;
+  ];
+  const known = settings.filter(compared);
+  const text = (s: Compared) => s.name + " 대상 " + s.dst + " (" + fromLabel(s.from) + "), 원본 " + s.src;
   if (code === "target_below_source") {
-    const short = pairs.filter((p) => p.dst < p.src);
+    const short = known.filter((s) => s.dst < s.src);
     if (short.length === 0) return undefined;
     return short.map(text).join(", ") + ". 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다";
   }
-  if (code === "ok" && pairs.length > 0) return pairs.map(text).join(", ") + ". 모두 원본 이상입니다";
-  return undefined;
+  if (code !== "ok" || known.length === 0) return undefined;
+  const unknown = settings.filter((s) => !compared(s));
+  const why = (s: StandbySetting) =>
+    s.name + " 설정은 " + (s.src === undefined && s.dst === undefined ? "원본과 대상 값을" : s.src === undefined ? "원본 값을" : "대상 값을") + " 몰라 비교하지 못했습니다" + (s.dst === undefined ? " (대상에 연결되지 않고 manifest에도 없음)" : "");
+  return [known.map(text).join(", ") + ": 원본 이상입니다", ...unknown.map(why), "이 검사는 " + STANDBY_UNCHECKED + " 설정을 비교하지 않습니다"].join(". ");
 }
 
 /** A Korean sentence from the measurements; undefined falls back to the platform's text. */

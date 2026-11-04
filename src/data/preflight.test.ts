@@ -103,12 +103,26 @@ describe("pre-start checks from the audit log", () => {
       detail: "max_connections 대상 100 (manifest 설정), 원본 200. 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다",
       raw: "platform text",
     });
-    expect(standby("ok", "pass", { ...both, targetMaxConnections: 200 }).detail).toBe(
-      "max_connections 대상 200 (manifest 설정), 원본 200, max_worker_processes 대상 8 (실행 중인 대상), 원본 8. 모두 원본 이상입니다",
+    expect(standby("target_below_source", "fail", { ...both, targetMaxConnections: 200, targetMaxWorkerProcesses: 4 }).detail).toBe(
+      "max_worker_processes 대상 4 (실행 중인 대상), 원본 8. 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다",
     );
-    // a setting unknown on either side is left out, as the platform does
-    expect(standby("ok", "pass", { sourceMaxConnections: 100, targetMaxConnections: 300, targetMaxConnectionsFrom: "target", sourceMaxWorkerProcesses: 8 }).detail).toBe(
-      "max_connections 대상 300 (실행 중인 대상), 원본 100. 모두 원본 이상입니다",
+    expect(standby("target_below_source", "fail", { ...both, targetMaxWorkerProcesses: 4 }).detail).toBe(
+      "max_connections 대상 100 (manifest 설정), 원본 200, max_worker_processes 대상 4 (실행 중인 대상), 원본 8. 대상은 원본의 대기 서버로 뜨므로 원본 값 이상이어야 합니다",
+    );
+
+    // a pass names what it compared and what it did not, so it never reads as covering every hot standby setting
+    const unchecked = "이 검사는 max_wal_senders, max_prepared_transactions, max_locks_per_transaction 설정을 비교하지 않습니다";
+    expect(standby("ok", "pass", { ...both, targetMaxConnections: 200 }).detail).toBe(
+      "max_connections 대상 200 (manifest 설정), 원본 200, max_worker_processes 대상 8 (실행 중인 대상), 원본 8: 원본 이상입니다. " + unchecked,
+    );
+    // a setting unknown on either side is not compared, as the platform does, and the sentence says so:
+    // the target's max_worker_processes is missing from the manifest, so it would start at PostgreSQL's default
+    expect(standby("ok", "pass", { sourceMaxConnections: 100, targetMaxConnections: 300, targetMaxConnectionsFrom: "target", sourceMaxWorkerProcesses: 16 }).detail).toBe(
+      "max_connections 대상 300 (실행 중인 대상), 원본 100: 원본 이상입니다. max_worker_processes 설정은 대상 값을 몰라 비교하지 못했습니다 (대상에 연결되지 않고 manifest에도 없음). " + unchecked,
+    );
+    expect(standby("ok", "pass", { sourceMaxConnections: 100, targetMaxConnections: 300, targetMaxWorkerProcesses: 8 }).detail).toContain("max_worker_processes 설정은 원본 값을 몰라 비교하지 못했습니다. ");
+    expect(standby("ok", "pass", { sourceMaxConnections: 100, targetMaxConnections: 300 }).detail).toContain(
+      "max_worker_processes 설정은 원본과 대상 값을 몰라 비교하지 못했습니다 (대상에 연결되지 않고 manifest에도 없음). ",
     );
     expect(standby("not_measured", "unknown", {})).toMatchObject({ status: "unknown", detail: "원본이나 대상의 max_connections, max_worker_processes를 읽지 못해 비교하지 않았습니다" });
     // measurements that do not back the platform's verdict fall back to its own text
