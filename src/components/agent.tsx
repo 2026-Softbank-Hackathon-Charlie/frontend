@@ -106,9 +106,14 @@ export function SessionFeed({ s, events }: { s: AgentSession; events: AgentEvent
   );
 }
 
+/** What the AI tried and what stopped it, from `blocked` events. */
+export function blockedOf(events: AgentEvent[]): { command: string; by: string }[] {
+  return events.filter((e) => e.type === "blocked").map((e) => ({ command: short((e.input as { command?: string } | undefined)?.command ?? e.tool), by: short(e.output) }));
+}
+
 /** The commands the platform blocked for the AI, from `blocked` events. */
 export function BlockedTable({ events }: { events: AgentEvent[] }) {
-  const blk = events.filter((e) => e.type === "blocked");
+  const blk = blockedOf(events);
   return (
     <div className="box">
       <div className="bh">
@@ -116,10 +121,7 @@ export function BlockedTable({ events }: { events: AgentEvent[] }) {
         <Chip>{blk.length}건</Chip>
       </div>
       {blk.length ? (
-        <Table
-          head={["AI 권한으로 시도한 명령", "막은 장치", ""]}
-          rows={blk.map((e) => [td(short((e.input as { command?: string } | undefined)?.command ?? e.tool), "m"), td(short(e.output)), td(<Chip kind="bad">차단</Chip>)])}
-        />
+        <Table head={["AI 권한으로 시도한 명령", "막은 장치", ""]} rows={blk.map((b) => [td(b.command, "m"), td(b.by), td(<Chip kind="bad">차단</Chip>)])} />
       ) : (
         <div className="bb">
           <p className="hint">아직 없습니다.</p>

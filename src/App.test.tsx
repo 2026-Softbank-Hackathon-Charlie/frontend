@@ -65,6 +65,7 @@ describe("HopCharlie console (simulation)", () => {
     expect(screen.getAllByText("kubectl get secrets -n moimroom").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    await user.click(screen.getByRole("tab", { name: /시작 전 검사/ }));
     expect(screen.getByText("시작 전 검사")).toBeInTheDocument();
     expect(screen.getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
     ticks(sim, SWITCH_AT);
