@@ -2,11 +2,11 @@
    Type sizes: 12, 13, 14, 16, 18, 24, 32px. Weights: 400, 500, 700. */
 * { box-sizing: border-box; }
 html { overflow-x: clip; }
-body { margin: 0; overflow-x: clip; background: var(--canvas); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; font-synthesis: none; }
+body { margin: 0; overflow-x: clip; background: var(--canvas); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; font-synthesis: none; word-break: keep-all; }
 h1, h2, h3 { color: var(--heading); margin: 0; text-wrap: balance; }
 p { margin: 0; }
-/* Korean breaks between words, and a paragraph does not end on one stray word */
-p, .hint { word-break: keep-all; text-wrap: pretty; }
+/* Korean breaks between words (body), and a paragraph does not end on one stray word */
+p, .hint { text-wrap: pretty; }
 a { color: var(--fg); }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
