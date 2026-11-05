@@ -4,6 +4,7 @@ import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AppInstance, AppSpec, AppSpecFieldError, Deployment, DeploymentEnvironmentStatus, DeploymentStatus, DeploymentTrigger } from "../api/types";
 import { instancesOf } from "../data/deploy";
 import { errorText } from "../data/live";
+import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
 import { envName } from "./shared";
 import { Chip, ProgItem, Table, td, type ChipKind } from "./ui";
 
@@ -297,6 +298,34 @@ export function appHealth(a: App): AppHealth | undefined {
   return "healthy";
 }
 
+/** A chip kind, or "off": a dashed chip for an environment the app is not in. */
+type EnvTag = ChipKind | "off";
+const tagClass = (t: EnvTag) => "chip" + (t ? " " + t : "");
+
+/**
+ * Where an app is, as one short chip per platform environment. A registered
+ * app shows its default instance's state there (pending reads as deploying
+ * while its deployment runs). A file app (PLATFORM_APPS_FILE) has no health,
+ * so it is only "registered", in grey. Environments match by key: the
+ * platform names on-prem "onprem", the simulation "k3s".
+ */
+function envChips(a: App, def: AppInstance | undefined) {
+  const deploying = !!def?.lastDeployment && !isFinalDeploymentStatus(def.lastDeployment.status);
+  return ENV_ORDER.map((k) => {
+    let st: [EnvTag, string] = ["off", "그 환경에 없음"];
+    const s = def?.status.find((x) => envKeyOf(x.env) === k);
+    if (s) st = s.status === "pending" && deploying ? ["run", "배포 중"] : ENV_STATUS[s.status];
+    else if (a.deploy?.environments.some((e) => envKeyOf(e) === k)) st = ["", "대기"];
+    else if (!def && a.environments.some((e) => envKeyOf(e.env) === k)) st = ["", "등록됨, 상태 모름"];
+    return (
+      <span key={k} className={tagClass(st[0])} title={ENV[k].name + " " + st[1]}>
+        {ENV[k].short}
+        <span className="sr-only"> {st[1]}</span>
+      </span>
+    );
+  });
+}
+
 /** File apps and registered apps in one table, as GET /v1/apps lists them. */
 export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: number; busy?: Record<string, string>; full: boolean }) {
   const rows = apps.map((a) => {
@@ -314,7 +343,7 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
     const others = insts.filter((i) => !i.default).map((i) => [i, instanceHealth(i)] as const);
     const envs = (
       <div className="chips">
-        {d ? d.status.map((s) => <EnvChip key={s.env} s={s.status} env={s.env} />) : a.environments.map((e) => <Chip key={e.env}>{envName(e.env)}</Chip>)}
+        <span className="envchips">{envChips(a, insts.find((i) => i.default))}</span>
         {others.map(([i, h]) =>
           h === "healthy" ? null : (
             <Chip key={i.name} kind={h === "problem" ? "bad" : "run"}>
@@ -322,7 +351,8 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
             </Chip>
           ),
         )}
-        {busy[a.name] && <Chip kind="run">{busy[a.name]}</Chip>}
+        {/* busy is only a label: one that waits on a person ("승인 대기", "전환 승인 대기") is amber, machine work blue */}
+        {busy[a.name] && <Chip kind={busy[a.name].includes("승인 대기") ? "warn" : "run"}>{busy[a.name]}</Chip>}
       </div>
     );
     const r = [td(name)];
@@ -362,6 +392,22 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
   return (
     <div className="box">
       <Table head={head} rows={rows} />
+      {/* each chip carries its state as hidden text and a title, so the legend is for the eye only */}
+      <div className="legend envlegend" aria-hidden="true">
+        {LEGEND.map(([tag, text]) => (
+          <span key={text}>
+            <span className={tagClass(tag)}>EKS</span> {text}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
+
+const LEGEND: [EnvTag, string][] = [
+  ["ok", "정상"],
+  ["run", "배포 중"],
+  ["bad", "문제 있음"],
+  ["", "대기 또는 상태 모름"],
+  ["off", "그 환경에 없음"],
+];

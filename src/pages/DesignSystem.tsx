@@ -18,6 +18,17 @@ const COLORS: [string, string, string, string, boolean?][] = [
   ["ok-bg", "#e8f3ed", "완료 칩과 완료 안내 상자 배경", ""],
   ["bad", "#a3271c", "실패, 차단 (글자와 표시)", "bad-bg 위 6.3:1"],
   ["bad-bg", "#f9ebe9", "실패 칩과 실패 안내 상자 배경", ""],
+  ["run", "#1f5aa6", "진행 중 (칩 글자, 진행 막대)", "run-bg 위 5.9:1, canvas 위 6.8:1"],
+  ["run-bg", "#e8eff9", "진행 중 칩 배경", ""],
+  ["warn", "#7a4a00", "사람을 기다림 (Plan 승인, 전환 승인)", "warn-bg 위 6.6:1, warn-tint 위 7.3:1"],
+  ["warn-bg", "#fbf0dc", "대기 칩 배경", ""],
+  ["warn-tint", "#fffbf3", "사람을 기다리는 상태 카드 배경 (테두리 warn-line #e6c98f)", ""],
+  ["ok-tint", "#f5fbf7", "성공 상태 카드 배경 (테두리 ok-line #b7d8c4)", ""],
+  ["neu", "#5f5f64", "중립 칩 글자 (대기, 미실행, 참고)", "neu-bg 위 5.6:1"],
+  ["neu-bg", "#f1f1f2", "중립 칩 배경", ""],
+  ["card-line", "#dcdcde", "상자 테두리", "canvas 위 1.4:1. 장식용 경계라 대비 기준 밖", true],
+  ["line-soft", "#ececee", "상자 머리글 아래, 위쪽 막대 아래 구분선", ""],
+  ["side-bg", "#f7f7f8", "사이드 메뉴 바탕", "muted 글자 5.5:1"],
 ];
 
 /** [style, sample, spec] */
@@ -41,10 +52,12 @@ const SPACE: [string, number, string][] = [
   ["sp-lg", 20, "메뉴 항목 사이"],
 ];
 const RADIUS: [string, string, string][] = [
-  ["r-none", "0", "상자, 표, 지표 칸, 상태 표시 (기본은 각진 모서리)"],
-  ["r-control", "6px", "버튼, 입력칸, 코드 블록"],
+  ["r-none", "0", "지표 칸, 단계 표시"],
+  ["r-chip", "4px", "칩 (버튼과 구분되게 각지고 테두리 없음)"],
+  ["r-control", "6px", "버튼, 입력칸, 코드 블록, 메뉴 항목"],
+  ["r-card", "8px", "상자, 표 상자, 상태 카드"],
   ["r-badge", "10px", "작은 배지 (예약)"],
-  ["r-pill", "50px", "칩"],
+  ["r-pill", "50px", "예약"],
 ];
 const MOTION: [string, string, string][] = [
   ["ease", "cubic-bezier(0.4, 0, 0.2, 1)", "등장, 진행 막대, 트래픽 비율"],
@@ -90,8 +103,8 @@ export function DesignSystem() {
         <div className="box fillbox">
           <div className="bb">
             <ul className="ds-list">
-              <li>흰 바탕, 가는 경계선, 그림자 없음. 상자는 각지게 두고 둥근 모서리는 버튼, 입력칸, 칩에만 씁니다.</li>
-              <li>색은 상태에만 씁니다. 완료·통과는 ok, 실패·차단은 bad, 진행 중은 fg 테두리. 상태는 항상 글자로도 적습니다.</li>
+              <li>흰 바탕, 가는 경계선, 그림자 없음. 상자는 8px, 버튼과 입력칸은 6px, 칩은 4px 모서리를 씁니다.</li>
+              <li>색은 상태에만 씁니다. 완료와 통과는 ok, 실패와 차단은 bad, 기계가 일하는 중은 run, 사람이 할 일은 warn, 대기와 예정은 중립 회색입니다. 상태는 항상 글자로도 적습니다.</li>
               <li>요약을 먼저, 자세한 내용은 아래에. 진행 단계, 지표, 트래픽, 상세 목록, 기록 순서로 놓습니다.</li>
               <li>숫자는 고정폭(tabular-nums)으로, 명령과 경로는 Mono로 적습니다.</li>
               <li>문장은 짧은 평서문. 버튼은 하는 일을 그대로 씁니다 ("승인하고 실행", "삭제 승인").</li>
@@ -166,6 +179,7 @@ export function DesignSystem() {
             rows={[
               [td("대기"), td(<Chip>대기</Chip>), td(<Ind st="wait" />), td("아직 시작하지 않은 단계, 미실행 경로")],
               [td("진행 중"), td(<Chip kind="run">진행 중</Chip>), td(<Ind st="run" />), td("지금 돌고 있는 단계, 메뉴의 진행 배지")],
+              [td("사람을 기다림"), td(<Chip kind="warn">승인 대기</Chip>), td(<Ind st="wait" />), td("Plan 승인 대기, 전환 승인 대기")],
               [td("완료·통과"), td(<Chip kind="ok">통과</Chip>), td(<Ind st="ok" />), td("끝난 단계, 검사 통과, 정상")],
               [td("실패·차단"), td(<Chip kind="bad">차단</Chip>), td(<Ind st="bad" />), td("리허설 실패, 막힌 명령")],
             ]}

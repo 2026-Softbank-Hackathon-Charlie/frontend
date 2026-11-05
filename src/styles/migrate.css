@@ -1,0 +1,190 @@
+/*
+ * Migration screens (#migrate-app): the run's headline card with its progress track, the four phase groups,
+ * the report, the approval checklist and the decision column. Loaded after app.css and motion.css (main.tsx
+ * imports the global styles first), so a rule here wins a tie against them; every rule is still scoped by an
+ * mg- class so it touches no other page.
+ */
+
+/*
+ * ---------- approval: main column and a decision column ----------
+ * In the DOM (and on narrow screens): what changed, the decision, the folded details. Wide screens put the
+ * decision in a right column spanning both left parts; it spans a flexible second row, so a tall decision card
+ * lengthens that row and never pushes the folds away from the content above them.
+ */
+.mg-cols { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
+.mg-main { display: grid; gap: 20px; min-width: 0; }
+.mg-side { display: grid; gap: 16px; min-width: 0; }
+@media (min-width: 1100px) {
+  .mg-cols { grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto 1fr; }
+  .mg-cols > .mg-main { grid-column: 1; grid-row: 1; }
+  .mg-cols > .mg-side { grid-column: 2; grid-row: 1 / span 2; }
+  .mg-cols > .mg-more { grid-column: 1; grid-row: 2; }
+}
+.mg-side .kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.mg-side .kv dt { margin-top: 10px; font-size: 12.5px; }
+.mg-side .kv dt:first-child { margin-top: 0; }
+.mg-decide { display: grid; gap: 8px; }
+
+/* folds with a chevron: Plan 상세, AI 세션 기록, the setup's full descriptions */
+.mg-fold > summary { justify-content: flex-start; }
+.mg-fold > summary > :nth-child(2) { margin-left: auto; }
+.mg-fold > summary::after {
+  content: ""; width: 7px; height: 7px; flex: none; margin: -3px 2px 0 12px;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg);
+}
+.mg-fold[open] > summary::after { margin-top: 3px; transform: rotate(-135deg); }
+.mg-progmore { border-top: 1px solid var(--line-soft); }
+
+/* "확인한 것": one row per check with a round state mark */
+.mg-checks { list-style: none; margin: 0; padding: 0; }
+.mg-checks > li { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.mg-checks > li:last-child { border-bottom: 0; }
+.mg-checks > li > div, .mg-checks > li > details { flex: 1; min-width: 0; }
+.mg-checks b { display: block; font-size: 14px; font-weight: 600; color: var(--heading); }
+.mg-checks small { display: block; font-size: 12.5px; color: var(--muted); }
+.mg-checks summary { cursor: pointer; list-style: none; }
+.mg-checks summary::-webkit-details-marker { display: none; }
+.mg-blocked { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.mg-blocked li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; border-radius: var(--r-control); background: var(--side-bg); }
+.mg-blocked code { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+
+/* state marks: a bare glyph in lists, a tinted disc in the checklist */
+.mg-mark, .mg-ic { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.mg-mark { width: 14px; height: 14px; }
+.mg-ic { width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; background: var(--neu-bg); color: var(--neu); }
+.mg-mark svg, .mg-ic svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mg-mark svg { width: 14px; height: 14px; }
+.mg-mark.ok { color: var(--ok); }
+.mg-mark.bad { color: var(--bad); }
+.mg-mark.warn { color: var(--warn); }
+.mg-mark.wait { color: var(--hairline); }
+.mg-mark.neu { color: var(--neu); }
+.mg-mark.wait svg { stroke-width: 1.4; }
+.mg-ic.ok { background: var(--ok-bg); color: var(--ok); }
+.mg-ic.bad { background: var(--bad-bg); color: var(--bad); }
+.mg-ic.warn { background: var(--warn-bg); color: var(--warn); }
+.mg-ic.run { background: var(--run-bg); }
+.mg-mark .ind, .mg-ic .ind { margin: 0; width: 14px; height: 14px; }
+.mg-mark .ind.run svg, .mg-ic .ind.run svg { width: 14px; height: 14px; }
+.mg-ic .ind.run .arc { stroke: var(--run); }
+.mg-mark .ind.run .arc { stroke: var(--run); }
+
+/* ---------- run: headline card ---------- */
+.mg-hero .mg-top { display: flex; flex-wrap: wrap; gap: 16px 20px; align-items: center; justify-content: space-between; padding: 20px 22px 18px; }
+.mg-say { flex: 1 1 420px; min-width: 0; display: grid; gap: 8px; justify-items: start; }
+.mg-say h2 { font-size: 20px; font-weight: 700; line-height: 1.4; }
+.mg-say p { font-size: 14px; color: var(--muted); max-width: 72ch; }
+.mg-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* progress over the four groups: done dark, the current one in its state color, later ones light */
+.mg-track { list-style: none; margin: 0; padding: 0 22px 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.mg-track li { display: grid; gap: 7px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.mg-track i { display: block; position: relative; overflow: hidden; height: 10px; border-radius: 5px; background: var(--card-line); }
+.mg-track span { display: flex; flex-wrap: wrap; gap: 0 6px; align-items: baseline; }
+.mg-track small { font-size: 12px; font-weight: 600; }
+.mg-track li.done { color: var(--fg); }
+.mg-track li.done i { background: var(--fg); }
+.mg-track li.run { color: var(--run); font-weight: 700; }
+.mg-track li.run i { background: var(--run); }
+.mg-track li.wait { color: var(--warn); font-weight: 700; }
+.mg-track li.wait i { background: var(--warn-bar); }
+.mg-track li.bad { color: var(--bad); font-weight: 700; }
+.mg-track li.bad i { background: var(--bad); }
+
+/* numbers while it runs: one strip under the card's head, white even on a tinted card */
+.mg-stats { display: flex; flex-wrap: wrap; overflow: hidden; border-top: 1px solid var(--line-soft); background: var(--canvas); border-radius: 0 0 var(--r-card) var(--r-card); }
+.mg-hero.tone-warn .mg-stats { border-top-color: var(--warn-line); }
+.mg-stats .mg-num { flex: 1 1 170px; padding: 14px 22px; margin: -1px 0 0 -1px; border-left: 1px solid var(--line-soft); border-top: 1px solid var(--line-soft); }
+.mg-num { display: grid; gap: 2px; align-content: start; min-width: 0; }
+.mg-num > span { font-size: 12.5px; color: var(--muted); }
+.mg-num strong { font-size: 22px; font-weight: 700; line-height: 1.35; color: var(--heading); font-variant-numeric: tabular-nums; }
+.mg-num strong small { font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.mg-num > small { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.mg-num.ok strong { color: var(--ok); }
+.mg-num.bad strong { color: var(--bad); }
+.mg-mini { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+.mg-mini i { display: block; height: 100%; border-radius: 2px; background: var(--fg); transition: width var(--dur-slow) var(--ease); }
+.mg-mini.over i { background: var(--bad); }
+
+/* report: six numbers checked against their targets, three or two to a row so the rows stay full */
+.mg-report { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line-soft); border-radius: 0 0 var(--r-card) var(--r-card); overflow: hidden; }
+@media (max-width: 700px) { .mg-report { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mg-report .mg-num { padding: 16px 20px; background: var(--canvas); }
+.mg-report .mg-num strong { font-size: 24px; }
+
+/* time per part of an ended run; the person's wait in amber */
+.mg-spans { display: flex; gap: 2px; height: 28px; border-radius: 4px; overflow: hidden; }
+.mg-spans i { flex: 1 1 0; min-width: 3px; }
+.mg-spans .c0, .mg-legend .c0 { background: var(--fg); }
+.mg-spans .c1, .mg-legend .c1 { background: #6e6e73; }
+.mg-spans .c2, .mg-legend .c2 { background: var(--warn-bar); }
+.mg-spans .c3, .mg-legend .c3 { background: #a8a8ad; }
+.mg-spans .c4, .mg-legend .c4 { background: #d4d4d8; }
+.mg-spans .c5, .mg-legend .c5 { background: #a9c0e2; }
+.mg-legend .sw { border-radius: 2px; }
+
+/* the four phase groups: four across, or two by two in a narrow card */
+.mg-phases { container-type: inline-size; }
+.mg-grps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; padding: 18px; }
+@container (min-width: 680px) { .mg-grps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.mg-grp { min-width: 0; display: grid; gap: 10px; align-content: start; }
+.mg-bar4 { display: block; position: relative; overflow: hidden; height: 4px; border-radius: 2px; background: var(--card-line); }
+.mg-grp.done .mg-bar4 { background: var(--fg); }
+.mg-grp.run .mg-bar4 { background: var(--run); }
+.mg-grp.wait .mg-bar4 { background: var(--warn-bar); }
+.mg-grp.bad .mg-bar4 { background: var(--bad); }
+.mg-grph { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2px 8px; min-height: 22px; }
+.mg-grph b { color: var(--heading); }
+.mg-grp.todo .mg-grph b { color: var(--muted); }
+.mg-grph .m { font-size: 12.5px; }
+.mg-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
+.mg-steps li { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.mg-steps li.wait, .mg-steps li.neu { color: var(--muted); }
+.mg-steps li.run { color: var(--heading); font-weight: 600; }
+
+/* traffic and canary side by side; the canary table gets the wider share */
+.mg-pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; min-width: 0; }
+.mg-pair > .box { flex: 1 1 320px; }
+.mg-pair > .box + .box { flex: 1.6 1 460px; }
+.mg-pair .tbl th, .mg-pair .tbl td { padding-inline: 10px; white-space: nowrap; }
+
+/* the run's record tabs */
+.mg-records > .tabs { padding: 0 16px; }
+
+/*
+ * Motion for the state that is live now, so the eye lands on it. Working (blue): a light sweeps across the
+ * current bar and the chip's dot sends out a ring. Waiting for a person (amber): a slow breath, no sweep.
+ * An ended run has neither. Calm cycles, ease-in-out.
+ */
+.mg-track li.run i::after, .mg-grp.run .mg-bar4::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: mg-sweep 1.8s ease-in-out infinite;
+}
+.mg-track li.wait i, .mg-grp.wait .mg-bar4 { animation: mg-breathe 2s ease-in-out infinite; }
+.mg-hero.is-run > .mg-top .chip .dot, .mg-side .chip.run .dot { position: relative; }
+.mg-hero.is-run > .mg-top .chip .dot::after, .mg-side .chip.run .dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor;
+  animation: mg-ring 1.6s ease-in-out infinite;
+}
+.mg-hero.is-wait > .mg-top .chip .dot, .mg-grp.wait .chip .dot, .mg-side .chip.warn .dot { animation: mg-breathe 2s ease-in-out infinite; }
+@keyframes mg-sweep { to { transform: translateX(100%); } }
+@keyframes mg-breathe { 50% { opacity: 0.55; } }
+@keyframes mg-ring { from { transform: scale(1); opacity: 0.55; } to { transform: scale(3); opacity: 0; } }
+
+/* without motion the current part keeps a still highlight: a ring in its state tint */
+@media (prefers-reduced-motion: reduce) {
+  .mg-track i, .mg-bar4, .mg-hero .chip .dot, .mg-grp .chip .dot, .mg-side .chip .dot { animation: none; }
+  .mg-track li.run i::after, .mg-grp.run .mg-bar4::after, .mg-hero .chip .dot::after, .mg-side .chip .dot::after { display: none; }
+  .mg-track li.run i { box-shadow: 0 0 0 3px var(--run-bg); }
+  .mg-track li.wait i { box-shadow: 0 0 0 3px var(--warn-bg); }
+}
+
+@media (max-width: 640px) {
+  .mg-hero .mg-top { padding: 18px 16px 16px; }
+  .mg-track { padding: 0 16px 18px; gap: 4px; }
+  .mg-stats .mg-num { padding: 12px 16px; flex-basis: 140px; }
+  .mg-acts { width: 100%; }
+  .mg-acts .btn { flex: 1 1 auto; }
+}

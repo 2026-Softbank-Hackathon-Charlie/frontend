@@ -21,18 +21,35 @@ const ROUTES = [
 /** Old routes that still open their page: #migrate-shop was the migration page while the sample app was shop. */
 const ALIASES: Record<string, string> = { "migrate-shop": "migrate-app" };
 
-/** #app-<name> is one app, #deploy-<id> one deployment, #apps-<filter> the app list filtered by status. */
+/** #app-<name>[/<tab>] is one app, #deploy-<id> one deployment, #apps-<filter> the app list filtered by status. */
 export function parseRoute(hash: string): string {
   const raw = hash.replace(/^#/, "") || "overview";
   const h = ALIASES[raw] ?? raw;
-  if (ROUTES.includes(h) || /^app-[a-z0-9-]+$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h)) return h;
+  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h)) return h;
   return "overview";
 }
 
+/** The tabs of an app's page: #app-<name> is the overview, #app-<name>/<tab> the others. */
+export type AppTab = "overview" | "instances" | "secrets" | "deploys";
+
+/** `app-<name>` or `app-<name>/<tab>` → the app's name and tab. */
+export function appRoute(r: string): { name: string; tab: AppTab } {
+  const [name, tab] = r.slice("app-".length).split("/");
+  return { name, tab: (tab ?? "overview") as AppTab };
+}
+
+/** The page a route shows: an app's tabs are one page. */
+const pageOf = (r: string) => (r.startsWith("app-") ? r.split("/")[0] : r);
+/** The route of a whole URL, as a hashchange event names the old and new one. */
+const routeOfUrl = (url: string) => parseRoute(url.includes("#") ? url.slice(url.indexOf("#")) : "");
+
 function subscribe(cb: () => void) {
-  const on = () => {
+  const on = (e: HashChangeEvent) => {
     cb();
-    window.scrollTo(0, 0);
+    // A new page starts at the top. Another tab of the same app keeps the scroll, so the tabs stay where they were tapped.
+    const from = routeOfUrl(e.oldURL ?? "");
+    const sameApp = !!e.oldURL && !!e.newURL && from.startsWith("app-") && pageOf(from) === pageOf(routeOfUrl(e.newURL));
+    if (!sameApp) window.scrollTo(0, 0);
   };
   window.addEventListener("hashchange", on);
   return () => window.removeEventListener("hashchange", on);

@@ -53,7 +53,7 @@ function MatrixCell({ c, at, picked, onPick }: { c: CellState; at: Cell; picked:
   if (c.kind === "findings") {
     const [label, kind] = SEV[c.top];
     return (
-      <button type="button" className="btn ghost" aria-pressed={picked} title="이 칸의 항목만 보기" onClick={() => onPick(picked ? null : at)}>
+      <button type="button" className="btn ghost sm" aria-pressed={picked} title="이 칸의 항목만 보기" onClick={() => onPick(picked ? null : at)}>
         <Chip kind={kind}>{label}</Chip> {c.count}건
       </button>
     );
@@ -88,11 +88,12 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
 
       <section className="sec">
         <h2>환경 × 분류</h2>
-        <p className="hint">
+        <details className="hint">
+          <summary>칸 읽는 법</summary>
           클라우드마다 다른 보안 서비스(GuardDuty, Security Hub, Security Command Center, Kubernetes 점검)의 결과를 같은 6개 분류와 심각도로 맞췄습니다. 칸에는 가장 높은 심각도와 개수가
           나오고, 누르면 아래 목록을 그 칸으로 거릅니다. &lsquo;이상 없음&rsquo;은 그 분류를 보는 출처를 읽었고 찾은 항목이 없다는 뜻입니다. &lsquo;확인 못 함&rsquo;은 그 출처를 읽지
           못했다는 뜻이고, &lsquo;점검 안 함&rsquo;은 그 환경에 그 분류를 보는 출처가 없다는 뜻입니다. 둘 다 안전하다는 뜻이 아닙니다.
-        </p>
+        </details>
         <div className="box">
           <Table
             head={["환경", ...CATEGORIES.map((c) => CATEGORY_LABEL[c])]}

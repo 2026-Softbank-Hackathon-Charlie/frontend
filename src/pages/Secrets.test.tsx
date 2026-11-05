@@ -122,15 +122,26 @@ function live(extra: Extra = () => undefined, o: LiveOptions = {}): FakeCall[] {
   return calls;
 }
 
+/** The app page's tab link; a count may follow its name. */
+const tab = (name: string) => within(screen.getByRole("navigation", { name: "앱 정보" })).getByRole("link", { name: new RegExp("^" + name) });
+async function openTab(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(tab(name));
+  await waitFor(() => expect(tab(name)).toHaveAttribute("aria-current", "page"));
+}
+
+/** Live mode on the secrets tab of moimroom, once its deployments are in. */
 async function openSecrets(extra?: Extra, o?: LiveOptions) {
-  const { user } = setup("#app-moimroom");
+  const { user } = setup("#app-moimroom/deploys");
   const calls = live(extra, o);
-  const appWide = await screen.findByRole("region", { name: "앱 공통 시크릿" });
   // the redeploy buttons need the deployments
   await screen.findByRole("heading", { name: "배포 이력" });
   await waitFor(() => expect(within(screen.getByRole("heading", { name: "배포 이력" }).closest("section")!).queryAllByRole("row").length).toBeGreaterThan(1));
+  await openTab(user, "시크릿");
+  const appWide = await screen.findByRole("region", { name: "앱 공통 시크릿" });
   return { user, calls, appWide };
 }
+/** Opens the app-wide add form. */
+const openAdd = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("button", { name: "시크릿 추가" }));
 const instScope = () => screen.getByRole("region", { name: "인스턴스별 덮어쓰기" });
 const picker = () => screen.getByLabelText("덮어쓰기를 볼 인스턴스");
 const valueCalls = (calls: FakeCall[]) => calls.filter((c) => /\/secrets\/[^/?]+/.test(c.url));
@@ -205,7 +216,7 @@ describe("app secrets (platform API)", () => {
     });
     await screen.findByRole("navigation", { name: "상태로 앱 거르기" });
     act(() => {
-      window.location.hash = "#app-moimroom";
+      window.location.hash = "#app-moimroom/secrets";
     });
     const again = await screen.findByRole("region", { name: "앱 공통 시크릿" });
     expect(within(again).getByRole("button", { name: "HOST_CODE 값 보기" })).toHaveAttribute("aria-pressed", "false");
@@ -226,6 +237,8 @@ describe("app secrets (platform API)", () => {
 
   it("stages an add, an edit and a delete, sends them in one PUT, then offers a redeploy per instance", async () => {
     const { user, calls, appWide } = await openSecrets();
+    await openAdd(user);
+    expect(within(appWide).getByLabelText("이름")).toHaveFocus();
     await user.type(within(appWide).getByLabelText("이름"), "NEW_KEY");
     await user.type(within(appWide).getByLabelText("값"), "v1");
     await user.click(within(appWide).getByRole("button", { name: "변경에 넣기" }));
@@ -264,6 +277,7 @@ describe("app secrets (platform API)", () => {
     let release = () => {};
     const gate = new Promise<void>((r) => (release = r));
     const { user, calls, appWide } = await openSecrets((c, u) => (u.pathname === "/v1/apps/moimroom/secrets" && c.method === "PUT" ? gate.then(() => secretsServer()(c, u)!) : undefined));
+    await openAdd(user);
     await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 삭제" }));
     await user.click(within(statusWith(appWide, PENDING)!).getByRole("button", { name: "저장" }));
     expect(await within(appWide).findByRole("button", { name: "저장하는 중" })).toBeDisabled();
@@ -282,6 +296,7 @@ describe("app secrets (platform API)", () => {
 
   it("forgets staged changes on cancel, reverts one row, and keeps focus on the row", async () => {
     const { user, calls, appWide } = await openSecrets();
+    await openAdd(user);
     await user.click(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 삭제" }));
     expect(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 되돌리기" })).toHaveFocus();
     await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 삭제" }));
@@ -406,7 +421,7 @@ describe("app secrets (platform API)", () => {
     const done = await findStatus(appWide, SAVED);
     await user.click(within(done).getByRole("button", { name: "moimroom--dev 재배포 (a1b2c3d)" }));
     expect(await within(done).findByRole("link", { name: "moimroom--dev 재배포 진행 보기" })).toHaveAttribute("href", "#deploy-dep_r");
-    expect(window.location.hash).toBe("#app-moimroom");
+    expect(window.location.hash).toBe("#app-moimroom/secrets");
     expect(within(done).getByRole("button", { name: "moimroom 재배포 (9fceb02)" })).toBeEnabled();
     expect(posts(calls)).toEqual([{ branch: "dev", redeploy: true }]);
   });
@@ -431,7 +446,7 @@ describe("app secrets (platform API)", () => {
       { branch: "main", redeploy: true },
       { branch: "dev", redeploy: true },
     ]);
-    expect(window.location.hash).toBe("#app-moimroom");
+    expect(window.location.hash).toBe("#app-moimroom/secrets");
   });
 
   it("redeploys from the instance row without a build, naming the commit, and says when there is no healthy deployment yet", async () => {
@@ -440,6 +455,7 @@ describe("app secrets (platform API)", () => {
       if ((JSON.parse(c.body!) as { branch: string }).branch === "dev") return json(409, { error: { code: "nothing_to_redeploy", message: "no healthy deployment" } });
       return json(202, fakeDeployment({ id: "dep_m", trigger: "redeploy" }));
     });
+    await openTab(user, "인스턴스");
     const section = instancesSection();
     await user.click(within(section).getByRole("button", { name: "moimroom--dev 재배포 (빌드 없이, a1b2c3d)" }));
     expect(await screen.findByText("moimroom--dev 재배포: 이 인스턴스에는 아직 정상(healthy) 배포가 없어 재배포할 수 없습니다. 먼저 배포를 한 번 끝내세요")).toBeInTheDocument();
@@ -453,15 +469,18 @@ describe("app secrets (platform API)", () => {
 
   it("offers no redeploy for an instance whose deployment is unfinished, and explains a 409 deployment_in_progress", async () => {
     const building = fakeDeployment({ id: "dep_b", branch: "dev", instance: "moimroom--dev", ref: "dev", status: "building" });
-    const { user, calls, appWide } = await openSecrets(
+    const { user, calls } = await openSecrets(
       (c, u) =>
         u.pathname === "/v1/apps/moimroom/deployments" && c.method === "POST" ? json(409, { error: { code: "deployment_in_progress", message: "moimroom has a deployment in progress" } }) : undefined,
       { deployments: [building, ...healthyDeployments] },
     );
+    await openTab(user, "인스턴스");
     const section = instancesSection();
     expect(within(section).getByRole("button", { name: "moimroom--dev 재배포 (빌드 없이, a1b2c3d)" })).toBeDisabled();
     expect(within(section).getByRole("button", { name: "moimroom 재배포 (빌드 없이, 9fceb02)" })).toBeEnabled();
     expect(within(section).getByText("moimroom--dev: " + WAIT + ".")).toBeInTheDocument();
+    await openTab(user, "시크릿");
+    const appWide = screen.getByRole("region", { name: "앱 공통 시크릿" });
 
     await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 삭제" }));
     await user.click(within(appWide).getByRole("button", { name: "저장" }));
@@ -478,15 +497,76 @@ describe("app secrets (platform API)", () => {
     expect(posts(calls)).toEqual([{ branch: "main", redeploy: true }]);
   });
 
+  it("puts focus back on the add button when its form closes, and on the card's first button when the staged changes go", async () => {
+    const { user, appWide } = await openSecrets();
+    const add = screen.getByRole("button", { name: "시크릿 추가" });
+    await user.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(appWide).getByRole("button", { name: "닫기" }));
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    expect(add).toHaveFocus();
+    expect(within(appWide).queryByLabelText("이름")).not.toBeInTheDocument();
+
+    // no form is open, so no field to go to: the card's first button takes the focus
+    await user.click(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 삭제" }));
+    await user.click(within(statusWith(appWide, PENDING)!).getByRole("button", { name: "취소" }));
+    expect(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 값 보기" })).toHaveFocus();
+  });
+
+  it("opens one form at a time in a card, and the add button says whether its form is open", async () => {
+    const { user, appWide } = await openSecrets();
+    const add = screen.getByRole("button", { name: "시크릿 추가" });
+    await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 수정" }));
+    await user.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    expect(within(appWide).getByLabelText("이름")).toHaveFocus();
+    expect(within(appWide).queryByLabelText("HOST_CODE 새 값")).not.toBeInTheDocument();
+
+    await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 수정" }));
+    expect(within(appWide).getByLabelText("HOST_CODE 새 값")).toBeInTheDocument();
+    expect(within(appWide).queryByLabelText("이름")).not.toBeInTheDocument();
+    expect(add).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps staged changes and the redeploy offer across a tab switch", async () => {
+    const { user, appWide } = await openSecrets();
+    await user.click(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 삭제" }));
+    await openTab(user, "인스턴스");
+    expect(screen.queryByRole("region", { name: "앱 공통 시크릿" })).not.toBeInTheDocument();
+    await openTab(user, "시크릿");
+    let again = screen.getByRole("region", { name: "앱 공통 시크릿" });
+    expect(rowOf(again, "ADMIN_TOKEN")).toHaveTextContent("삭제 예정");
+    expect(statusWith(again, PENDING)).toHaveTextContent("저장하지 않은 변경 1개");
+
+    await user.click(within(again).getByRole("button", { name: "저장" }));
+    await findStatus(again, SAVED);
+    await openTab(user, "개요");
+    await openTab(user, "시크릿");
+    again = screen.getByRole("region", { name: "앱 공통 시크릿" });
+    expect(within(statusWith(again, SAVED)!).getByRole("button", { name: "모든 인스턴스 재배포" })).toBeEnabled();
+  });
+
+  it("reads the secret names once for the page: the overview's summary and the secrets tab share them", async () => {
+    const { user } = setup("#app-moimroom");
+    const calls = live();
+    expect(await screen.findByText("앱 공통 2개, 인스턴스 덮어쓰기 1개")).toBeInTheDocument();
+    expect(screen.getByText("ADMIN_TOKEN, HOST_CODE")).toBeInTheDocument();
+    await openTab(user, "시크릿");
+    await screen.findByRole("region", { name: "앱 공통 시크릿" });
+    await openTab(user, "개요");
+    expect(screen.getByText("앱 공통 2개, 인스턴스 덮어쓰기 1개")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "GET" && c.url === "/v1/apps/moimroom/secrets")).toHaveLength(1);
+  });
+
   it("says the server has no secrets key", async () => {
-    setup("#app-moimroom");
+    setup("#app-moimroom/secrets");
     live((_c, u) => (u.pathname === "/v1/apps/moimroom/secrets" ? json(503, { error: { code: "secrets_not_configured", message: "PLATFORM_SECRETS_KEY is not set" } }) : undefined));
     expect(await screen.findByText(/^서버에 시크릿 키가 설정되어 있지 않습니다/)).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "앱 공통 시크릿" })).not.toBeInTheDocument();
   });
 
   it("reads the names again on 다시 불러오기 after a failed load", async () => {
-    setup("#app-moimroom");
+    setup("#app-moimroom/secrets");
     let fail = true;
     const calls = live((_c, u) => (u.pathname === "/v1/apps/moimroom/secrets" && fail ? json(409, { error: { code: "app_not_registered", message: "moimroom is only in PLATFORM_APPS_FILE" } }) : undefined));
     expect(await screen.findByText("시크릿을 불러오지 못했습니다: 파일에만 있는 앱이라 시크릿을 쓸 수 없습니다")).toBeInTheDocument();
@@ -501,6 +581,7 @@ describe("app secrets (platform API)", () => {
     const { user, calls, appWide } = await openSecrets((c, u) =>
       u.pathname === "/v1/apps/moimroom/secrets" && c.method === "PUT" ? json(400, { error: { code: "invalid_request", message: "too many secrets: at most 50" } }) : undefined,
     );
+    await openAdd(user);
     const name = within(appWide).getByLabelText("이름");
     const value = within(appWide).getByLabelText("값");
     const stage = within(appWide).getByRole("button", { name: "변경에 넣기" });
@@ -570,12 +651,13 @@ describe("app secrets (platform API)", () => {
 describe("app secrets (simulation)", () => {
   it("shows, adds and saves fake secrets without calling the API, then redeploys without a build", async () => {
     const calls = installFetch(() => json(500, { error: { code: "unexpected", message: "demo mode must not call the API" } }));
-    const { sim, user } = setup("#app-todo-api");
+    const { sim, user } = setup("#app-todo-api/secrets");
     expect(screen.getByText(/데모 모드: 가짜 값/)).toBeInTheDocument();
     const appWide = screen.getByRole("region", { name: "앱 공통 시크릿" });
     await user.click(within(appWide).getByRole("button", { name: "JWT_SECRET 값 보기" }));
     expect(await within(appWide).findByText("demo-jwt-secret-not-real")).toBeInTheDocument();
 
+    await openAdd(user);
     await user.type(within(appWide).getByLabelText("이름"), "HOST_CODE");
     await user.type(within(appWide).getByLabelText("값"), "demo-4821");
     await user.click(within(appWide).getByRole("button", { name: "변경에 넣기" }));
@@ -601,7 +683,7 @@ describe("app secrets (simulation)", () => {
     expect(sim.state.deploy.events[d.id].some((e) => e.phase === "building")).toBe(false);
 
     act(() => {
-      window.location.hash = "#app-todo-api";
+      window.location.hash = "#app-todo-api/deploys";
     });
     const history = (await screen.findByRole("heading", { name: "배포 이력" })).closest("section") as HTMLElement;
     expect(within(history).getAllByRole("row")[1]).toHaveTextContent("재배포");
@@ -616,7 +698,7 @@ describe("app secrets (simulation)", () => {
       sim.dispatch({ type: "app-create", req: { repo: "team-charlie/notice-board", branch: "dev", environments: ["eks"], autoDeploy: true } });
     });
     act(() => {
-      window.location.hash = "#app-notice-board";
+      window.location.hash = "#app-notice-board/instances";
     });
     await screen.findByRole("heading", { name: "브랜치별 인스턴스" });
     const button = () => within(instancesSection()).getByRole("button", { name: "notice-board 재배포 (빌드 없이)" });

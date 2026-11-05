@@ -14,7 +14,7 @@ import { Onboard } from "./pages/Onboard";
 import { Overview } from "./pages/Overview";
 import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
-import { navCurrent, navigate, useRoute } from "./router";
+import { appRoute, navCurrent, navigate, useRoute } from "./router";
 import { activeDeployments } from "./sim/deploy";
 import { SIM_SECURITY } from "./sim/security";
 import { migActive, migLabel } from "./sim/state";
@@ -22,8 +22,11 @@ import { useSim } from "./sim/store";
 
 function Page({ r }: { r: string }) {
   if (r === "apps" || r.startsWith("apps-")) return <Apps filter={appFilterOf(r)} />;
-  // keyed, so one app's half-filled forms and confirmations do not carry over to another
-  if (r.startsWith("app-")) return <AppDetail key={r} id={r.slice(4)} />;
+  // keyed by app, so one app's half-filled forms and confirmations do not carry over to another; its tabs keep the page
+  if (r.startsWith("app-")) {
+    const { name, tab } = appRoute(r);
+    return <AppDetail key={name} id={name} tab={tab} />;
+  }
   if (r.startsWith("deploy-")) return <DeploymentPage id={r.slice(7)} />;
   if (r === "new") return <NewApp />;
   if (r === "onboard") return <Onboard />;
@@ -220,8 +223,8 @@ function Console({ r }: { r: string }) {
           </div>
         </header>
         <main id="main">
-          {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters keep the page */}
-          <Page key={r.startsWith("apps") ? "apps" : r} r={r} />
+          {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters and app tabs keep the page */}
+          <Page key={r.startsWith("apps") ? "apps" : r.split("/")[0]} r={r} />
         </main>
       </div>
     </div>

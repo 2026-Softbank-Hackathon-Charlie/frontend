@@ -1,8 +1,9 @@
+import { useEffect, useRef, type ReactNode } from "react";
 import { useEnvironments, useMatrix } from "../api/hooks";
-import type { Environment, MatrixRoute } from "../api/types";
+import type { Environment, MatrixRoute, Run, RunStatus } from "../api/types";
 import { errorText, useLive } from "../data/live";
 import { navigate } from "../router";
-import { ENV, ENV_ORDER, SAMPLE, envKeyOf } from "../sim/data";
+import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
@@ -27,37 +28,61 @@ export function EnvGrid() {
   return live ? <LiveEnvGrid /> : <SimEnvGrid />;
 }
 
+/** One cluster: name and state, a location line and three small figures. */
+function EnvCard({ name, chip, loc, figs, note }: { name: string; chip: ReactNode; loc: string; figs: [string, ReactNode][]; note?: string }) {
+  return (
+    <div className="box envcard">
+      <div className="cellh">
+        <b>{name}</b>
+        {chip}
+      </div>
+      <span className="hint">{loc}</span>
+      <dl className="figs">
+        {figs.map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {note && <p className="hint">{note}</p>}
+    </div>
+  );
+}
+
 function SimEnvGrid() {
   const { S } = useSim();
   return (
-    <div className="grid4">
+    <div className="envcards">
       {ENV_ORDER.map((k) => {
         const e = ENV[k];
         return (
-          <div className="cell" key={k}>
-            <div className="cellh">
-              <b>{e.name}</b>
-              <Chip kind="ok">정상</Chip>
-            </div>
-            <dl className="kv sm">
-              <dt>위치</dt>
-              <dd>{e.region}</dd>
-              <dt>노드</dt>
-              <dd>
-                {e.nodes}대, Kubernetes {e.k8s}
-              </dd>
-              <dt>파일 저장소</dt>
-              <dd>{e.storage}</dd>
-              <dt>사설망</dt>
-              <dd>Tailscale 연결됨</dd>
-              <dt>앱</dt>
-              <dd>{appsIn(S, k)}개</dd>
-            </dl>
-          </div>
+          <EnvCard
+            key={k}
+            name={e.name}
+            chip={
+              <Chip kind="ok" dot>
+                정상
+              </Chip>
+            }
+            loc={e.region + ", 노드 " + e.nodes + "대, Kubernetes " + e.k8s}
+            figs={[
+              ["앱", appsIn(S, k)],
+              ["파일 저장소", e.storage],
+              ["사설망", "연결됨"],
+            ]}
+          />
         );
       })}
     </div>
   );
+}
+
+function dbCount(e: Environment): string {
+  const dbs = e.status.databases;
+  if (!dbs) return "-";
+  const ready = dbs.filter((d) => d.readyInstances >= d.instances).length;
+  return ready === dbs.length ? dbs.length + "개" : ready + "/" + dbs.length + "개 준비";
 }
 
 function LiveEnvGrid() {
@@ -65,34 +90,41 @@ function LiveEnvGrid() {
   if (envs.error && !envs.data) return <p className="hint">환경을 불러오지 못했습니다: {errorText(envs.error)}</p>;
   if (!envs.data) return <p className="hint">불러오는 중</p>;
   return (
-    <div className="grid4">
+    <div className="envcards">
       {envs.data.map((e) => (
-        <div className="cell" key={e.name}>
-          <div className="cellh">
-            <b>{e.displayName}</b>
-            <Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>
-          </div>
-          <dl className="kv sm">
-            <dt>위치</dt>
-            <dd>{e.region ?? "-"}</dd>
-            <dt>노드</dt>
-            <dd>
-              {e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"}
-              {e.status.kubernetesVersion ? ", Kubernetes " + e.status.kubernetesVersion : ""}
-            </dd>
-            <dt>DB</dt>
-            <dd>{e.status.databases?.map((d) => d.name + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"}</dd>
-            <dt>트래픽</dt>
-            <dd>{e.live ? "쓰기를 받는 곳" : "대기"}</dd>
-          </dl>
-          {e.status.error && <p className="hint">{e.status.error}</p>}
-        </div>
+        <EnvCard
+          key={e.name}
+          name={e.displayName}
+          chip={
+            <Chip kind={e.status.reachable ? "ok" : "bad"} dot>
+              {e.status.reachable ? "정상" : "연결 안 됨"}
+            </Chip>
+          }
+          loc={[e.region ?? "위치 정보 없음", e.status.kubernetesVersion ? "Kubernetes " + e.status.kubernetesVersion : ""].filter(Boolean).join(", ")}
+          figs={[
+            ["노드", e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total : "-"],
+            ["DB", dbCount(e)],
+            ["트래픽", e.live ? "쓰기 받음" : "대기"],
+          ]}
+          note={e.status.error}
+        />
       ))}
     </div>
   );
 }
 
-const RESULT_KIND: Record<string, ChipKind> = { succeeded: "ok", running: "run", awaiting_switch: "warn", halted: "bad", failed: "bad", interrupted: "bad" };
+export const RESULT_KIND: Record<string, ChipKind> = { succeeded: "ok", running: "run", awaiting_switch: "warn", halted: "bad", failed: "bad", interrupted: "bad" };
+/** A run's state in a word or two, for chips and matrix cells. */
+export const RUN_SHORT: Record<RunStatus, string> = {
+  succeeded: "성공",
+  running: "진행 중",
+  awaiting_switch: "전환 대기",
+  rolled_back: "원복됨",
+  halted: "정지",
+  failed: "실패",
+  aborted: "중단됨",
+  interrupted: "멈춤",
+};
 
 function useSimRoutes(): MatrixRoute[] {
   const { S } = useSim();
@@ -151,6 +183,78 @@ function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: 
         <Table head={["경로", "결과", "전체", "쓰기 보류", "실패 요청", "누락 (행 / 쓰기 / 파일)", "요청", "run"]} rows={rows} />
       </div>
     </>
+  );
+}
+
+/** The same six routes as a 3×3 grid: sources as rows, targets as columns, the diagonal empty. */
+/**
+ * In live mode `active` are the runs in progress the caller already polls: GET /v1/matrix has only finished
+ * runs, so they are laid over it, and the matrix loads again when that set changes (a run started or ended).
+ * The simulation lays its own run over the matrix.
+ */
+export function RouteMatrix({ active = [] }: { active?: Run[] }) {
+  return useLive() ? <LiveMatrix active={active} /> : <SimMatrix />;
+}
+function SimMatrix() {
+  return <MatrixView routes={useSimRoutes()} />;
+}
+function LiveMatrix({ active }: { active: Run[] }) {
+  const m = useMatrix();
+  const ids = active.map((r) => r.runId).join(" ");
+  const seen = useRef(ids);
+  const reload = m.reload;
+  useEffect(() => {
+    if (seen.current === ids) return;
+    seen.current = ids;
+    reload();
+  }, [ids, reload]);
+  if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
+  if (!m.data) return <p className="hint">불러오는 중</p>;
+  const now = active.map((r): MatrixRoute => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status }));
+  // a cell takes the first route that matches it, so a run in progress wins over the route's last result
+  return <MatrixView routes={[...now, ...m.data.routes]} />;
+}
+
+function MatrixView({ routes }: { routes: MatrixRoute[] }) {
+  // environments match by key: the platform names on-prem "onprem", the simulation "k3s"
+  const at = (s: EnvKey, t: EnvKey) => routes.find((r) => envKeyOf(r.source) === s && envKeyOf(r.target) === t);
+  return (
+    <div className="scroll">
+      <table className="rmx">
+        <thead>
+          <tr>
+            <td />
+            {ENV_ORDER.map((t) => (
+              <th key={t} scope="col">
+                {ENV[t].short}로
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {ENV_ORDER.map((s) => (
+            <tr key={s}>
+              <th scope="row">{ENV[s].short}에서</th>
+              {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// A run in progress opens the migration page; a finished one the per-route table, which has its numbers.
+function routeCell(s: EnvKey, t: EnvKey, r: MatrixRoute | undefined): ReactNode {
+  if (!r?.status) return <span className="no">아직 없음</span>;
+  const active = r.status === "running" || r.status === "awaiting_switch";
+  const ms = r.finishedAt ? r.result?.durationMillis : undefined;
+  const time = ms !== undefined ? dur(ms / 1000) : "";
+  return (
+    <a className={RESULT_KIND[r.status] || "neu"} href={active ? "#migrate-app" : "#routes"} aria-label={ENV[s].short + "에서 " + ENV[t].short + "로 " + RUN_SHORT[r.status] + (time && ", " + time)}>
+      <b>{RUN_SHORT[r.status]}</b>
+      {time && <span className="m">{time}</span>}
+    </a>
   );
 }
 

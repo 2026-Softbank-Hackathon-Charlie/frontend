@@ -1,17 +1,19 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { AppInstance, AppSpecValidation } from "../api/types";
-import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
-import { AppSecrets } from "../components/secrets";
+import type { AppInstance, AppSpecValidation, Deployment } from "../api/types";
+import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
+import { AppSecrets, SecretsSummary } from "../components/secrets";
 import { envName } from "../components/shared";
-import { Chip, PageHead, Table, td, type Cell } from "../components/ui";
+import { Chip, PageHead, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
-import { navigate } from "../router";
+import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
+import { navigate, type AppTab } from "../router";
 import { ENV, SAMPLE } from "../sim/data";
 import { branchSlug, instanceName, MAX_INSTANCES } from "../sim/deploy";
 import { dur } from "../sim/format";
 import { useSim } from "../sim/store";
+import "../styles/app-detail.css";
 
 export type AppFilter = "all" | AppHealth;
 
@@ -91,27 +93,130 @@ function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
 
 /* ---------- detail ---------- */
 
-export function AppDetail({ id }: { id: string }) {
-  return useLive() ? <LiveAppDetail id={id} /> : <SimAppDetail id={id} />;
+export function AppDetail({ id, tab = "overview" }: { id: string; tab?: AppTab }) {
+  return useLive() ? <LiveAppDetail id={id} tab={tab} /> : <SimAppDetail id={id} tab={tab} />;
 }
-function LiveAppDetail({ id }: { id: string }) {
-  return <AppDetailView m={useLiveApp(id)} name={id} />;
+function LiveAppDetail({ id, tab }: { id: string; tab: AppTab }) {
+  const m = useLiveApp(id);
+  // One read of the secret names for the whole page (overview summary and secrets tab), once the app is known to be registered: a file app has none.
+  const s = useLiveSecrets(m.app?.deploy ? id : "");
+  return <AppDetailView m={m} s={s} name={id} tab={tab} />;
 }
-function SimAppDetail({ id }: { id: string }) {
+function SimAppDetail({ id, tab }: { id: string; tab: AppTab }) {
   const { S } = useSim();
-  // The migration app keeps its own demo view; registered apps use the contract one.
-  return S.apps[id] ? <ServiceDetail id={id} /> : <SimRegisteredDetail id={id} />;
+  // The migration app keeps its own demo view, without tabs; registered apps use the contract one.
+  return S.apps[id] ? <ServiceDetail id={id} /> : <SimRegisteredDetail id={id} tab={tab} />;
 }
-function SimRegisteredDetail({ id }: { id: string }) {
-  return <AppDetailView m={useSimApp(id)} name={id} />;
+function SimRegisteredDetail({ id, tab }: { id: string; tab: AppTab }) {
+  return <AppDetailView m={useSimApp(id)} s={useSimSecrets(id)} name={id} tab={tab} />;
 }
 
-const crumb = <a href="#apps">앱</a>;
+/** The app page's head: the name with where the app comes from, one line about it, and the actions. */
+function AppHead({ name, source, line, acts }: { name: string; source?: string; line?: ReactNode; acts?: ReactNode }) {
+  return (
+    <div className="ad-head">
+      <div className="ad-title">
+        <div className="crumb">
+          <a href="#apps">앱</a>
+        </div>
+        <div className="ad-name">
+          <h1>{name}</h1>
+          {source && <Chip>{source}</Chip>}
+        </div>
+        {line && <p>{line}</p>}
+      </div>
+      {acts && <div className="acts">{acts}</div>}
+    </div>
+  );
+}
+
+/** A card whose title is a heading; `side` sits at the right of the title. */
+function Card({ title, side, children }: { title: ReactNode; side?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="box">
+      <div className="bh">
+        <h2>{title}</h2>
+        {side}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** One cell per environment, always above the tabs. */
+function EnvStrip({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section className="ad-envsec" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      <div className="box ad-envs">{children}</div>
+    </section>
+  );
+}
+function EnvCell({ name, chip, children }: { name: string; chip: ReactNode; children: ReactNode }) {
+  return (
+    <div className="ad-env">
+      <div className="ad-envh">
+        <b>{name}</b>
+        {chip}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A "더 보기" disclosure: a button that shows a few rarer actions under it. A click outside, focus moving
+ * out of it, or choosing an action closes it; Escape closes it and puts focus back on the button.
+ */
+function MoreMenu({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      button.current?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  return (
+    <div
+      className="ad-more"
+      ref={ref}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <button ref={button} type="button" className="btn ghost" aria-label="더 보기" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="3.5" cy="8" r="1.3" fill="currentColor" />
+          <circle cx="8" cy="8" r="1.3" fill="currentColor" />
+          <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
+        </svg>
+      </button>
+      <div id={id} className="ad-menu" hidden={!open} onClick={() => setOpen(false)}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function NotFound({ id }: { id: string }) {
   return (
-    <div className="page">
-      <PageHead title="앱을 찾을 수 없습니다" crumb={crumb} />
+    <div className="page ad-page">
+      <AppHead name="앱을 찾을 수 없습니다" />
       <div className="box">
         <div className="empty-state">
           <p>{id}은(는) 아직 등록되지 않았습니다.</p>
@@ -127,17 +232,23 @@ function NotFound({ id }: { id: string }) {
 /** What the app page is doing. Every button waits while one action is in flight. */
 type Busy = "" | "deploy" | "redeploy" | "delete" | "add" | "remove";
 
-function AppDetailView({ m, name }: { m: AppModel; name: string }) {
+const triggerText = (x: Deployment) => TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : "");
+
+function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name: string; tab: AppTab }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<Busy>("");
   const [msg, setMsg] = useState("");
   const [invalid, setInvalid] = useState<AppSpecValidation>();
+  // Once opened, the instances and secrets tabs stay mounted (hidden on the other tabs): an open form, a staged change, the
+  // redeploy offer and an answer that arrives meanwhile all outlive a tab switch, as on the one long page before.
+  const [kept, setKept] = useState<AppTab[]>([]);
+  if ((tab === "instances" || tab === "secrets") && !kept.includes(tab)) setKept([...kept, tab]);
   const a = m.app;
   if (!a) {
     if (m.notFound) return <NotFound id={name} />;
     return (
-      <div className="page">
-        <PageHead title={name} crumb={crumb} />
+      <div className="page ad-page">
+        <AppHead name={name} />
         <p className="hint">{m.error ? "앱을 불러오지 못했습니다: " + m.error : "불러오는 중"}</p>
       </div>
     );
@@ -146,6 +257,7 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
   const deps = m.deployments ?? [];
   const running = deps.find((x) => !isFinalDeploymentStatus(x.status));
   const def = "기본 인스턴스(" + a.name + ")";
+  const tabHref = (t: string) => "#app-" + a.name + (t === "overview" ? "" : "/" + t);
 
   /** Deploys `branch` into its instance; without one, the default instance. */
   async function redeploy(branch?: string) {
@@ -200,20 +312,150 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
         </a>
       )}
       {d && (
-        <button type="button" className="btn ghost" disabled={!!busy || confirming} onClick={() => setConfirming(true)}>
-          앱 삭제
-        </button>
+        <MoreMenu>
+          <button type="button" disabled={!!busy || confirming} onClick={() => setConfirming(true)}>
+            앱 삭제
+          </button>
+        </MoreMenu>
       )}
     </>
   );
-  return (
-    <div className="page">
-      <PageHead
-        title={a.name}
-        sub={d ? <span className="m">{d.repo}</span> : "PLATFORM_APPS_FILE에 있는 앱입니다. 클러스터 사이로 이전할 수 있습니다."}
-        acts={acts}
-        crumb={crumb}
+  const line = d ? (
+    <>
+      <a className="m" href={"https://github.com/" + d.repo} target="_blank" rel="noreferrer">
+        {d.repo}
+      </a>
+      , 기본 브랜치 <span className="m">{d.branch}</span>
+      {d.url && (
+        <>
+          ,{" "}
+          <a href={d.url} target="_blank" rel="noreferrer">
+            {d.url.replace(/^https?:\/\//, "")}
+          </a>
+        </>
+      )}
+    </>
+  ) : (
+    "PLATFORM_APPS_FILE에 있는 앱입니다. 클러스터 사이로 이전할 수 있습니다."
+  );
+  const migration = a.environments.length > 0 && (
+    <Card title="이전 설정">
+      <Table
+        head={["환경", "CNPG 클러스터", "DB 주소", "버킷"]}
+        rows={a.environments.map((e) => [td(envName(e.env)), td(e.cnpgCluster, "m"), td(e.dbHost, "m"), td(e.bucket ?? "-", "m")])}
       />
+    </Card>
+  );
+
+  let panel: ReactNode = null;
+  if (d && tab === "overview") {
+    const last = deps[0];
+    panel = (
+      <>
+        <div className="ad-cols">
+          <div className="ad-main">
+            <Card title="최근 배포" side={last && <DeployChip s={last.status} />}>
+              <div className="bb">
+                {last ? (
+                  <dl className="kv">
+                    <dt>배포</dt>
+                    <dd>
+                      <a className="m" href={"#deploy-" + last.id}>
+                        {last.id}
+                      </a>
+                    </dd>
+                    <dt>트리거</dt>
+                    <dd>{triggerText(last)}</dd>
+                    <dt>커밋</dt>
+                    <dd className="m">{last.ref + " " + short(last.commit)}</dd>
+                    <dt>환경</dt>
+                    <dd>{last.environments.map((e) => envName(e.env)).join(", ")}</dd>
+                    <dt>시간</dt>
+                    <dd>
+                      {ago(last.createdAt, m.now)} 시작, {isFinalDeploymentStatus(last.status) ? dur(elapsedSec(last, m.now)) + " 걸림" : "진행 중"}
+                    </dd>
+                  </dl>
+                ) : (
+                  <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+                )}
+              </div>
+            </Card>
+            <Card
+              title={def + " platform.yaml"}
+              side={
+                <span className="hint">
+                  <span className="m">{short(d.specCommit)}</span>에서 읽음
+                </span>
+              }
+            >
+              <div className="bb">
+                <SpecSummary spec={d.spec} />
+              </div>
+            </Card>
+          </div>
+          <div className="ad-side">
+            <Card title="배포 설정">
+              <div className="bb">
+                <dl className="kv">
+                  <dt>기본 브랜치</dt>
+                  <dd className="m">{d.branch}</dd>
+                  <dt>기본 인스턴스 자동 배포</dt>
+                  <dd>{d.autoDeploy ? "켜짐: push할 때마다 배포합니다" : "꺼짐: 기본 브랜치 다시 배포를 눌러야 배포합니다"}</dd>
+                  <dt>기본 인스턴스 공개 주소</dt>
+                  <dd>{d.url ? <ExtLink href={d.url} /> : "없음"}</dd>
+                  <dt>등록</dt>
+                  <dd>
+                    {d.createdBy}, {ago(d.createdAt, m.now)}
+                  </dd>
+                </dl>
+              </div>
+            </Card>
+            <Card
+              title="시크릿"
+              side={
+                <a className="btn ghost sm" href={tabHref("secrets")}>
+                  관리
+                </a>
+              }
+            >
+              <div className="bb">
+                <SecretsSummary s={s} />
+              </div>
+            </Card>
+          </div>
+        </div>
+        {migration}
+      </>
+    );
+  } else if (d && tab === "deploys") {
+    panel = (
+      <Card title="배포 이력" side={deps.length > 0 && <span className="hint">{deps.length}건</span>}>
+        {deps.length === 0 ? (
+          <div className="empty-state">
+            <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+          </div>
+        ) : (
+          <Table
+            head={["배포", "브랜치", "상태", "트리거", "커밋", "환경", "시작", "소요"]}
+            rows={deps.map((x) => [
+              td(<a href={"#deploy-" + x.id}>{x.id}</a>, "m"),
+              td(x.branch || "-", "m"),
+              td(<DeployChip s={x.status} />),
+              td(triggerText(x), "nw"),
+              td(x.ref + " " + short(x.commit), "m"),
+              td(x.environments.map((e) => envName(e.env)).join(", ")),
+              td(ago(x.createdAt, m.now), "nw"),
+              td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "nw"),
+            ])}
+          />
+        )}
+      </Card>
+    );
+  }
+
+  return (
+    <div className="page ad-page">
+      <AppHead name={a.name} source={d ? "GitHub" : "파일 앱"} line={line} acts={acts} />
       {confirming && d && (
         <ConfirmDelete label="앱 삭제 확인" kind="앱" name={a.name} busy={!!busy} deleting={busy === "delete"} onConfirm={remove} onCancel={() => setConfirming(false)}>
           gitops 저장소에서 {m.instances.map((i) => "apps/" + i.name + "/").join(", ")}을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
@@ -242,97 +484,58 @@ function AppDetailView({ m, name }: { m: AppModel; name: string }) {
           </div>
         </div>
       )}
-      {d && (
+      {d ? (
         <>
-          <section className="sec">
-            <h2>배포 설정</h2>
-            <div className="box">
-              <div className="bb">
-                <dl className="kv">
-                  <dt>레포</dt>
-                  <dd>
-                    <ExtLink href={"https://github.com/" + d.repo} />
-                  </dd>
-                  <dt>기본 브랜치</dt>
-                  <dd className="m">{d.branch}</dd>
-                  <dt>기본 인스턴스 자동 배포</dt>
-                  <dd>{d.autoDeploy ? "켜짐: push할 때마다 배포합니다" : "꺼짐: 기본 브랜치 다시 배포를 눌러야 배포합니다"}</dd>
-                  <dt>기본 인스턴스 공개 주소</dt>
-                  <dd>{d.url ? <ExtLink href={d.url} /> : "없음"}</dd>
-                  <dt>platform.yaml</dt>
-                  <dd>
-                    <span className="m">{short(d.specCommit)}</span>에서 읽음
-                  </dd>
-                  <dt>등록</dt>
-                  <dd>
-                    {d.createdBy}, {ago(d.createdAt, m.now)}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </section>
-          <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} redeployNoBuild={redeployNoBuild} />
-          <AppSecrets m={m} app={a.name} busy={!!busy} setRedeploying={(on) => setBusy(on ? "redeploy" : "")} />
-          <section className="sec">
-            <h2>{def} 환경별 상태</h2>
-            <div className="box">
-              <Table
-                head={["환경", "상태", "Argo CD", "커밋", "주소", "갱신"]}
-                rows={d.status.map((s) => [
-                  td(envName(s.env)),
-                  td(<EnvChip s={s.status} />),
-                  td([s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "-", "m nw"),
-                  td(short(s.commit), "m"),
-                  td(s.url ? <ExtLink href={s.url} /> : "-", "nw"),
-                  td(ago(s.updatedAt, m.now), "nw"),
-                ])}
-              />
-            </div>
-          </section>
-          <section className="sec">
-            <h2>{def} platform.yaml</h2>
-            <div className="box">
-              <div className="bb">
-                <SpecSummary spec={d.spec} />
-              </div>
-            </div>
-          </section>
-          <section className="sec">
-            <h2>배포 이력</h2>
-            <div className="box">
-              {deps.length === 0 ? (
-                <div className="empty-state">
-                  <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
-                </div>
-              ) : (
-                <Table
-                  head={["배포", "브랜치", "상태", "트리거", "커밋", "환경", "시작", "소요"]}
-                  rows={deps.map((x) => [
-                    td(<a href={"#deploy-" + x.id}>{x.id}</a>, "m"),
-                    td(x.branch || "-", "m"),
-                    td(<DeployChip s={x.status} />),
-                    td(TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : ""), "nw"),
-                    td(x.ref + " " + short(x.commit), "m"),
-                    td(x.environments.map((e) => envName(e.env)).join(", ")),
-                    td(ago(x.createdAt, m.now), "nw"),
-                    td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "nw"),
-                  ])}
-                />
-              )}
-            </div>
-          </section>
-        </>
-      )}
-      {a.environments.length > 0 && (
-        <section className="sec">
-          <h2>이전 설정</h2>
-          <div className="box">
-            <Table
-              head={["환경", "CNPG 클러스터", "DB 주소", "버킷"]}
-              rows={a.environments.map((e) => [td(envName(e.env)), td(e.cnpgCluster, "m"), td(e.dbHost, "m"), td(e.bucket ?? "-", "m")])}
+          <EnvStrip title={def + " 환경별 상태"}>
+            {d.status.map((s) => (
+              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]} dot>{ENV_STATUS[s.status][1]}</Chip>}>
+                <span className="hint">{[s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "Argo CD 상태 없음"}</span>
+                {(s.commit || s.updatedAt) && (
+                  <span className="hint">
+                    <span className="m">{short(s.commit)}</span>, {ago(s.updatedAt, m.now)}
+                  </span>
+                )}
+                {s.url && <ExtLink href={s.url} />}
+              </EnvCell>
+            ))}
+          </EnvStrip>
+          <div className="ad-tabs">
+            <Tabs
+              label="앱 정보"
+              current={tab}
+              hrefOf={tabHref}
+              items={[
+                { id: "overview", label: "개요" },
+                {
+                  id: "instances",
+                  label: (
+                    <>
+                      인스턴스{" "}
+                      <span className="ad-cnt">
+                        {m.instances.length}/{MAX_INSTANCES}
+                      </span>
+                    </>
+                  ),
+                },
+                { id: "secrets", label: "시크릿" },
+                { id: "deploys", label: <>배포 이력 {m.deployments && <span className="ad-cnt">{deps.length}</span>}</> },
+              ]}
             />
+            {panel}
+            {kept.includes("instances") && (
+              <div hidden={tab !== "instances"}>
+                <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} redeployNoBuild={redeployNoBuild} />
+              </div>
+            )}
+            {kept.includes("secrets") && (
+              <div hidden={tab !== "secrets"}>
+                <AppSecrets s={s} m={m} busy={!!busy} setRedeploying={(on) => setBusy(on ? "redeploy" : "")} />
+              </div>
+            )}
           </div>
-        </section>
+        </>
+      ) : (
+        migration
       )}
     </div>
   );
@@ -377,7 +580,7 @@ function namePreview(app: string, branch: string): string {
 /** The no-build redeploy button's text, with the short commit it deploys again when known. */
 const noBuildLabel = (commit?: string) => "재배포 (빌드 없이" + (commit ? ", " + short(commit) : "") + ")";
 
-/** One row per instance (ADR 0015), the form that adds a branch, and the typed confirmation that removes one. */
+/** One row per instance (ADR 0015), the form that adds a branch (opened by its button), and the typed confirmation that removes one. */
 function Instances({
   m,
   app,
@@ -393,6 +596,9 @@ function Instances({
   deploy: (branch?: string) => void;
   redeployNoBuild: (i: AppInstance) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  /** the form was closed with 취소: the 브랜치 추가 button that comes back takes the focus */
+  const [closed, setClosed] = useState(false);
   const [branch, setBranch] = useState("");
   const [autoDeploy, setAutoDeploy] = useState(true);
   /** what the last add got back instead of a deployment */
@@ -428,14 +634,36 @@ function Instances({
       setBusy("");
     }
   }
+  function close() {
+    setAdding(false);
+    setClosed(true);
+    setBranch("");
+    setRefused(undefined);
+  }
 
   return (
-    <section className="sec">
-      <h2>브랜치별 인스턴스</h2>
-      <p className="hint">
-        기본 브랜치 외에는 운영자가 추가한 브랜치만 배포합니다. 브랜치마다 주소, 네임스페이스, DB, 버킷이 따로 생기고, 기본 인스턴스를 포함해 {MAX_INSTANCES}개까지 둘 수 있습니다.
-      </p>
-      <div className="box">
+    <div className="ad-stack">
+      <section className="box">
+        <div className="bh">
+          <div className="ad-titles">
+            <h2>브랜치별 인스턴스</h2>
+            <span className="hint">
+              기본 브랜치 외에는 운영자가 추가한 브랜치만 배포합니다. 브랜치마다 주소, 네임스페이스, DB, 버킷이 따로 생기고, 기본 인스턴스를 포함해 {MAX_INSTANCES}개까지 둘 수 있습니다.
+            </span>
+          </div>
+          {listed && (
+            <div className="actrow">
+              <span className="hint">
+                인스턴스 {m.instances.length}/{MAX_INSTANCES}개
+              </span>
+              {!adding && (
+                <button type="button" className="btn" disabled={!!busy} autoFocus={closed} onClick={() => setAdding(true)}>
+                  브랜치 추가
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <Table
           head={["브랜치", "인스턴스", "주소", "환경별 상태", "최근 배포", "자동 배포", ""]}
           rows={m.instances.map((i) => [
@@ -445,7 +673,7 @@ function Instances({
                 {i.default && <Chip>기본</Chip>}
               </span>,
             ),
-            td(i.name, "m"),
+            td(i.name, "m nw"),
             td(i.url ? <ExtLink href={i.url} /> : "-", "nw"),
             td(
               <div className="chips">
@@ -505,38 +733,13 @@ function Instances({
             ),
           ])}
         />
-      </div>
-      {waiting.length > 0 && (
-        <p className="hint">
-          {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
-        </p>
-      )}
-      {removing && (
-        <ConfirmDelete
-          key={removing}
-          label="인스턴스 삭제 확인"
-          kind="인스턴스"
-          name={removing}
-          busy={!!busy}
-          deleting={busy === "remove"}
-          error={removeError && "인스턴스를 지우지 못했습니다: " + removeError}
-          onConfirm={remove}
-          onCancel={() => setRemoving("")}
-        >
-          gitops 저장소에서 apps/{removing}/을 지우고, Argo CD가 이 인스턴스의 네임스페이스와 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 인스턴스는 그대로 둡니다.
-        </ConfirmDelete>
-      )}
-      {!listed ? (
-        <p className="hint">서버가 인스턴스 목록을 보내지 않아 브랜치를 추가하거나 지울 수 없습니다.</p>
-      ) : (
-        <div className="box">
-          <div className="bh">
-            <b>브랜치 추가</b>
-            <span className="hint">
-              인스턴스 {m.instances.length}/{MAX_INSTANCES}개
-            </span>
-          </div>
-          <div className="bb">
+        {waiting.length > 0 && (
+          <p className="hint ad-part">
+            {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
+          </p>
+        )}
+        {listed && adding && (
+          <div className="ad-part">
             {full && <p>인스턴스가 {MAX_INSTANCES}개라 브랜치를 더 추가할 수 없습니다. 다른 브랜치를 배포하려면 추가한 인스턴스를 하나 삭제하세요.</p>}
             <div className="form">
               <div className="field">
@@ -547,6 +750,7 @@ function Instances({
                   disabled={full}
                   spellCheck={false}
                   autoComplete="off"
+                  autoFocus
                   onChange={(e) => {
                     setBranch(e.target.value.trim());
                     setRefused(undefined);
@@ -562,9 +766,28 @@ function Instances({
               <button type="button" className="btn primary" disabled={full || !!busy || !instanceName(app, branch)} onClick={add}>
                 {busy === "add" ? "추가하는 중" : "브랜치 추가"}
               </button>
+              <button type="button" className="btn ghost" disabled={!!busy} onClick={close}>
+                취소
+              </button>
             </div>
           </div>
-        </div>
+        )}
+      </section>
+      {!listed && <p className="hint">서버가 인스턴스 목록을 보내지 않아 브랜치를 추가하거나 지울 수 없습니다.</p>}
+      {removing && (
+        <ConfirmDelete
+          key={removing}
+          label="인스턴스 삭제 확인"
+          kind="인스턴스"
+          name={removing}
+          busy={!!busy}
+          deleting={busy === "remove"}
+          error={removeError && "인스턴스를 지우지 못했습니다: " + removeError}
+          onConfirm={remove}
+          onCancel={() => setRemoving("")}
+        >
+          gitops 저장소에서 apps/{removing}/을 지우고, Argo CD가 이 인스턴스의 네임스페이스와 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 인스턴스는 그대로 둡니다.
+        </ConfirmDelete>
       )}
       {refused?.error && (
         <div className="box badbox" role="alert">
@@ -575,30 +798,42 @@ function Instances({
         </div>
       )}
       {refused?.validation && <SpecResult check={{ data: refused.validation, error: undefined, loading: false, reload: () => setRefused(undefined) }} />}
-    </section>
+    </div>
   );
 }
 
-/** The simulation's migration app (SAMPLE, moimroom): where it runs, its resources and its history. */
+/** The simulation's migration app (SAMPLE, moimroom): where it runs, its resources and its history. Short enough to need no tabs. */
 function ServiceDetail({ id }: { id: string }) {
   const { S } = useSim();
   const a = S.apps[id];
   const n = SAMPLE.services.length * SAMPLE.replicas;
-  const pods = "Pod " + n + "/" + n;
-  const rows: Cell[][] = [[td(ENV[a.loc].name), td(<Chip kind="ok">정상</Chip>), td(pods, "m"), td(SAMPLE.domain, "m"), td("100%", "m")]];
-  if (a.prev) rows.push([td(ENV[a.prev].name), td(<Chip>축소됨, 읽기 전용</Chip>), td("-", "m"), td("-", "m"), td("0%", "m")]);
   return (
-    <div className="page">
-      <PageHead
-        title={id}
-        sub={<span className="m">{a.repo}</span>}
+    <div className="page ad-page">
+      <AppHead
+        name={id}
+        source="파일 앱"
+        line={
+          <>
+            <span className="m">{a.repo}</span>, {ENV[a.loc].name}에서 실행 중
+          </>
+        }
         acts={
           <a className="btn primary" href="#migrate-app">
             이전
           </a>
         }
-        crumb={crumb}
       />
+      <EnvStrip title="실행 위치">
+        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok" dot>정상</Chip>}>
+          <span className="m">{"Pod " + n + "/" + n}</span>
+          <span className="hint">트래픽 100%</span>
+        </EnvCell>
+        {a.prev && (
+          <EnvCell name={ENV[a.prev].name} chip={<Chip dot>축소됨, 읽기 전용</Chip>}>
+            <span className="hint">트래픽 0%</span>
+          </EnvCell>
+        )}
+      </EnvStrip>
       <div className="box fillbox">
         <div className="bb">
           <p>
@@ -606,24 +841,12 @@ function ServiceDetail({ id }: { id: string }) {
           </p>
         </div>
       </div>
-      <section className="sec">
-        <h2>실행 위치</h2>
-        <div className="box">
-          <Table head={["위치", "상태", "실행", "주소", "트래픽"]} rows={rows} />
-        </div>
-      </section>
-      <section className="sec">
-        <h2>리소스</h2>
-        <div className="box">
-          <Table head={["종류", "이름", "내용"]} rows={a.res.map((r) => [td(r[0]), td(r[1], "m"), td(r[2])])} />
-        </div>
-      </section>
-      <section className="sec">
-        <h2>변경 이력</h2>
-        <div className="box">
-          <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "nw")])} />
-        </div>
-      </section>
+      <Card title="리소스">
+        <Table head={["종류", "이름", "내용"]} rows={a.res.map((r) => [td(r[0]), td(r[1], "m"), td(r[2])])} />
+      </Card>
+      <Card title="변경 이력">
+        <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "nw")])} />
+      </Card>
     </div>
   );
 }
