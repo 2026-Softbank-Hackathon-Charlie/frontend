@@ -1,7 +1,7 @@
 import "../styles/migrate.css";
 import { useState, type ReactNode } from "react";
 import type { AgentEvent, AgentSession, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
-import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
+import { blockedOf, KIND_LABEL, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
@@ -108,12 +108,14 @@ const GLYPH: Record<string, string> = {
   ok: "M2.5 6.2l2.3 2.3 4.7-5",
   bad: "M3.6 3.6l4.8 4.8M8.4 3.6l-4.8 4.8",
   warn: "M6 2.5v4.2M6 9.1v.1",
+  neu: "M3.2 6h5.6",
   shield: "M6 1.8l3.6 1.4v2.9c0 2.2-1.6 3.6-3.6 4.2-2-.6-3.6-2-3.6-4.2V3.2z",
 };
 
-type MarkSt = StepState | "warn";
+/** "neu": ended without a verdict (an inconclusive canary step, an observation that stopped early). */
+type MarkSt = StepState | "warn" | "neu";
 
-/** A small state glyph: check, cross, "!", an open circle (not yet), or the running spinner. `round` puts it on a tinted disc. */
+/** A small state glyph: check, cross, "!", a dash (no verdict), an open circle (not yet), or the running spinner. `round` puts it on a tinted disc. */
 function Mark({ st, round, glyph }: { st: MarkSt; round?: boolean; glyph?: string }) {
   const k = glyph ?? st;
   return (
@@ -667,6 +669,8 @@ function AiView({ v }: { v: MigrationView }) {
         {feed}
       </div>
     );
+  // DOM order is the narrow screen's order (what changed, the decision, then the folded details); wide screens
+  // put the decision in a right column beside both.
   return (
     <div className="mg-cols">
       <div className="mg-main">
@@ -675,7 +679,26 @@ function AiView({ v }: { v: MigrationView }) {
         {/* the AI at work: its log first */}
         {!review && feed}
         <FixBox v={v} />
-        <Checked v={v} events={all} />
+        <Checked v={v} events={all} viewing={shown} />
+      </div>
+      <aside className="mg-side">
+        {review ? (
+          <ApproveBox v={v} />
+        ) : (
+          <div className="box">
+            <div className="bh">
+              <b>승인</b>
+              <Chip kind="run" dot>
+                AI 작업 중
+              </Chip>
+            </div>
+            <div className="bb">
+              <p className="hint">AI가 리허설을 마치면 여기서 Plan을 승인합니다. 리허설이 실패하면 AI가 원인을 진단하고 수정안을 Plan에 첨부합니다.</p>
+            </div>
+          </div>
+        )}
+      </aside>
+      <div className="mg-main mg-more">
         <details className="box fold mg-fold">
           <summary className="bh">
             <b>Plan 상세</b>
@@ -698,23 +721,6 @@ function AiView({ v }: { v: MigrationView }) {
           </details>
         )}
       </div>
-      <aside className="mg-side">
-        {review ? (
-          <ApproveBox v={v} />
-        ) : (
-          <div className="box">
-            <div className="bh">
-              <b>승인</b>
-              <Chip kind="run" dot>
-                AI 작업 중
-              </Chip>
-            </div>
-            <div className="bb">
-              <p className="hint">AI가 리허설을 마치면 여기서 Plan을 승인합니다. 리허설이 실패하면 AI가 원인을 진단하고 수정안을 Plan에 첨부합니다.</p>
-            </div>
-          </div>
-        )}
-      </aside>
     </div>
   );
 }
@@ -756,21 +762,21 @@ function sessionMark(s?: AgentSession): MarkSt {
 }
 
 // What was checked before the approval: the AI plan, the rehearsal, the commands the platform blocked, the pre-start checks.
-function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
+// Live only follows the events of the session on screen (`viewing`), so its blocked commands are that session's alone.
+function Checked({ v, events, viewing }: { v: MigrationView; events: AgentEvent[]; viewing?: AgentSession }) {
   const plan = v.sessions.find((s) => s.kind === "plan");
   const reh = v.sessions.find((s) => s.kind === "rehearsal");
   const fails = v.sessions.filter((s) => s.kind === "diagnose").length;
   const fixed = !!v.fix || !!v.plan?.attachments?.length;
   const blocked = blockedOf(events);
   const pf = v.preflight;
+  const scope = !v.live ? "" : viewing ? KIND_LABEL[viewing.kind] + " 세션 기록만 셉니다. 다른 세션은 AI 세션 기록에서 고르세요." : "AI 세션 기록이 없습니다.";
   const tools = (s: AgentSession) => " 도구 호출 " + fmt(s.totals.toolCalls) + "회, 토큰 " + fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens) + ".";
   return (
     <div className="box">
       <div className="bh">
         <b>확인한 것</b>
-        <span className="hint">
-          AI 세션 {v.sessions.length}개, 막힌 명령 {blocked.length}건
-        </span>
+        <span className="hint">{"AI 세션 " + v.sessions.length + "개" + (v.live ? "" : ", 막힌 명령 " + blocked.length + "건")}</span>
       </div>
       <ul className="mg-checks">
         <li>
@@ -798,12 +804,12 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
           </div>
         </li>
         <li>
-          <Mark round st="ok" glyph="shield" />
+          <Mark round st={blocked.length || !v.live ? "ok" : "neu"} glyph="shield" />
           {blocked.length ? (
             <details open>
               <summary>
                 <b>막힌 명령 {blocked.length}건, 모두 차단됨</b>
-                <small>AI 권한 밖의 명령이라 플랫폼이 막았습니다. 운영 클러스터에는 영향이 없습니다.</small>
+                <small>{"AI 권한 밖의 명령이라 플랫폼이 막았습니다. 운영 클러스터에는 영향이 없습니다." + (scope && " " + scope)}</small>
               </summary>
               <ul className="mg-blocked">
                 {blocked.map((b, i) => (
@@ -816,8 +822,8 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
             </details>
           ) : (
             <div>
-              <b>막힌 명령 없음</b>
-              <small>AI가 권한 밖의 명령을 시도하지 않았습니다.</small>
+              <b>{v.live ? "막힌 명령 0건" : "막힌 명령 없음"}</b>
+              <small>{v.live ? scope : "AI가 권한 밖의 명령을 시도하지 않았습니다."}</small>
             </div>
           )}
         </li>
@@ -907,60 +913,81 @@ function marksOf(r: Run, events: RunEvent[]): Marks {
 
 /** Four groups of the run: sync (4 engine steps), read canary, switch (3), verify (2, and observe when on). */
 type GroupSt = "done" | "run" | "wait" | "bad" | "todo";
+type ItemSt = StepState | "neu";
 interface Group {
   label: string;
   st: GroupSt;
   range?: string;
-  items: { label: string; st: StepState; detail?: string }[];
+  items: { label: string; st: ItemSt; detail?: string }[];
 }
 
 const GROUP_OF: Record<RunPhase, number> = { sync: 0, canary: 1, awaiting_switch: 2, cutover: 2, verify: 3, observe: 3, done: 4 };
 const GROUP_NOW: Partial<Record<GroupSt, string>> = { run: "진행 중", wait: "승인 대기", bad: "멈춤" };
 
-function groupsOf(r: Run, events: RunEvent[], m: Marks): Group[] {
+/**
+ * Where a run that did not succeed stopped. The platform ends every run in phase "done" (runs.finish), right after
+ * the status change that carries the phase it stopped in, so that is the last status change with another phase.
+ * Without events: the phase of the engine's failure step, else of its first step that did not succeed.
+ */
+function stopPhase(r: Run, events: RunEvent[], steps: Record<string, StepState>): RunPhase {
+  if (r.phase !== "done") return r.phase;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const p = events[i].kind === "status_changed" ? events[i].data?.phase : undefined;
+    if (typeof p === "string" && p !== "done" && p in GROUP_OF) return p as RunPhase;
+  }
+  const s = ENGINE_STEPS.find((x) => x.id === r.engine.failureStep) ?? ENGINE_STEPS.find((x) => steps[x.id] !== "ok");
+  return s?.phase ?? "done";
+}
+
+/** The run's four groups with their state, time range and items (exported for tests). */
+export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, events)): Group[] {
   const active = r.status === "running" || r.status === "awaiting_switch";
-  const cur = r.status === "succeeded" ? 4 : GROUP_OF[r.phase];
-  const st = (i: number): GroupSt => (i < cur ? "done" : i > cur ? "todo" : r.status === "awaiting_switch" ? "wait" : active ? "run" : "bad");
   const steps = stepStates(r, events, active);
-  const engine = (phase: RunPhase) => ENGINE_STEPS.filter((s) => s.phase === phase).map((s) => ({ label: s.label, st: steps[s.id], detail: s.detail }));
+  const o = r.observe;
+  // A succeeded run whose observation broke the gate stopped being good in the verify group.
+  const cur = r.status === "succeeded" ? (o?.passed === false ? GROUP_OF.observe : 4) : GROUP_OF[stopPhase(r, events, steps)];
+  const st = (i: number): GroupSt => (i < cur ? "done" : i > cur ? "todo" : r.status === "awaiting_switch" ? "wait" : active ? "run" : "bad");
+  const engine = (phase: RunPhase) => ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] => ({ label: s.label, st: steps[s.id], detail: s.detail }));
   const at = (t: string) => mmss(secs(r.startedAt, t));
+  // an ended run's open part ends when the run did
+  const until = (t?: string) => t ?? (active ? undefined : (r.endedAt ?? r.updatedAt));
   const range = (a?: string, b?: string) => (a ? at(a) + " ~" + (b ? " " + at(b) : "") : undefined);
   const c = r.canary;
-  const canary = c
+  const canary: Group["items"] = c
     ? c.options.weights.map((w, i) => {
         const s = c.steps[i];
         const g = s?.gate;
         // verdict is new; older runs only have gate.passed.
         const verdict = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
         const label = w + "%" + (verdict === "ok" ? " 통과" : verdict === "inconclusive" ? " (요청 부족, 다음 단계로)" : verdict === "failed" ? " 실패" : s && active ? " 관찰 중" : "");
-        const itemSt: StepState = !s ? "wait" : !g ? (active ? "run" : "wait") : verdict === "failed" ? "bad" : "ok";
+        const itemSt: ItemSt = !s ? "wait" : !g ? (active ? "run" : "wait") : verdict === "failed" ? "bad" : verdict === "inconclusive" ? "neu" : "ok";
         return { label, st: itemSt };
       })
-    : [{ label: "게이트웨이를 거치지 않아 건너뜀", st: (cur > 1 ? "ok" : "wait") as StepState }];
+    : [{ label: "게이트웨이를 거치지 않아 건너뜀", st: cur > 1 ? "ok" : "wait" }];
   const verify = engine("verify");
-  const o = r.observe;
-  if (o) verify.push({ label: "전환 후 관찰", st: r.phase === "observe" && active ? "run" : o.passed === false ? "bad" : o.passed || cur > 3 ? "ok" : "wait", detail: "" });
+  if (o) {
+    // no verdict: still to come, or (once it started) stopped early or never conclusive
+    const ost: ItemSt = r.phase === "observe" && active ? "run" : o.passed === true ? "ok" : o.passed === false ? "bad" : !active && m.observed ? "neu" : "wait";
+    verify.push({ label: "전환 후 관찰" + (ost === "bad" ? " 위반" : ost === "neu" ? " (판정 없이 끝남)" : ""), st: ost, detail: o.violation ?? o.stoppedReason });
+  }
   return [
-    { label: "동기화", st: st(0), range: range(r.startedAt, m.synced), items: engine("sync") },
-    { label: "읽기 카나리", st: st(1), range: range(m.synced, m.waited), items: canary },
-    { label: "전환", st: st(2), range: range(m.switched, m.cut), items: engine("cutover") },
-    { label: "검증", st: st(3), range: range(m.cut, r.endedAt), items: verify },
+    { label: "동기화", st: st(0), range: range(r.startedAt, until(m.synced)), items: engine("sync") },
+    { label: "읽기 카나리", st: st(1), range: range(m.synced, until(m.waited)), items: canary },
+    { label: "전환", st: st(2), range: range(m.switched, until(m.cut)), items: engine("cutover") },
+    { label: "검증", st: st(3), range: range(m.cut, until(r.endedAt)), items: verify },
   ];
 }
 
-/** Time per part of an ended run; undefined when its events do not hold every boundary (a run that stopped early). */
+/**
+ * Seconds per part of an ended run; undefined when its events do not hold every boundary (a run that stopped early).
+ * Each boundary is rounded from the start, so the parts add up to the rounded total in the report.
+ */
 function spansOf(r: Run, m: Marks): { label: string; sec: number; i: number }[] | undefined {
   if (!r.endedAt || !m.synced || !m.waited || !m.switched || !m.cut) return undefined;
   const verified = m.observed ?? r.endedAt;
-  const parts: [string, string, string][] = [
-    ["동기화", r.startedAt, m.synced],
-    ["읽기 카나리", m.synced, m.waited],
-    ["전환 승인 대기", m.waited, m.switched],
-    ["쓰기 보류, 승격, 전환", m.switched, m.cut],
-    ["검증, 마무리", m.cut, verified],
-    ["전환 후 관찰", verified, r.endedAt],
-  ];
-  return parts.map(([label, a, b], i) => ({ label, sec: secs(a, b), i })).filter((p) => p.sec >= 0.5);
+  const edges = [r.startedAt, m.synced, m.waited, m.switched, m.cut, verified, r.endedAt].map((t) => Math.round(secs(r.startedAt, t)));
+  const labels = ["동기화", "읽기 카나리", "전환 승인 대기", "쓰기 보류, 승격, 전환", "검증, 마무리", "전환 후 관찰"];
+  return labels.map((label, i) => ({ label, sec: edges[i + 1] - edges[i], i })).filter((p) => p.sec > 0);
 }
 
 function RunView({ v, r }: { v: MigrationView; r: Run }) {
@@ -970,6 +997,8 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
   return (
     <>
       <RunHero v={v} r={r} groups={groups} ended={ended} />
+      {/* a start or rollback refused by a pre-start check: why comes first */}
+      {v.preflight?.blocked && <PreflightBox p={v.preflight} />}
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
       {ended && <PhaseTimes r={r} m={marks} />}
@@ -987,7 +1016,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
         </div>
         <CanaryBox r={r} />
       </div>
-      <RunRecords v={v} r={r} />
+      <RunRecords key={r.runId} v={v} r={r} />
     </>
   );
 }
@@ -1016,13 +1045,21 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
         (r.canary?.passed ? "읽기 카나리 게이트를 모두 통과했습니다. " : "") + "전환하면 쓰기를 잠시 붙잡고(상한 " + (v.plan?.summary.maxDowntime ?? "30s") + ") " + v.tgtLabel + "를 승격한 뒤 쓰기 트래픽을 옮깁니다.",
       ];
     case "succeeded": {
+      const o = r.observe;
+      if (o?.passed === false)
+        return [
+          "전환은 마쳤지만 전환 후 관찰에서 게이트를 어겼습니다.",
+          (o.violation ? "위반: " + o.violation + ". " : "") +
+            (o.rollbackRunId
+              ? "플랫폼이 자동으로 롤백을 시작했습니다(" + o.rollbackRunId + ")."
+              : (o.rollbackError ? "자동 롤백을 시작하지 못했습니다: " + o.rollbackError + ". " : "") + "롤백할지 정하세요."),
+        ];
       const x = r.result;
       const clean = x.verified === true && [x.failedRequests, x.missingRows, x.missingWrites, x.missingFiles].every((n) => !n);
       const took = dur(el) + " 만에 " + (r.rollbackOf ? "되돌렸" : "옮겼");
       return [
         clean ? took + "고, 실패 요청과 누락은 없습니다." : took + "습니다. 리포트에서 실패 요청과 누락을 확인하세요.",
-        (r.observe && r.statusReason ? r.statusReason + ". " : "") +
-          (x.verified ? "트래픽과 데이터가 " + v.tgtLabel + "에 있고 검증을 통과했습니다. " : "트래픽이 " + v.tgtLabel + "에 있습니다. ") +
+        (x.verified ? "트래픽과 데이터가 " + v.tgtLabel + "에 있고 검증을 통과했습니다. " : "트래픽이 " + v.tgtLabel + "에 있습니다. ") +
           "원본 " +
           v.srcLabel +
           "는 읽기 전용으로 남아 있어서 같은 방법으로 되돌릴 수 있습니다.",
@@ -1037,7 +1074,10 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
     case "aborted":
       return [noun + "을 중단했습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
     case "interrupted":
-      return ["서버가 다시 시작되어 멈췄습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
+      return [
+        "서버가 다시 시작되어 멈췄습니다. 이어서 실행할 수 있습니다.",
+        (r.engine.promoteRequested ? "대상 승격을 요청한 뒤에 멈췄고, 이어서 실행하면 멈춘 단계부터 다시 진행합니다." : "되돌릴 수 없는 단계 전에 멈췄습니다.") + why,
+      ];
   }
 }
 
@@ -1049,15 +1089,22 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
   const canAbort = (r.status === "running" || r.status === "awaiting_switch") && !r.engine.promoteRequested;
   const canResume = r.status === "failed" || r.status === "aborted" || r.status === "interrupted";
   const [title, say] = heroText(v, r, el);
-  const tone = r.status === "awaiting_switch" ? " tone-warn" : r.status === "succeeded" ? " tone-ok" : ended ? " tone-bad" : "";
+  const violated = r.status === "succeeded" && r.observe?.passed === false;
+  const tone = r.status === "awaiting_switch" ? " tone-warn" : r.status === "succeeded" && !violated ? " tone-ok" : ended ? " tone-bad" : "";
   const motion = r.status === "running" ? " is-run" : r.status === "awaiting_switch" ? " is-wait" : "";
   return (
     <section className={"box mg-hero" + tone + motion} aria-labelledby="mg-now">
       <div className="mg-top">
         <div className="mg-say">
-          <Chip kind={STATUS_KIND[r.status]} dot>
-            {statusText(r.status, r.phase)}
-          </Chip>
+          {violated ? (
+            <Chip kind="bad" dot>
+              전환 후 관찰 위반
+            </Chip>
+          ) : (
+            <Chip kind={STATUS_KIND[r.status]} dot>
+              {statusText(r.status, r.phase)}
+            </Chip>
+          )}
           <h2 id="mg-now">{title}</h2>
           <p>{say}</p>
         </div>
@@ -1077,7 +1124,7 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
               이어서 실행
             </button>
           )}
-          {r.status === "succeeded" && (
+          {r.status === "succeeded" && !r.observe?.rollbackRunId && (
             <button type="button" className="btn ghost lg" disabled={v.busy} onClick={v.rollback}>
               롤백
             </button>
@@ -1177,7 +1224,7 @@ function PhaseTimes({ r, m }: { r: Run; m: Marks }) {
             <i key={p.i} className={"c" + p.i} style={{ flexGrow: p.sec }} />
           ))}
         </div>
-        <div className="legend">
+        <div className="legend mg-legend">
           {parts.map((p) => (
             <span key={p.i}>
               <span className={"sw c" + p.i} />
@@ -1192,7 +1239,7 @@ function PhaseTimes({ r, m }: { r: Run; m: Marks }) {
 
 // The details below the run: engine log (default), pre-start checks, AI sessions, Plan.
 function RunRecords({ v, r }: { v: MigrationView; r: Run }) {
-  const [tab, setTab] = useState("log");
+  const [picked, setTab] = useState("log");
   const pf = v.preflight && preflightCount(v.preflight);
   const items: TabItem[] = [
     { id: "log", label: "엔진 기록" },
@@ -1211,6 +1258,8 @@ function RunRecords({ v, r }: { v: MigrationView; r: Run }) {
       : []),
     { id: "plan", label: "Plan" },
   ];
+  // a tab that went away (no AI sessions on this run) falls back to the log
+  const tab = items.some((t) => t.id === picked) ? picked : "log";
   return (
     <div className="box mg-records">
       <Tabs label="자세한 기록" items={items} current={tab} onSelect={setTab} idBase="mg-rec" />
@@ -1347,7 +1396,7 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
         <span className="hint">목표와 비교</span>
       </div>
       <div className="mg-report">
-        <Num label="전체 시간" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note={"목표 " + TARGET_TEXT + " 이내"} ok={x.durationMillis === undefined ? undefined : x.durationMillis <= TARGET_SEC * 1000} />
+        <Num label="전체 시간" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note={"목표 " + TARGET_TEXT + " 이내"} ok={x.durationMillis === undefined || r.status !== "succeeded" ? undefined : x.durationMillis <= TARGET_SEC * 1000} />
         <Num
           label="쓰기 보류"
           value={down !== undefined ? (down / 1000).toFixed(1) + "초" : "-"}

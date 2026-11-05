@@ -66,8 +66,8 @@ describe("HopCharlie console (simulation)", () => {
 
     await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
     await user.click(screen.getByRole("tab", { name: /시작 전 검사/ }));
-    expect(screen.getByText("시작 전 검사")).toBeInTheDocument();
-    expect(screen.getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
+    const checks = screen.getByRole("tabpanel", { name: /시작 전 검사/ });
+    expect(within(checks).getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
     ticks(sim, SWITCH_AT);
     expect(screen.getAllByText("전환 승인 대기").length).toBeGreaterThan(0);
     // The canary ends at 100%: every read is on the target before the switch.
