@@ -11,9 +11,9 @@
  * decision in a right column spanning both left parts; it spans a flexible second row, so a tall decision card
  * lengthens that row and never pushes the folds away from the content above them.
  */
-.mg-cols { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
-.mg-main { display: grid; gap: 20px; min-width: 0; }
-.mg-side { display: grid; gap: 16px; min-width: 0; }
+.mg-cols { display: grid; gap: var(--sp-lg); grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
+.mg-main { display: grid; gap: var(--sp-lg); min-width: 0; }
+.mg-side { display: grid; gap: var(--sp-md); min-width: 0; }
 @media (min-width: 1100px) {
   .mg-cols { grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto 1fr; }
   .mg-cols > .mg-main { grid-column: 1; grid-row: 1; }
@@ -21,15 +21,15 @@
   .mg-cols > .mg-more { grid-column: 1; grid-row: 2; }
 }
 .mg-side .kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-.mg-side .kv dt { margin-top: 10px; font-size: 12.5px; }
+.mg-side .kv dt { margin-top: var(--sp-sm); font-size: 13px; }
 .mg-side .kv dt:first-child { margin-top: 0; }
-.mg-decide { display: grid; gap: 8px; }
+.mg-decide { display: grid; gap: var(--sp-xs); }
 
 /* folds with a chevron: Plan 상세, AI 세션 기록, the setup's full descriptions */
 .mg-fold > summary { justify-content: flex-start; }
 .mg-fold > summary > :nth-child(2) { margin-left: auto; }
 .mg-fold > summary::after {
-  content: ""; width: 7px; height: 7px; flex: none; margin: -3px 2px 0 12px;
+  content: ""; width: 7px; height: 7px; flex: none; margin: -3px 2px 0 var(--sp-sm);
   border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg);
 }
 .mg-fold[open] > summary::after { margin-top: 3px; transform: rotate(-135deg); }
@@ -37,15 +37,15 @@
 
 /* "확인한 것": one row per check with a round state mark */
 .mg-checks { list-style: none; margin: 0; padding: 0; }
-.mg-checks > li { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.mg-checks > li { display: flex; gap: var(--sp-md); align-items: flex-start; padding: var(--sp-md); border-bottom: 1px solid var(--line-soft); }
 .mg-checks > li:last-child { border-bottom: 0; }
 .mg-checks > li > div, .mg-checks > li > details { flex: 1; min-width: 0; }
-.mg-checks b { display: block; font-size: 14px; font-weight: 600; color: var(--heading); }
-.mg-checks small { display: block; font-size: 12.5px; color: var(--muted); }
+.mg-checks b { display: block; font-size: 14px; font-weight: 500; color: var(--heading); }
+.mg-checks small { display: block; font-size: 12px; color: var(--muted); }
 .mg-checks summary { cursor: pointer; list-style: none; }
 .mg-checks summary::-webkit-details-marker { display: none; }
-.mg-blocked { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
-.mg-blocked li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 12px; border-radius: var(--r-control); background: var(--side-bg); }
+.mg-blocked { list-style: none; margin: var(--sp-sm) 0 0; padding: 0; display: grid; gap: var(--sp-xs); }
+.mg-blocked li { display: flex; flex-wrap: wrap; gap: var(--sp-2xs) var(--sp-sm); align-items: baseline; padding: var(--sp-xs) var(--sp-sm); border-radius: var(--r-control); background: var(--side-bg); }
 .mg-blocked code { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
 
 /* state marks: a bare glyph in lists, a tinted disc in the checklist */
@@ -70,18 +70,18 @@
 .mg-mark .ind.run .arc { stroke: var(--run); }
 
 /* ---------- run: headline card ---------- */
-.mg-hero .mg-top { display: flex; flex-wrap: wrap; gap: 16px 20px; align-items: center; justify-content: space-between; padding: 20px 22px 18px; }
-.mg-say { flex: 1 1 420px; min-width: 0; display: grid; gap: 8px; justify-items: start; }
-.mg-say h2 { font-size: 20px; font-weight: 700; line-height: 1.4; }
+.mg-hero .mg-top { display: flex; flex-wrap: wrap; gap: var(--sp-md) var(--sp-lg); align-items: center; justify-content: space-between; padding: var(--sp-lg) var(--sp-xl); }
+.mg-say { flex: 1 1 420px; min-width: 0; display: grid; gap: var(--sp-xs); justify-items: start; }
+.mg-say h2 { font-size: 24px; font-weight: 700; line-height: 1.4; }
 .mg-say p { font-size: 14px; color: var(--muted); max-width: 72ch; }
-.mg-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.mg-acts { display: flex; gap: var(--sp-xs); flex-wrap: wrap; }
 
 /* progress over the four groups: done dark, the current one in its state color, later ones light */
-.mg-track { list-style: none; margin: 0; padding: 0 22px 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.mg-track li { display: grid; gap: 7px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.mg-track { list-style: none; margin: 0; padding: 0 var(--sp-xl) var(--sp-lg); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-xs); }
+.mg-track li { display: grid; gap: var(--sp-xs); min-width: 0; font-size: 13px; color: var(--muted); }
 .mg-track i { display: block; position: relative; overflow: hidden; height: 10px; border-radius: 5px; background: var(--card-line); }
-.mg-track span { display: flex; flex-wrap: wrap; gap: 0 6px; align-items: baseline; }
-.mg-track small { font-size: 12px; font-weight: 600; }
+.mg-track span { display: flex; flex-wrap: wrap; gap: 0 var(--sp-2xs); align-items: baseline; }
+.mg-track small { font-size: 12px; font-weight: 700; }
 .mg-track li.done { color: var(--fg); }
 .mg-track li.done i { background: var(--fg); }
 .mg-track li.run { color: var(--run); font-weight: 700; }
@@ -94,23 +94,22 @@
 /* numbers while it runs: one strip under the card's head, white even on a tinted card */
 .mg-stats { display: flex; flex-wrap: wrap; overflow: hidden; border-top: 1px solid var(--line-soft); background: var(--canvas); border-radius: 0 0 var(--r-card) var(--r-card); }
 .mg-hero.tone-warn .mg-stats { border-top-color: var(--warn-line); }
-.mg-stats .mg-num { flex: 1 1 170px; padding: 14px 22px; margin: -1px 0 0 -1px; border-left: 1px solid var(--line-soft); border-top: 1px solid var(--line-soft); }
+.mg-stats .mg-num { flex: 1 1 170px; padding: var(--sp-md) var(--sp-xl); margin: -1px 0 0 -1px; border-left: 1px solid var(--line-soft); border-top: 1px solid var(--line-soft); }
 .mg-num { display: grid; gap: 2px; align-content: start; min-width: 0; }
-.mg-num > span { font-size: 12.5px; color: var(--muted); }
-.mg-num strong { font-size: 22px; font-weight: 700; line-height: 1.35; color: var(--heading); font-variant-numeric: tabular-nums; }
-.mg-num strong small { font-size: 12.5px; font-weight: 400; color: var(--muted); }
-.mg-num > small { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.mg-num > span { font-size: 12px; color: var(--muted); }
+.mg-num strong { font-size: 24px; font-weight: 700; line-height: 1.35; color: var(--heading); font-variant-numeric: tabular-nums; }
+.mg-num strong small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.mg-num > small { display: inline-flex; gap: var(--sp-2xs); align-items: center; font-size: 12px; color: var(--muted); }
 .mg-num.ok strong { color: var(--ok); }
 .mg-num.bad strong { color: var(--bad); }
-.mg-mini { display: block; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+.mg-mini { display: block; height: 4px; margin-top: var(--sp-xs); border-radius: 2px; background: var(--line-soft); overflow: hidden; }
 .mg-mini i { display: block; height: 100%; border-radius: 2px; background: var(--fg); transition: width var(--dur-slow) var(--ease); }
 .mg-mini.over i { background: var(--bad); }
 
 /* report: six numbers checked against their targets, three or two to a row so the rows stay full */
 .mg-report { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line-soft); border-radius: 0 0 var(--r-card) var(--r-card); overflow: hidden; }
 @media (max-width: 700px) { .mg-report { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.mg-report .mg-num { padding: 16px 20px; background: var(--canvas); }
-.mg-report .mg-num strong { font-size: 24px; }
+.mg-report .mg-num { padding: var(--sp-md) var(--sp-lg); background: var(--canvas); }
 
 /* time per part of an ended run; the person's wait in amber */
 .mg-spans { display: flex; gap: 2px; height: 28px; border-radius: 4px; overflow: hidden; }
@@ -125,31 +124,31 @@
 
 /* the four phase groups: four across, or two by two in a narrow card */
 .mg-phases { container-type: inline-size; }
-.mg-grps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; padding: 18px; }
+.mg-grps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-lg) var(--sp-xl); padding: var(--sp-lg); }
 @container (min-width: 680px) { .mg-grps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.mg-grp { min-width: 0; display: grid; gap: 10px; align-content: start; }
+.mg-grp { min-width: 0; display: grid; gap: var(--sp-sm); align-content: start; }
 .mg-bar4 { display: block; position: relative; overflow: hidden; height: 4px; border-radius: 2px; background: var(--card-line); }
 .mg-grp.done .mg-bar4 { background: var(--fg); }
 .mg-grp.run .mg-bar4 { background: var(--run); }
 .mg-grp.wait .mg-bar4 { background: var(--warn-bar); }
 .mg-grp.bad .mg-bar4 { background: var(--bad); }
-.mg-grph { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2px 8px; min-height: 22px; }
+.mg-grph { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2px var(--sp-xs); min-height: 22px; }
 .mg-grph b { color: var(--heading); }
 .mg-grp.todo .mg-grph b { color: var(--muted); }
-.mg-grph .m { font-size: 12.5px; }
-.mg-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
-.mg-steps li { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.mg-grph .m { font-size: 12px; }
+.mg-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2xs); font-size: 13px; }
+.mg-steps li { display: flex; gap: var(--sp-xs); align-items: center; min-width: 0; }
 .mg-steps li.wait, .mg-steps li.neu { color: var(--muted); }
-.mg-steps li.run { color: var(--heading); font-weight: 600; }
+.mg-steps li.run { color: var(--heading); font-weight: 500; }
 
 /* traffic and canary side by side; the canary table gets the wider share */
-.mg-pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; min-width: 0; }
+.mg-pair { display: flex; flex-wrap: wrap; gap: var(--sp-md); align-items: flex-start; min-width: 0; }
 .mg-pair > .box { flex: 1 1 320px; }
 .mg-pair > .box + .box { flex: 1.6 1 460px; }
-.mg-pair .tbl th, .mg-pair .tbl td { padding-inline: 10px; white-space: nowrap; }
+.mg-pair .tbl th, .mg-pair .tbl td { padding-inline: var(--sp-sm); white-space: nowrap; }
 
 /* the run's record tabs */
-.mg-records > .tabs { padding: 0 16px; }
+.mg-records > .tabs { padding: 0 var(--sp-md); }
 
 /*
  * Motion for the state that is live now, so the eye lands on it. Working (blue): a light sweeps across the
@@ -182,9 +181,9 @@
 }
 
 @media (max-width: 640px) {
-  .mg-hero .mg-top { padding: 18px 16px 16px; }
-  .mg-track { padding: 0 16px 18px; gap: 4px; }
-  .mg-stats .mg-num { padding: 12px 16px; flex-basis: 140px; }
+  .mg-hero .mg-top { padding: var(--sp-md); }
+  .mg-track { padding: 0 var(--sp-md) var(--sp-md); gap: var(--sp-2xs); }
+  .mg-stats .mg-num { padding: var(--sp-sm) var(--sp-md); flex-basis: 140px; }
   .mg-acts { width: 100%; }
   .mg-acts .btn { flex: 1 1 auto; }
 }
