@@ -83,9 +83,14 @@ function SimEnvs() {
         title="환경"
         sub="환경마다 독립된 Kubernetes 클러스터를 둡니다. 환경 차이는 Helm values(환경 프로필)로만 흡수하고, 같은 chart로 모든 클러스터에 배포합니다."
         acts={
-          <button type="button" className="btn ghost" disabled>
-            환경 등록
-          </button>
+          <>
+            <span className="hint" id="env-register-why">
+              시연에서는 쓸 수 없습니다. 클러스터는 Terraform으로 만든 뒤 등록합니다.
+            </span>
+            <button type="button" className="btn ghost" disabled aria-describedby="env-register-why">
+              환경 등록
+            </button>
+          </>
         }
       />
       <section className="sec">

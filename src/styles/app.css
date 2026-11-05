@@ -2,7 +2,7 @@
    Type sizes: 12, 13, 14, 16, 18, 24, 32px. Weights: 400, 500, 700. */
 * { box-sizing: border-box; }
 html { overflow-x: clip; }
-body { margin: 0; overflow-x: clip; background: var(--canvas); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; font-synthesis: none; word-break: keep-all; }
+body { margin: 0; overflow-x: clip; background: var(--canvas); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; font-synthesis: none; word-break: keep-all; overflow-wrap: break-word; }
 h1, h2, h3 { color: var(--heading); margin: 0; text-wrap: balance; }
 p { margin: 0; }
 /* Korean breaks between words (body), and a paragraph does not end on one stray word */
@@ -57,7 +57,7 @@ main#main { box-sizing: border-box; width: 100%; max-width: 1240px; padding: var
 .ph { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--sp-md); flex-wrap: wrap; padding-bottom: var(--sp-lg); border-bottom: 1px solid var(--hairline); }
 .ph h1 { font-size: 32px; font-weight: 700; line-height: 1.35; }
 .ph p { color: var(--muted); font-size: 16px; margin-top: var(--sp-2xs); max-width: 70ch; }
-.ph .acts { display: flex; gap: var(--sp-xs); flex-wrap: wrap; }
+.ph .acts { display: flex; gap: var(--sp-xs); flex-wrap: wrap; align-items: center; }
 .crumb { font-size: 13px; color: var(--muted); }
 .crumb a { color: var(--muted); }
 .sec { display: grid; gap: var(--sp-sm); min-width: 0; }
@@ -85,6 +85,14 @@ main#main { box-sizing: border-box; width: 100%; max-width: 1240px; padding: var
 .tab { display: inline-flex; align-items: center; gap: var(--sp-xs); padding: var(--sp-sm) 2px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: none; font-size: 14px; color: var(--muted); text-decoration: none; cursor: pointer; }
 .tab[aria-selected="true"], .tab[aria-current="page"] { color: var(--heading); border-bottom-color: var(--fg); }
 @media (hover: hover) { a.tab:hover { opacity: 1; color: var(--heading); } }
+/* On a phone the tabs stay on one row and scroll sideways (swipe, or focus brings a tab into view). The line under
+   them is drawn inside the scroller, since a scroller would clip a tab's underline hanging over its border. */
+@media (max-width: 640px) {
+  .tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; border-bottom: 0; box-shadow: inset 0 -1px var(--line-soft); }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; white-space: nowrap; margin-bottom: 0; }
+  .tab:focus-visible { outline-offset: -2px; }
+}
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .actrow { display: flex; gap: var(--sp-xs); flex-wrap: wrap; align-items: center; }
 .hint { font-size: 13px; color: var(--muted); }
@@ -123,6 +131,12 @@ main#main { box-sizing: border-box; width: 100%; max-width: 1240px; padding: var
   .scroll > .tbl :is(th, td):first-child { position: sticky; left: 0; z-index: 1; background: var(--canvas); }
 }
 .tbl tr:last-child td { border-bottom: 0; }
+/* A row button is taller than a text line: pulled into the cell padding, its label sits on the line beside it, and
+   cells stay top-aligned so a row of two- and three-line cells (security findings) still reads from its first line. */
+.tbl .btn { margin-block: -4px; }
+/* the last column without a head holds the row's actions or its verdict, at the right edge */
+.tbl .act { width: 1%; text-align: right; white-space: nowrap; }
+.tbl .act .actrow { justify-content: flex-end; }
 .tbl .m, .m { font-family: var(--font-mono); font-size: 13px; }
 /* numbers with units ("2분 34초", "0건", "1.2%") stay in the body font: Plex Mono has no Hangul */
 .num { font-variant-numeric: tabular-nums; }
@@ -207,6 +221,7 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-
 /* status tiles that filter the app list (#apps-<filter>) */
 a.metric { text-decoration: none; color: inherit; }
 a.metric[aria-current="true"] { background: var(--fill); }
+a.metric:focus-visible { outline-offset: -3px; }
 a.metric[aria-current="true"] span { color: var(--heading); }
 .metric.bad strong { color: var(--bad); }
 
