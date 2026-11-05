@@ -32,6 +32,7 @@ main에 머지된 PR 순서대로, 그 시점의 콘솔이 어떤 모습이었�
 | [v26](#v26--pr-26-콘솔-개편-1단계) | [#26](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/26) | 11/5 10:20 | 2장 | 묶음 사이드 메뉴, 상태 색, SUIT 글꼴 |
 | [v27](#v27--pr-27-콘솔-개편-2단계) | [#27](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/27) | 11/5 10:27 | 4장 | 이전 상태 카드, 앱 상세 탭, 개요 |
 | [v28](#v28--pr-28-마감-다듬기) | [#28](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/28) | 11/5 12:04 | 2장 | 간격, 글자, 컨트롤 다듬기와 넓은 화면 정렬 |
+| [v29](#v29--pr-29-광고-차단과-겹치는-클래스-이름) | [#29](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/29) | 11/5 12:09 | 변화 없음 | 광고 차단 확장이 앱 상세를 숨기지 않게 클래스 접두사 변경 |
 
 머지 시각은 한국 시간입니다. 지금 main의 화면은 [README의 화면](../README.md#화면)에 있습니다. 화면이 "변화 없음"인 버전은 바로 앞 버전과 화면이 같고, "실제 API만"인 버전은 플랫폼에 연결한 일반 모드에서만 바뀌어서 시뮬레이션 스크린샷이 없습니다. v16부터는 처음에 모드를 고르므로 데모 모드를 고른 뒤 찍었습니다.
 
@@ -502,6 +503,12 @@ AI 실행기(ai-sandbox `hopai run`)의 계획 세션은 Plan을 제출하기 �
 | 개요 (2000px 너비, 처음 상태) | 이전 리포트 (진행 막대 없는 상태 카드) |
 | --- | --- |
 | ![넓은 화면](history/pr28/01-overview-wide.png) | ![이전 리포트](history/pr28/02-migrate-report.png) |
+
+## v29 · PR #29: 광고 차단과 겹치는 클래스 이름
+
+머지 커밋 `4e96956` · 11/5 12:09
+
+광고 차단 확장을 켠 브라우저에서 앱 상세가 환경별 상태 칸만 보이던 문제를 고쳤습니다. 확장의 일반 규칙이 `ad-head`, `ad-tabs`처럼 `ad-`로 시작하는 클래스를 광고로 보고 숨겼기 때문입니다. 앱 상세의 클래스 접두사를 `appd-`로 바꿨고, 화면은 그대로입니다.
 
 ---
 

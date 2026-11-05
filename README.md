@@ -47,6 +47,7 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 | v26 | [#26](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/26) | 11/5 10:20 | 콘솔 개편 1단계: 묶음 사이드 메뉴, 상태 색, SUIT 글꼴 |
 | v27 | [#27](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/27) | 11/5 10:27 | 콘솔 개편 2단계: 이전 상태 카드, 앱 상세 탭, 개요 |
 | v28 | [#28](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/28) | 11/5 12:04 | 콘솔 마감 다듬기, 넓은 화면 정렬 |
+| v29 | [#29](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/29) | 11/5 12:09 | 광고 차단 확장이 앱 상세를 숨기지 않게 클래스 접두사 변경 (화면 변화 없음) |
 
 ## 화면
 
@@ -199,14 +200,17 @@ src/sim/deploy.ts   계약 모양으로 만드는 GitHub 앱 배포 시뮬레이
 src/sim/secrets.ts  앱 시크릿 시뮬레이션과 서버의 이름, 값 규칙
 src/sim/state.ts    시뮬레이션 상태 머신 (배포, 가져오기, 이전)
 src/sim/store.tsx   100ms 틱, React 구독
-src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #deploy-<id>, #new, #onboard, #migrate, #migrate-app, #routes, #agents, #security, #envs, #device, #design-system)
+src/router.ts       해시 라우팅 (#overview, #apps, #apps-<상태>, #app-<id>, #app-<id>/instances|secrets|deploys, #deploy-<id>, #new, #onboard, #migrate, #migrate-app, #routes, #agents, #security, #envs, #device, #design-system)
 src/pages/          화면 (실제 API 모드와 시뮬레이션 모드를 각각 감싸고, 그리는 코드는 하나). Entry.tsx는 모드 선택과 로그인, Device.tsx는 CLI 연결
-src/components/     공통 UI (Chip, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각)
+src/components/     공통 UI (Chip, Tabs, Skeleton, LoadError, Ind, LogBox, Table, PageHead, AI 세션 표, 배포 화면 조각, 시크릿)
+src/styles/         tokens.css(색, 간격, 글자 토큰과 SUIT @font-face), app.css(공통), motion.css(움직임), 화면별 migrate.css, overview.css, app-detail.css
 ```
+
+화면별 CSS는 그 화면 파일이 불러오고, main.tsx가 공통 CSS를 먼저 불러오므로 같은 우선순위에서는 화면별 규칙이 이깁니다. 클래스 이름에는 `ad-`, `ads`, `banner`, `sponsor`, `promo`를 쓰지 않습니다. 광고 차단 확장이 그런 이름의 요소를 숨깁니다(v29).
 
 ## 배포 (GitHub Actions)
 
-[Deploy frontend](.github/workflows/deploy.yml)은 **main에 push할 때마다** 자동으로 실행됩니다. Actions의 Run workflow로 main을 다시 게시할 수도 있습니다. 연달아 push하면 진행 중인 이전 실행을 취소하므로 마지막 커밋만 게시됩니다. PR에서는 실행하지 않습니다.
+[Deploy frontend](.github/workflows/deploy.yml)은 **main에 push할 때마다** 자동으로 실행됩니다. 실행은 조직의 self-hosted runner(`[self-hosted, hopcharlie]`)에서 합니다(v24). Actions의 Run workflow로 main을 다시 게시할 수도 있습니다. 연달아 push하면 진행 중인 이전 실행을 취소하므로 마지막 커밋만 게시됩니다. PR에서는 실행하지 않습니다.
 
 Node 24에서 `npm ci`, GitOps helper 시험, `npm test`, `npm run build`를 통과하면 기존 플랫폼과 같은 Caddy 이미지로 빌드합니다. ECR에 frontend 커밋의 **7자리 SHA 태그** 하나를 게시하고, 빌드 결과의 digest로 infra의 다음 두 파일을 바꾸는 커밋 하나를 **infra main에 바로** 넣습니다(infra ADR 0025). 그사이 infra main이 바뀌면 새 main을 다시 읽어 커밋을 다시 만듭니다.
 
