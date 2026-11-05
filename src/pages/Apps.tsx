@@ -116,9 +116,6 @@ function AppHead({ name, source, line, acts }: { name: string; source?: string; 
   return (
     <div className="ad-head">
       <div className="ad-title">
-        <div className="crumb">
-          <a href="#apps">앱</a>
-        </div>
         <div className="ad-name">
           <h1>{name}</h1>
           {source && <Chip>{source}</Chip>}

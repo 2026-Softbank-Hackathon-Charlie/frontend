@@ -102,8 +102,6 @@ function LiveEmpty({ notice }: { notice: string }) {
   );
 }
 
-const crumb = <a href="#migrate">이전</a>;
-
 const GLYPH: Record<string, string> = {
   ok: "M2.5 6.2l2.3 2.3 4.7-5",
   bad: "M3.6 3.6l4.8 4.8M8.4 3.6l-4.8 4.8",
@@ -219,7 +217,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (!v.ready) {
     return (
       <div className="page">
-        <PageHead title={title} crumb={crumb} />
+        <PageHead title={title} />
         {live ? <LiveEmpty notice={v.notice} /> : <EmptyShop />}
       </div>
     );
@@ -228,7 +226,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     return (
       <div className="page">
-        <PageHead title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." crumb={crumb} />
+        <PageHead title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." />
         <Notice text={v.notice} />
         <div className="split">
           <div className="box">
@@ -292,7 +290,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const where = v.stage === "run" && v.run ? ", " + (v.run.rollbackOf ? "롤백 " : "") + v.run.runId : v.plan ? ", Plan " + v.plan.ref : "";
   return (
     <div className="page">
-      <PageHead title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} crumb={crumb} />
+      <PageHead title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} />
       <Wizard v={v} />
       <Notice text={v.notice} />
       {v.stage === "run" && v.run ? <RunView v={v} r={v.run} /> : <AiView v={v} />}

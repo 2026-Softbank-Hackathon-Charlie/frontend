@@ -65,7 +65,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   if (!d) {
     return (
       <div className="page">
-        <PageHead title={m.notFound ? "배포를 찾을 수 없습니다" : "배포"} crumb={<a href="#apps">앱</a>} />
+        <PageHead title={m.notFound ? "배포를 찾을 수 없습니다" : "배포"} />
         {m.notFound ? (
           <p className="hint">지워진 앱의 배포이거나 주소가 틀렸습니다.</p>
         ) : m.error ? (

@@ -6,8 +6,6 @@ import { useLiveNewApp, useSimNewApp, type NewAppModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 
-const crumb = <a href="#apps">앱</a>;
-
 export function NewApp() {
   return useLive() ? <LiveNewApp /> : <SimNewApp />;
 }
@@ -65,7 +63,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
 
   return (
     <div className="page">
-      <PageHead title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." crumb={crumb} />
+      <PageHead title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." />
       <div className="box">
         <div className="bb">
           <div className="form">

@@ -15,7 +15,6 @@ export function Onboard() {
       <PageHead
         title="기존 앱 가져오기"
         sub="플랫폼 밖(EC2, RDS, S3)에서 돌고 있는 앱을 AI가 점검하고 고쳐서, 클러스터에 배포할 수 있는 형태로 바꿉니다. AI 범위 결정(3장 7번) 전 시안입니다."
-        crumb={<a href="#apps">앱</a>}
       />
       {live && <p className="hint">이 화면은 일반 모드에서도 아직 시연용 데이터로 동작합니다.</p>}
       <ol className="wiz" aria-label="가져오기 단계">

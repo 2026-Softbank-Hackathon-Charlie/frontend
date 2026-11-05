@@ -208,6 +208,7 @@ export function App() {
 
 function Console({ r }: { r: string }) {
   const live = useLive();
+  const sec = NAV_LABEL[navCurrent(r)] ? navCurrent(r) : "overview";
   return (
     <div className="layout">
       {/* a way past the side menu; the hash is the route, so it moves focus instead of following #main */}
@@ -227,7 +228,8 @@ function Console({ r }: { r: string }) {
           <div className="crumbs">
             <span>team-charlie</span>
             <span aria-hidden="true">/</span>
-            <b>{NAV_LABEL[navCurrent(r)] ?? NAV_LABEL.overview}</b>
+            {/* below a section's own page (an app, a deployment, the migration) its name leads back there */}
+            {r === sec ? <b>{NAV_LABEL[sec]}</b> : <a href={"#" + sec}>{NAV_LABEL[sec]}</a>}
           </div>
           <div className="acts">
             <Account r={r} />
