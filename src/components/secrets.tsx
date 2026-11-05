@@ -36,6 +36,30 @@ function SimSecrets(p: Props) {
   return <SecretsSection {...p} s={useSimSecrets(p.app)} />;
 }
 
+/** The app overview's secrets card: how many there are, and the app-wide names. Names only, never a value. */
+export function SecretsSummary({ m, app }: { m: AppModel; app: string }) {
+  return m.live ? <LiveSummary app={app} /> : <SimSummary app={app} />;
+}
+function LiveSummary({ app }: { app: string }) {
+  return <Summary s={useLiveSecrets(app)} />;
+}
+function SimSummary({ app }: { app: string }) {
+  return <Summary s={useSimSecrets(app)} />;
+}
+function Summary({ s }: { s: SecretsModel }) {
+  if (s.notConfigured) return <p className="hint">서버에 시크릿 키가 설정되어 있지 않습니다.</p>;
+  if (!s.data) return <p className="hint">{s.error ? "시크릿을 불러오지 못했습니다: " + s.error : "불러오는 중"}</p>;
+  const overrides = s.data.instances.reduce((n, x) => n + x.secrets.length, 0);
+  return (
+    <>
+      <p>
+        앱 공통 {s.data.app.length}개, 인스턴스 덮어쓰기 {overrides}개
+      </p>
+      {s.data.app.length > 0 && <p className="hint m">{s.data.app.map((x) => x.name).join(", ")}</p>}
+    </>
+  );
+}
+
 /** One name in a scope: its own secret there, and for an instance the app-wide one it overrides or inherits. */
 interface Row {
   name: string;
@@ -43,12 +67,17 @@ interface Row {
   inherited?: AppSecretInfo;
 }
 
+/** Which add form is open: the app-wide one, the picked instance's, or none. */
+type Adding = "" | "app" | "instance";
+
 function SecretsSection({ s, m, busy, setRedeploying }: Props & { s: SecretsModel }) {
   const [picked, setPicked] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [adding, setAdding] = useState<Adding>("");
   const pickId = useId();
   const selected = m.instances.find((i) => i.name === picked) ?? m.instances[0];
-  const shared = { s, m, busy, setRedeploying };
+  const shared = { s, m, busy, setRedeploying, onAddClose: () => setAdding("") };
+  const toggle = (a: Adding) => setAdding((x) => (x === a ? "" : a));
   const retry = (
     <div className="actrow">
       <button type="button" className="btn ghost" onClick={s.reload}>
@@ -82,50 +111,70 @@ function SecretsSection({ s, m, busy, setRedeploying }: Props & { s: SecretsMode
     const names = [...new Set([...app, ...own].map((x) => x.name))].sort();
     body = (
       <>
-        {!s.canEdit && <p className="hint">이 계정의 역할로는 이름만 볼 수 있습니다. 값을 보거나 바꾸려면 operator 역할이 필요합니다.</p>}
-        <SecretScope {...shared} label="앱 공통 시크릿" title="앱 공통" note="모든 인스턴스가 받습니다" rows={app.map((x) => ({ name: x.name, own: x }))} targets={m.instances} />
-        {selected && (
-          <>
-            <div className="form">
-              <div className="field">
-                <label htmlFor={pickId}>덮어쓰기를 볼 인스턴스</label>
-                <select id={pickId} value={selected.name} disabled={dirty} onChange={(e) => setPicked(e.target.value)}>
-                  {m.instances.map((i) => (
-                    <option key={i.name} value={i.name}>
-                      {i.name} ({i.default ? "기본, " : ""}
-                      {i.branch} 브랜치)
-                    </option>
-                  ))}
-                </select>
-                <small>{dirty ? "저장하거나 취소한 뒤 다른 인스턴스를 고를 수 있습니다." : "인스턴스는 앱 공통 시크릿을 받고, 덮어쓴 이름만 그 인스턴스의 값을 씁니다."}</small>
-              </div>
+        <div className="sc-top">
+          {selected && (
+            <div className="field">
+              <label htmlFor={pickId}>덮어쓰기를 볼 인스턴스</label>
+              <select id={pickId} value={selected.name} disabled={dirty} onChange={(e) => setPicked(e.target.value)}>
+                {m.instances.map((i) => (
+                  <option key={i.name} value={i.name}>
+                    {i.name} ({i.default ? "기본, " : ""}
+                    {i.branch} 브랜치)
+                  </option>
+                ))}
+              </select>
+              <small>{dirty ? "저장하거나 취소한 뒤 다른 인스턴스를 고를 수 있습니다." : "인스턴스는 앱 공통 시크릿을 받고, 덮어쓴 이름만 그 인스턴스의 값을 씁니다."}</small>
             </div>
-            <SecretScope
-              {...shared}
-              key={selected.name}
-              instance={selected.name}
-              label="인스턴스별 덮어쓰기"
-              title={selected.name + "이(가) 받는 시크릿"}
-              note="앱 공통 값 위에 덮어쓰기를 얹은 것"
-              rows={names.map((name) => ({ name, own: own.find((x) => x.name === name), inherited: app.find((x) => x.name === name) }))}
-              targets={[selected]}
-              onDirty={setDirty}
-            />
-          </>
+          )}
+          {s.canEdit && (
+            <div className="actrow">
+              {selected && (
+                <button type="button" className="btn ghost" aria-expanded={adding === "instance"} onClick={() => toggle("instance")}>
+                  덮어쓰기 추가
+                </button>
+              )}
+              <button type="button" className="btn primary" aria-expanded={adding === "app"} onClick={() => toggle("app")}>
+                시크릿 추가
+              </button>
+            </div>
+          )}
+        </div>
+        {!s.canEdit && <p className="hint">이 계정의 역할로는 이름만 볼 수 있습니다. 값을 보거나 바꾸려면 operator 역할이 필요합니다.</p>}
+        {selected && (
+          <SecretScope
+            {...shared}
+            key={selected.name}
+            instance={selected.name}
+            label="인스턴스별 덮어쓰기"
+            title={selected.name + "이(가) 받는 시크릿"}
+            note="앱 공통 값 위에 덮어쓰기를 얹은 것"
+            rows={names.map((name) => ({ name, own: own.find((x) => x.name === name), inherited: app.find((x) => x.name === name) }))}
+            targets={[selected]}
+            adding={adding === "instance"}
+            onDirty={setDirty}
+          />
         )}
+        <SecretScope
+          {...shared}
+          label="앱 공통 시크릿"
+          title="앱 공통 시크릿"
+          note="모든 인스턴스가 받는 원본"
+          rows={app.map((x) => ({ name: x.name, own: x }))}
+          targets={m.instances}
+          adding={adding === "app"}
+        />
       </>
     );
   }
   return (
-    <section className="sec">
-      <h2>시크릿</h2>
+    <div className="ad-stack">
+      {body}
       <p className="hint">
         앱에 환경 변수로 넣는 비밀 값입니다. 서버가 암호화해 보관하고, 보기를 누를 때만 값을 불러와 {REVEAL_MS / 1000}초 동안 보여 줍니다. platform.yaml의 env와 이름이 같으면 시크릿이
         이깁니다.
       </p>
-      {!s.live && <p className="hint">데모 모드: 가짜 값이며 이 탭의 메모리에만 있습니다. 서버에는 요청하지 않습니다.</p>}
-      {body}
-    </section>
+      {!s.live && <p className="hint">데모 모드: 가짜 값이며 이 브라우저 탭의 메모리에만 있습니다. 서버에는 요청하지 않습니다.</p>}
+    </div>
   );
 }
 
@@ -235,6 +284,9 @@ interface ScopeProps {
   rows: Row[];
   /** the instances to offer a redeploy after a save */
   targets: AppInstance[];
+  /** the add form is open */
+  adding: boolean;
+  onAddClose(): void;
   onDirty?(dirty: boolean): void;
 }
 
@@ -273,7 +325,8 @@ function SecretScope(p: ScopeProps) {
     const sel = focusNext.current;
     if (!sel) return;
     focusNext.current = null;
-    (root.current?.querySelector<HTMLElement>(sel) ?? root.current?.querySelector<HTMLElement>("input:not([disabled])"))?.focus();
+    const el = root.current?.querySelector<HTMLElement>(sel) ?? root.current?.querySelector<HTMLElement>("input:not([disabled])") ?? root.current?.querySelector<HTMLElement>("button:not([disabled])");
+    el?.focus();
   });
   const focusButton = (label: string) => (focusNext.current = `button[aria-label="${label}"]`);
   /** The row's button that opens its form, after a revert or a closed form; a staged new name has none. */
@@ -346,7 +399,7 @@ function SecretScope(p: ScopeProps) {
     shown.clear();
     setLines([]);
     setSaved(true);
-    focusNext.current = ".okbox";
+    focusNext.current = ".ad-part.ok";
   }
 
   const appName = m.app?.name ?? "";
@@ -375,7 +428,7 @@ function SecretScope(p: ScopeProps) {
       td(
         <span className="chips">
           <span className="m">{r.name}</span>
-          {c && <Chip kind="run">{changeLabel(r, c)} 예정</Chip>}
+          {c && <Chip>{changeLabel(r, c)} 예정</Chip>}
         </span>,
       ),
     ];
@@ -444,21 +497,20 @@ function SecretScope(p: ScopeProps) {
 
   const row = editing ? byName.get(editing) : undefined;
   const waiting = p.targets.filter((i) => state(i).running);
+  // One card: the table, then the open form, the staged changes, an error and the save result as parts of it.
   return (
-    <section className="sec" aria-label={p.label} ref={root}>
-      <div className="box">
-        <div className="bh">
-          <b>{p.title}</b>
-          <span className="hint">{p.note}</span>
-        </div>
-        {rows.length === 0 ? (
-          <div className="empty-state">
-            <p className="hint">{instance ? "앱 공통 시크릿도 덮어쓰기도 없습니다." : "아직 시크릿이 없습니다."}</p>
-          </div>
-        ) : (
-          <Table head={head} rows={table} />
-        )}
+    <section className="box" aria-label={p.label} ref={root}>
+      <div className="bh">
+        <h2>{p.title}</h2>
+        <span className="hint">{p.note}</span>
       </div>
+      {rows.length === 0 ? (
+        <div className="empty-state">
+          <p className="hint">{instance ? "앱 공통 시크릿도 덮어쓰기도 없습니다." : "아직 시크릿이 없습니다."}</p>
+        </div>
+      ) : (
+        <Table head={head} rows={table} />
+      )}
       {canEdit &&
         (row ? (
           <SecretForm
@@ -479,78 +531,81 @@ function SecretScope(p: ScopeProps) {
             }}
           />
         ) : (
-          <SecretForm key="add" title={instance ? "이 인스턴스에 덮어쓰기 추가" : "시크릿 추가"} check={taken} disabled={saving} onStage={(name, value) => stage(name, { value })} />
+          p.adding && (
+            <SecretForm
+              key="add"
+              title={instance ? "이 인스턴스에 덮어쓰기 추가" : "시크릿 추가"}
+              check={taken}
+              disabled={saving}
+              onStage={(name, value) => stage(name, { value })}
+              onClose={p.onAddClose}
+            />
+          )
         ))}
       {canEdit && dirty && (
-        <div className="box fillbox" role="status">
-          <div className="bb">
-            <div className="actrow">
-              <b>저장하지 않은 변경 {changes.size}개</b>
-              <span className="hint">{[...changes].map(([n, c]) => n + " " + changeLabel(byName.get(n), c)).join(", ")}</span>
-            </div>
-            <p className="hint">저장을 눌러야 서버에 보냅니다. {whatObj} 한 번에 바꿉니다.</p>
-            <div className="actrow">
-              <button type="button" className="btn primary" disabled={saving} onClick={save}>
-                {saving ? "저장하는 중" : "저장"}
-              </button>
-              <button type="button" className="btn ghost" disabled={saving} onClick={cancel}>
-                취소
-              </button>
-            </div>
+        <div className="ad-part fill" role="status">
+          <div className="actrow">
+            <b>저장하지 않은 변경 {changes.size}개</b>
+            <span className="hint">{[...changes].map(([n, c]) => n + " " + changeLabel(byName.get(n), c)).join(", ")}</span>
+          </div>
+          <p className="hint">저장을 눌러야 서버에 보냅니다. {whatObj} 한 번에 바꿉니다.</p>
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={saving} onClick={save}>
+              {saving ? "저장하는 중" : "저장"}
+            </button>
+            <button type="button" className="btn ghost" disabled={saving} onClick={cancel}>
+              취소
+            </button>
           </div>
         </div>
       )}
       {error && (
-        <div className="box badbox" role="alert">
-          <div className="bb">
-            <p>{error}</p>
-          </div>
+        <div className="ad-part bad" role="alert">
+          <p>{error}</p>
         </div>
       )}
       {saved && (
-        <div className="box okbox" role="status" tabIndex={-1}>
-          <div className="bb">
-            <b>{whatObj} 저장했습니다.</b>
-            <p>
-              실행 중인 {instance ? "인스턴스는" : "인스턴스들은"} 재배포할 때까지 이전 값을 씁니다. 재배포는 빌드하지 않고 마지막 정상 배포(괄호 안의 커밋)를 지금 시크릿으로 다시
-              배포합니다.
-            </p>
-            <div className="actrow">
-              {p.targets.map((i) => {
-                const st = state(i);
-                return (
-                  <button key={i.name} type="button" className="btn" disabled={p.busy || st.running} onClick={() => redeploy([i])}>
-                    {i.name} 재배포{st.commit ? " (" + short(st.commit) + ")" : ""}
-                  </button>
-                );
-              })}
-              {p.targets.length > 1 && (
-                <button type="button" className="btn primary" disabled={p.busy || waiting.length === p.targets.length} onClick={() => redeploy(p.targets)}>
-                  모든 인스턴스 재배포
+        <div className="ad-part ok" role="status" tabIndex={-1}>
+          <b>{whatObj} 저장했습니다.</b>
+          <p>
+            실행 중인 {instance ? "인스턴스는" : "인스턴스들은"} 재배포할 때까지 이전 값을 씁니다. 재배포는 빌드하지 않고 마지막 정상 배포(괄호 안의 커밋)를 지금 시크릿으로 다시
+            배포합니다.
+          </p>
+          <div className="actrow">
+            {p.targets.map((i) => {
+              const st = state(i);
+              return (
+                <button key={i.name} type="button" className="btn" disabled={p.busy || st.running} onClick={() => redeploy([i])}>
+                  {i.name} 재배포{st.commit ? " (" + short(st.commit) + ")" : ""}
                 </button>
-              )}
-            </div>
-            {waiting.length > 0 && (
-              <p className="hint">
-                {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
-              </p>
-            )}
-            {lines.length > 0 && (
-              <ul className="rows">
-                {lines.map(({ instance: name, r }) => (
-                  <li key={name}>
-                    <b className="m">{name}</b>
-                    <span className="grow">{"deploymentId" in r ? "재배포를 시작했습니다." : "error" in r ? r.error : "platform.yaml이 규칙에 맞지 않습니다."}</span>
-                    {"deploymentId" in r && (
-                      <a href={"#deploy-" + r.deploymentId} aria-label={name + " 재배포 진행 보기"}>
-                        진행 보기
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              );
+            })}
+            {p.targets.length > 1 && (
+              <button type="button" className="btn primary" disabled={p.busy || waiting.length === p.targets.length} onClick={() => redeploy(p.targets)}>
+                모든 인스턴스 재배포
+              </button>
             )}
           </div>
+          {waiting.length > 0 && (
+            <p className="hint">
+              {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
+            </p>
+          )}
+          {lines.length > 0 && (
+            <ul className="rows">
+              {lines.map(({ instance: name, r }) => (
+                <li key={name}>
+                  <b className="m">{name}</b>
+                  <span className="grow">{"deploymentId" in r ? "재배포를 시작했습니다." : "error" in r ? r.error : "platform.yaml이 규칙에 맞지 않습니다."}</span>
+                  {"deploymentId" in r && (
+                    <a href={"#deploy-" + r.deploymentId} aria-label={name + " 재배포 진행 보기"}>
+                      진행 보기
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>
@@ -640,80 +695,79 @@ function SecretForm(p: FormProps) {
       </span>
     ) : null;
   return (
-    <div className="box">
-      <div className="bh">
+    <div className="ad-part">
+      <div className="ad-formh">
         <b>{p.title}</b>
         <span className="hint">저장을 누르기 전에는 서버에 보내지 않습니다</span>
       </div>
-      <div className="bb">
-        <div className="form">
-          {!p.name && (
-            <div className="field">
-              <label htmlFor={id + "n"}>이름</label>
-              <input
-                id={id + "n"}
-                value={name}
-                disabled={p.disabled}
-                spellCheck={false}
-                autoComplete="off"
-                aria-invalid={!!errs.name}
-                aria-describedby={id + "nm"}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setErrs((x) => ({ ...x, name: "" }));
-                }}
-              />
-              <small id={id + "nm"}>{err(errs.name) ?? "영문 대문자, 숫자, _로 64자까지. 예: HOST_CODE"}</small>
-            </div>
-          )}
+      <div className="form">
+        {!p.name && (
           <div className="field">
-            <label htmlFor={id + "v"}>{valueLabel}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                ref={input}
-                id={id + "v"}
-                type={visible ? "text" : "password"}
-                disabled={p.disabled}
-                autoComplete="new-password"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                data-1p-ignore
-                data-lpignore="true"
-                autoFocus={!!p.name}
-                aria-invalid={!!errs.value}
-                aria-describedby={id + "vm"}
-                onChange={() => {
-                  // edited: the operator's own input now, so it no longer expires
-                  setLoadedAt(0);
-                  setNote("");
-                  setErrs((x) => ({ ...x, value: "" }));
-                }}
-              />
-              <button type="button" className="btn ghost" aria-label="입력한 값 보기" aria-pressed={visible} disabled={p.disabled} onClick={() => setVisible((v) => !v)}>
-                보기
-              </button>
-            </div>
-            <small id={id + "vm"}>
-              {err(errs.value) ?? (note || MAX_SECRET_VALUE + "바이트까지." + (p.name ? " 새 값을 넣거나 지금 값을 불러와 고치세요." : ""))}
-            </small>
+            <label htmlFor={id + "n"}>이름</label>
+            <input
+              id={id + "n"}
+              value={name}
+              disabled={p.disabled}
+              spellCheck={false}
+              autoComplete="off"
+              autoFocus
+              aria-invalid={!!errs.name}
+              aria-describedby={id + "nm"}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrs((x) => ({ ...x, name: "" }));
+              }}
+            />
+            <small id={id + "nm"}>{err(errs.name) ?? "영문 대문자, 숫자, _로 64자까지. 예: HOST_CODE"}</small>
           </div>
+        )}
+        <div className="field">
+          <label htmlFor={id + "v"}>{valueLabel}</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              ref={input}
+              id={id + "v"}
+              type={visible ? "text" : "password"}
+              disabled={p.disabled}
+              autoComplete="new-password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore
+              data-lpignore="true"
+              autoFocus={!!p.name}
+              aria-invalid={!!errs.value}
+              aria-describedby={id + "vm"}
+              onChange={() => {
+                // edited: the operator's own input now, so it no longer expires
+                setLoadedAt(0);
+                setNote("");
+                setErrs((x) => ({ ...x, value: "" }));
+              }}
+            />
+            <button type="button" className="btn ghost" aria-label="입력한 값 보기" aria-pressed={visible} disabled={p.disabled} onClick={() => setVisible((v) => !v)}>
+              보기
+            </button>
+          </div>
+          <small id={id + "vm"}>
+            {err(errs.value) ?? (note || MAX_SECRET_VALUE + "바이트까지." + (p.name ? " 새 값을 넣거나 지금 값을 불러와 고치세요." : ""))}
+          </small>
         </div>
-        <div className="actrow">
-          <button type="button" className="btn" disabled={p.disabled} onClick={submit}>
-            변경에 넣기
+      </div>
+      <div className="actrow">
+        <button type="button" className="btn" disabled={p.disabled} onClick={submit}>
+          변경에 넣기
+        </button>
+        {p.load && (
+          <button type="button" className="btn ghost" disabled={p.disabled || loading} onClick={load}>
+            {loading ? "불러오는 중" : p.loadLabel}
           </button>
-          {p.load && (
-            <button type="button" className="btn ghost" disabled={p.disabled || loading} onClick={load}>
-              {loading ? "불러오는 중" : p.loadLabel}
-            </button>
-          )}
-          {p.onClose && (
-            <button type="button" className="btn ghost" disabled={p.disabled} onClick={p.onClose}>
-              닫기
-            </button>
-          )}
-        </div>
+        )}
+        {p.onClose && (
+          <button type="button" className="btn ghost" disabled={p.disabled} onClick={p.onClose}>
+            닫기
+          </button>
+        )}
       </div>
     </div>
   );
