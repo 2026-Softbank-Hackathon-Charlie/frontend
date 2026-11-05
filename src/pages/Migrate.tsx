@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { AgentEvent, AgentSession, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
-import { Chip, Ind, LogBox, PageHead, ProgItem, Table, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
+import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
@@ -1213,8 +1213,8 @@ function RunRecords({ v, r }: { v: MigrationView; r: Run }) {
   ];
   return (
     <div className="box mg-records">
-      <Tabs label="자세한 기록" items={items} current={tab} onSelect={setTab} />
-      <div className="bb" role="tabpanel">
+      <Tabs label="자세한 기록" items={items} current={tab} onSelect={setTab} idBase="mg-rec" />
+      <div className="bb" role="tabpanel" id={tabPanelId("mg-rec", tab)} aria-labelledby={tabId("mg-rec", tab)}>
         {tab === "log" && <LogBox lines={runLines(r.startedAt, v.events)} />}
         {tab === "preflight" &&
           (v.preflight ? <PreflightBox p={v.preflight} bare /> : <p className="hint">시작 전 검사 기록이 없습니다. 감사 로그를 볼 권한이 없거나 플랫폼에서 검사를 꺼 두었을 수 있습니다.</p>)}
