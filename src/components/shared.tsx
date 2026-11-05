@@ -60,11 +60,7 @@ function SimEnvGrid() {
           <EnvCard
             key={k}
             name={e.name}
-            chip={
-              <Chip kind="ok" dot>
-                정상
-              </Chip>
-            }
+            chip={<Chip kind="ok">정상</Chip>}
             loc={e.region + ", 노드 " + e.nodes + "대, Kubernetes " + e.k8s}
             figs={[
               ["앱", appsIn(S, k)],
@@ -95,11 +91,7 @@ function LiveEnvGrid() {
         <EnvCard
           key={e.name}
           name={e.displayName}
-          chip={
-            <Chip kind={e.status.reachable ? "ok" : "bad"} dot>
-              {e.status.reachable ? "정상" : "연결 안 됨"}
-            </Chip>
-          }
+          chip={<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>}
           loc={[e.region ?? "위치 정보 없음", e.status.kubernetesVersion ? "Kubernetes " + e.status.kubernetesVersion : ""].filter(Boolean).join(", ")}
           figs={[
             ["노드", e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total : "-"],
@@ -164,11 +156,11 @@ function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: 
     return [
       td(envShort(r.source) + " → " + envShort(r.target), "nw"),
       td(r.status ? <Chip kind={RESULT_KIND[r.status] ?? ""}>{statusText(r.status)}</Chip> : <Chip>미실행</Chip>),
-      td(ended && x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "m"),
-      td(ended && x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "m"),
-      td(ended && x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "m"),
-      td(ended && x ? (x.missingRows ?? "-") + " / " + (x.missingWrites ?? "-") + " / " + (x.missingFiles ?? "-") : "-", "m"),
-      td(ended && x?.requests !== undefined ? fmt(x.requests) : "-", "m"),
+      td(ended && x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "num"),
+      td(ended && x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "num"),
+      td(ended && x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "num"),
+      td(ended && x ? (x.missingRows ?? "-") + " / " + (x.missingWrites ?? "-") + " / " + (x.missingFiles ?? "-") : "-", "num"),
+      td(ended && x?.requests !== undefined ? fmt(x.requests) : "-", "num"),
       td(r.runId ?? "-", "m"),
     ];
   });
@@ -253,7 +245,7 @@ function routeCell(s: EnvKey, t: EnvKey, r: MatrixRoute | undefined): ReactNode 
   return (
     <a className={RESULT_KIND[r.status] || "neu"} href={active ? "#migrate-app" : "#routes"} aria-label={ENV[s].short + "에서 " + ENV[t].short + "로 " + RUN_SHORT[r.status] + (time && ", " + time)}>
       <b>{RUN_SHORT[r.status]}</b>
-      {time && <span className="m">{time}</span>}
+      {time && <span className="num">{time}</span>}
     </a>
   );
 }

@@ -20,7 +20,7 @@ export const DEPLOY_LABEL: Record<DeploymentStatus, string> = {
   superseded: "대체됨",
 };
 const DEPLOY_CHIP: Record<DeploymentStatus, [ChipKind, string]> = {
-  queued: ["run", "대기 중"],
+  queued: ["", "대기 중"],
   building: ["run", "빌드 중"],
   committing: ["run", "커밋 중"],
   syncing: ["run", "동기화 중"],

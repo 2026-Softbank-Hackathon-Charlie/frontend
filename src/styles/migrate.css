@@ -103,7 +103,7 @@
 .mg-num.ok strong { color: var(--ok); }
 .mg-num.bad strong { color: var(--bad); }
 .mg-mini { display: block; height: 4px; margin-top: var(--sp-xs); border-radius: 2px; background: var(--line-soft); overflow: hidden; }
-.mg-mini i { display: block; height: 100%; border-radius: 2px; background: var(--fg); transition: width var(--dur-slow) var(--ease); }
+.mg-mini i { display: block; height: 100%; background: var(--fg); transform-origin: left; } /* scaleX set inline */
 .mg-mini.over i { background: var(--bad); }
 
 /* report: six numbers checked against their targets, three or two to a row so the rows stay full */
@@ -140,6 +140,7 @@
 .mg-steps li { display: flex; gap: var(--sp-xs); align-items: center; min-width: 0; }
 .mg-steps li.wait, .mg-steps li.neu { color: var(--muted); }
 .mg-steps li.run { color: var(--heading); font-weight: 500; }
+.mg-steps .hint { font-size: 12px; font-weight: 400; }
 
 /* traffic and canary side by side; the canary table gets the wider share */
 .mg-pair { display: flex; flex-wrap: wrap; gap: var(--sp-md); align-items: flex-start; min-width: 0; }
@@ -167,14 +168,14 @@
   content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor;
   animation: mg-ring 1.6s ease-in-out infinite;
 }
-.mg-hero.is-wait > .mg-top .chip .dot, .mg-grp.wait .chip .dot, .mg-side .chip.warn .dot { animation: mg-breathe 2s ease-in-out infinite; }
+.mg-hero.is-wait > .mg-top .chip .dot, .mg-side .chip.warn .dot { animation: mg-breathe 2s ease-in-out infinite; }
 @keyframes mg-sweep { to { transform: translateX(100%); } }
 @keyframes mg-breathe { 50% { opacity: 0.55; } }
 @keyframes mg-ring { from { transform: scale(1); opacity: 0.55; } to { transform: scale(3); opacity: 0; } }
 
 /* without motion the current part keeps a still highlight: a ring in its state tint */
 @media (prefers-reduced-motion: reduce) {
-  .mg-track i, .mg-bar4, .mg-hero .chip .dot, .mg-grp .chip .dot, .mg-side .chip .dot { animation: none; }
+  .mg-track i, .mg-bar4, .mg-hero .chip .dot, .mg-side .chip .dot { animation: none; }
   .mg-track li.run i::after, .mg-grp.run .mg-bar4::after, .mg-hero .chip .dot::after, .mg-side .chip .dot::after { display: none; }
   .mg-track li.run i { box-shadow: 0 0 0 3px var(--run-bg); }
   .mg-track li.wait i { box-shadow: 0 0 0 3px var(--warn-bg); }

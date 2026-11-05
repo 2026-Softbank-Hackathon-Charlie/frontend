@@ -28,7 +28,7 @@ function LiveEnvs() {
                 td(e.region ?? "-"),
                 td(e.status.kubernetesVersion ?? "-", "m"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
-                td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-", "m"),
+                td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
                 td(e.gatewayBackend, "m"),
                 td(<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>),
               ])}
@@ -61,9 +61,9 @@ function LiveEnvs() {
                 return [
                   td(b.name, "m"),
                   td(<Chip kind={b.healthy ? "ok" : "bad"}>{b.healthy ? "정상" : "비정상"}</Chip>),
-                  td(st ? fmt(st.requests) : "-", "m"),
-                  td(st ? (st.errorRate * 100).toFixed(2) + "%" : "-", "m"),
-                  td(st ? st.p95Millis + "ms" : "-", "m"),
+                  td(st ? fmt(st.requests) : "-", "num"),
+                  td(st ? (st.errorRate * 100).toFixed(2) + "%" : "-", "num"),
+                  td(st ? st.p95Millis + "ms" : "-", "num"),
                 ];
               })}
             />

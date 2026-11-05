@@ -120,6 +120,9 @@ main#main { box-sizing: border-box; width: 100%; max-width: 1240px; padding: var
 }
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl .m, .m { font-family: var(--font-mono); font-size: 13px; }
+/* numbers with units ("2분 34초", "0건", "1.2%") stay in the body font: Plex Mono has no Hangul */
+.num { font-variant-numeric: tabular-nums; }
+.tbl .num { text-align: right; white-space: nowrap; }
 .tbl .nw { white-space: nowrap; }
 .tbl a { font-weight: 500; }
 
@@ -201,12 +204,13 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-
 a.metric { text-decoration: none; color: inherit; }
 a.metric[aria-current="true"] { background: var(--fill); }
 a.metric[aria-current="true"] span { color: var(--heading); }
-.metric.warn strong { color: var(--bad); }
+.metric.bad strong { color: var(--bad); }
 
 .timer { display: grid; gap: var(--sp-xs); }
 .timer .big { font-family: var(--font-mono); font-size: 32px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--heading); }
 .bar { position: relative; overflow: hidden; height: 10px; border-radius: 5px; background: var(--card-line); }
-.bar i { position: absolute; inset: 0 auto 0 0; background: var(--fg); }
+/* the fill grows with scaleX (set inline), so nothing is laid out again */
+.bar i { position: absolute; inset: 0; background: var(--fg); transform-origin: left; }
 
 .traffic { display: flex; height: 40px; border-radius: var(--r-control); overflow: hidden; background: var(--fill); }
 .seg { flex: 0 0 auto; height: 100%; display: flex; align-items: center; padding: 0 var(--sp-sm); font-size: 13px; color: var(--canvas); white-space: nowrap; overflow: hidden; }

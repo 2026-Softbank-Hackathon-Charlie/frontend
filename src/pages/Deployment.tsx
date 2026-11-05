@@ -230,8 +230,16 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
               <span className="big" aria-label={(final ? "최종 경과 시간 " : "경과 시간 ") + dur(elapsed)}>
                 {mmss(elapsed)}
               </span>
-              <div className="bar">
-                <i style={{ width: Math.min(100, (elapsed / GOAL_SEC) * 100) + "%" }} />
+              <div
+                className="bar"
+                role="progressbar"
+                aria-label="목표 시간 대비 경과"
+                aria-valuemin={0}
+                aria-valuemax={GOAL_SEC}
+                aria-valuenow={Math.round(Math.min(elapsed, GOAL_SEC))}
+                aria-valuetext={mmss(elapsed) + " / " + mmss(GOAL_SEC)}
+              >
+                <i style={{ transform: "scaleX(" + Math.min(1, elapsed / GOAL_SEC) + ")" }} />
               </div>
               <small className="hint">{final ? "배포를 만든 때부터 " + DEPLOY_LABEL[d.status] + "까지" : "배포를 만든 때부터"}</small>
             </div>

@@ -42,7 +42,7 @@
 .rmx .no { border: 1px dashed var(--card-line); color: var(--muted); font-size: 12px; word-break: keep-all; }
 .rmx a { text-decoration: none; }
 .rmx a b { font-size: 13px; }
-.rmx a .m { font-size: 12px; }
+.rmx a .num { font-size: 12px; }
 .rmx a.ok { background: var(--ok-bg); color: var(--ok); }
 .rmx a.run { background: var(--run-bg); color: var(--run); }
 .rmx a.warn { background: var(--warn-bg); color: var(--warn); }

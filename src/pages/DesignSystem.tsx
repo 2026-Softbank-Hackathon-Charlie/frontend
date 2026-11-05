@@ -111,7 +111,7 @@ export function DesignSystem() {
               <li>흰 바탕, 가는 경계선, 그림자 없음. 상자는 8px, 버튼과 입력칸은 6px, 칩은 4px 모서리를 씁니다. 버튼과 입력칸은 높이 36px(터치 화면 44px)로 맞춥니다.</li>
               <li>색은 상태에만 씁니다. 완료와 통과는 ok, 실패와 차단은 bad, 기계가 일하는 중은 run, 사람이 할 일은 warn, 대기와 예정은 중립 회색입니다. 상태는 항상 글자로도 적습니다.</li>
               <li>요약을 먼저, 자세한 내용은 아래에. 진행 단계, 지표, 트래픽, 상세 목록, 기록 순서로 놓습니다.</li>
-              <li>숫자는 고정폭(tabular-nums)으로, 명령과 경로는 Mono로 적습니다.</li>
+              <li>숫자는 고정폭 숫자(tabular-nums)로 적고, 표에서는 오른쪽에 맞춥니다. Mono는 ID, 커밋, 명령, 경로, 시각에만 쓰고, 한글 단위가 붙은 값(2분 34초, 0건)은 본문 글꼴로 적습니다.</li>
               <li>문장은 짧은 평서문. 버튼은 하는 일을 그대로 씁니다 ("승인하고 실행", "삭제 승인").</li>
             </ul>
           </div>
@@ -265,7 +265,7 @@ export function DesignSystem() {
           <Specimen name="타이머" note=".timer / .bar">
             <div className="timer">
               <span className="big">01:48</span>
-              <div className="bar"><i style={{ width: "60%" }} /></div>
+              <div className="bar"><i style={{ transform: "scaleX(0.6)" }} /></div>
             </div>
             <p className="hint">목표 03:00 이내. 막대는 목표 시간 대비 비율입니다.</p>
           </Specimen>
@@ -275,8 +275,8 @@ export function DesignSystem() {
               <Table
                 head={["경로", "결과", "전체", "실패 요청"]}
                 rows={[
-                  [td("EKS → GKE", "nw"), td(<Chip kind="ok">성공</Chip>), td("2분 34초", "m"), td("0건", "m")],
-                  [td("EKS → k3s", "nw"), td(<Chip>미실행</Chip>), td("-", "m"), td("-", "m")],
+                  [td("EKS → GKE", "nw"), td(<Chip kind="ok">성공</Chip>), td("2분 34초", "num"), td("0건", "num")],
+                  [td("EKS → k3s", "nw"), td(<Chip>미실행</Chip>), td("-", "num"), td("-", "num")],
                 ]}
               />
             </div>

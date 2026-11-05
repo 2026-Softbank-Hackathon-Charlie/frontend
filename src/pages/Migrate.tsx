@@ -535,7 +535,7 @@ function StartAgainBox({ v }: { v: MigrationView }) {
     <div className="box">
       <div className="bh">
         <b>승인</b>
-        <Chip kind={blocked ? "bad" : "warn"} dot>
+        <Chip kind={blocked ? "bad" : "warn"} dot={!blocked}>
           {blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}
         </Chip>
       </div>
@@ -918,7 +918,8 @@ interface Group {
   label: string;
   st: GroupSt;
   range?: string;
-  items: { label: string; st: ItemSt; detail?: string }[];
+  /** `now`: a word for a step at work, beside its spinner (which stands still with reduced motion) */
+  items: { label: string; st: ItemSt; detail?: string; now?: string }[];
 }
 
 const GROUP_OF: Record<RunPhase, number> = { sync: 0, canary: 1, awaiting_switch: 2, cutover: 2, verify: 3, observe: 3, done: 4 };
@@ -947,7 +948,8 @@ export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, event
   // A succeeded run whose observation broke the gate stopped being good in the verify group.
   const cur = r.status === "succeeded" ? (o?.passed === false ? GROUP_OF.observe : 4) : GROUP_OF[stopPhase(r, events, steps)];
   const st = (i: number): GroupSt => (i < cur ? "done" : i > cur ? "todo" : r.status === "awaiting_switch" ? "wait" : active ? "run" : "bad");
-  const engine = (phase: RunPhase) => ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] => ({ label: s.label, st: steps[s.id], detail: s.detail }));
+  const engine = (phase: RunPhase) =>
+    ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] => ({ label: s.label, st: steps[s.id], detail: s.detail, now: steps[s.id] === "run" ? "진행 중" : undefined }));
   const at = (t: string) => mmss(secs(r.startedAt, t));
   // an ended run's open part ends when the run did
   const until = (t?: string) => t ?? (active ? undefined : (r.endedAt ?? r.updatedAt));
@@ -968,7 +970,7 @@ export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, event
   if (o) {
     // no verdict: still to come, or (once it started) stopped early or never conclusive
     const ost: ItemSt = r.phase === "observe" && active ? "run" : o.passed === true ? "ok" : o.passed === false ? "bad" : !active && m.observed ? "neu" : "wait";
-    verify.push({ label: "전환 후 관찰" + (ost === "bad" ? " 위반" : ost === "neu" ? " (판정 없이 끝남)" : ""), st: ost, detail: o.violation ?? o.stoppedReason });
+    verify.push({ label: "전환 후 관찰" + (ost === "bad" ? " 위반" : ost === "neu" ? " (판정 없이 끝남)" : ""), st: ost, detail: o.violation ?? o.stoppedReason, now: ost === "run" ? "관찰 중" : undefined });
   }
   return [
     { label: "동기화", st: st(0), range: range(r.startedAt, until(m.synced)), items: engine("sync") },
@@ -1097,15 +1099,16 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
       <div className="mg-top">
         <div className="mg-say">
           {violated ? (
-            <Chip kind="bad" dot>
-              전환 후 관찰 위반
-            </Chip>
+            <Chip kind="bad">전환 후 관찰 위반</Chip>
           ) : (
-            <Chip kind={STATUS_KIND[r.status]} dot>
+            <Chip kind={STATUS_KIND[r.status]} dot={!ended}>
               {statusText(r.status, r.phase)}
             </Chip>
           )}
-          <h2 id="mg-now">{title}</h2>
+          {/* announced when the state changes; the numbers below change every second and are not */}
+          <div role="status">
+            <h2 id="mg-now">{title}</h2>
+          </div>
           <p>{say}</p>
         </div>
         <div className="mg-acts">
@@ -1157,8 +1160,16 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
               </>
             }
           >
-            <span className={"mg-mini" + (el > TARGET_SEC ? " over" : "")}>
-              <i style={{ width: Math.min(100, (el / TARGET_SEC) * 100) + "%" }} />
+            <span
+              className={"mg-mini" + (el > TARGET_SEC ? " over" : "")}
+              role="progressbar"
+              aria-label="목표 시간 대비 경과"
+              aria-valuemin={0}
+              aria-valuemax={TARGET_SEC}
+              aria-valuenow={Math.round(Math.min(el, TARGET_SEC))}
+              aria-valuetext={mmss(el) + " / " + mmss(TARGET_SEC)}
+            >
+              <i style={{ transform: "scaleX(" + Math.min(1, el / TARGET_SEC) + ")" }} />
             </span>
           </Num>
           <Num label="실패 요청" value={fmt(failed ?? 0) + "건"} note={"요청 " + fmt(r.result.requests ?? 0) + "건 중"} ok={failed === undefined ? undefined : failed === 0} />
@@ -1184,9 +1195,7 @@ function PhaseGroups({ groups }: { groups: Group[] }) {
             <div className="mg-grph">
               <b>{g.label}</b>
               {g.st === "wait" ? (
-                <Chip kind="warn" dot>
-                  승인 대기
-                </Chip>
+                <Chip kind="warn">승인 대기</Chip>
               ) : g.st === "todo" ? (
                 <span className="hint">대기</span>
               ) : (
@@ -1198,6 +1207,7 @@ function PhaseGroups({ groups }: { groups: Group[] }) {
                 <li key={it.label} className={it.st} title={it.detail}>
                   <Mark st={it.st} />
                   {it.label}
+                  {it.now && <span className="hint">{it.now}</span>}
                 </li>
               ))}
             </ul>
@@ -1325,12 +1335,12 @@ function CanaryBox({ r }: { r: Run }) {
           else if (g && v === "inconclusive") chip = <Chip>판단 보류: 요청 부족, 다음 단계로</Chip>;
           else if (g) chip = <Chip kind="bad">{"실패: " + g.reason}</Chip>;
           return [
-            td(i + 1 + "단계", "m"),
-            td(w + "%", "m"),
+            td(i + 1 + "단계", "nw"),
+            td(w + "%", "num"),
             td(chip),
-            td(g ? fmt(g.requests) : "-", "m"),
-            td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "m"),
-            td(g ? g.p95Millis + "ms" : "-", "m"),
+            td(g ? fmt(g.requests) : "-", "num"),
+            td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
+            td(g ? g.p95Millis + "ms" : "-", "num"),
           ];
         })}
       />
@@ -1369,11 +1379,11 @@ function ObserveBox({ r }: { r: Run }) {
           rows={o.steps.map((s, i) => {
             const g = s.gate;
             return [
-              td(i + 1 + "단계", "m"),
+              td(i + 1 + "단계", "nw"),
               td(verdict(s)),
-              td(g ? fmt(g.requests) : "-", "m"),
-              td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "m"),
-              td(g ? g.p95Millis + "ms" : "-", "m"),
+              td(g ? fmt(g.requests) : "-", "num"),
+              td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
+              td(g ? g.p95Millis + "ms" : "-", "num"),
             ];
           })}
         />

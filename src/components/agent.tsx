@@ -68,8 +68,8 @@ export function SessionTable({ sessions, onPick, picked }: { sessions: AgentSess
         td(<Chip>{KIND_LABEL[s.kind]}</Chip>),
         td(s.title),
         td(<SessionStatus s={s.status} />),
-        td(fmt(s.totals.toolCalls) + "회", "m"),
-        td(fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens), "m"),
+        td(fmt(s.totals.toolCalls) + "회", "num"),
+        td(fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens), "num"),
         td(
           onPick ? (
             <button type="button" className="btn ghost" aria-pressed={picked === s.id} onClick={() => onPick(s.id)}>

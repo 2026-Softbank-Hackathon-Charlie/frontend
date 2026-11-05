@@ -49,7 +49,7 @@ a, .linkbtn { transition: opacity var(--dur-slow) var(--ease-out); }
 .wiz li, .wiz .n, .phases div { transition: color var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out); }
 
 /* Progress and traffic move on the standard curve. */
-.bar i { transition: width var(--dur-slow) var(--ease); }
+.bar i, .mg-mini i { transition: transform var(--dur-slow) var(--ease); }
 .seg { transition: flex-basis 0.6s var(--ease); }
 
 /* Running indicator: softbank.jp's arc spinner (fill/unfill + slow rotation). */

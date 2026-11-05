@@ -132,9 +132,7 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
         <ul className="ov-now">
           {sorted.map((it) => (
             <li key={it.href + it.title}>
-              <Chip kind={it.kind} dot>
-                {it.chip}
-              </Chip>
+              <Chip kind={it.kind}>{it.chip}</Chip>
               <div className="txt">
                 <b>{it.title}</b>
                 {it.sub && <span>{it.sub}</span>}

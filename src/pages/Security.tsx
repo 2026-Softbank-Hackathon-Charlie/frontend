@@ -175,7 +175,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
               ),
               td(envName(x.environment)),
               td(<Chip kind={SRC_STATUS[x.status][1]}>{SRC_STATUS[x.status][0]}</Chip>),
-              td(x.findings + "개", "m"),
+              td(x.findings + "개", "num"),
             ])}
           />
         </div>

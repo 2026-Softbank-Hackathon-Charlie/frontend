@@ -151,6 +151,7 @@ function Step2() {
         <button type="button" className="btn primary" disabled={!o.done[2]} onClick={() => dispatch({ type: "onb-sbx" })}>
           샌드박스 테스트 시작
         </button>
+        {!o.done[2] && <span className="hint">AI 점검이 끝나면 시작할 수 있습니다.</span>}
       </div>
     </>
   );
@@ -163,13 +164,13 @@ function Step3() {
   const att: Cell[][] = [];
   if (t >= 30)
     att.push([
-      td("1차", "m"),
+      td("1차"),
       td(t >= 52 ? <Chip kind="bad">실패</Chip> : <Chip kind="run">진행 중</Chip>),
       td(t >= 52 ? "헬스 체크 경로 /healthz가 없어 준비 상태 확인 실패" : "shop:c07e4b8 배포, 스모크 테스트 실행 중"),
     ]);
   if (t >= 72)
     att.push([
-      td("2차", "m"),
+      td("2차"),
       td(t >= 96 ? <Chip kind="ok">통과</Chip> : <Chip kind="run">진행 중</Chip>),
       td(t >= 96 ? "헬스 체크를 추가한 뒤 스모크 테스트 12개 모두 통과" : "shop:9d2b71f 배포, 스모크 테스트 실행 중"),
     ]);
@@ -273,6 +274,7 @@ function Step3() {
         <button type="button" className="btn primary" disabled={!o.done[3]} onClick={() => dispatch({ type: "onb-pr" })}>
           PR 확인
         </button>
+        {!o.done[3] && <span className="hint">샌드박스 테스트가 끝나면 PR을 확인할 수 있습니다.</span>}
       </div>
     </>
   );
@@ -293,7 +295,9 @@ function Step4() {
           <div className="bb">
             <dl className="kv">
               <dt>브랜치</dt>
-              <dd className="m">onboard/platform 에서 main 으로</dd>
+              <dd>
+                <span className="m">onboard/platform</span>에서 <span className="m">main</span>으로
+              </dd>
               <dt>변경</dt>
               <dd>파일 6개, 142줄 추가, 18줄 삭제</dd>
               <dt>추가한 파일</dt>

@@ -68,7 +68,7 @@ function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
     <>
       <nav className="metrics tiles" aria-label="상태로 앱 거르기">
         {TILES.map(([f, label, note]) => (
-          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " warn" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-current={f === filter ? "true" : undefined}>
+          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " bad" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-current={f === filter ? "true" : undefined}>
             <span>{label}</span>
             <strong>{count(f)}</strong>
             <small>{note}</small>
@@ -445,7 +445,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
               td(x.ref + " " + short(x.commit), "m"),
               td(x.environments.map((e) => envName(e.env)).join(", ")),
               td(ago(x.createdAt, m.now), "nw"),
-              td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "nw"),
+              td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "num"),
             ])}
           />
         )}
@@ -488,7 +488,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
         <>
           <EnvStrip title={def + " 환경별 상태"}>
             {d.status.map((s) => (
-              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]} dot>{ENV_STATUS[s.status][1]}</Chip>}>
+              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}>
                 <span className="hint">{[s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "Argo CD 상태 없음"}</span>
                 {(s.commit || s.updatedAt) && (
                   <span className="hint">
@@ -824,12 +824,12 @@ function ServiceDetail({ id }: { id: string }) {
         }
       />
       <EnvStrip title="실행 위치">
-        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok" dot>정상</Chip>}>
+        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok">정상</Chip>}>
           <span className="m">{"Pod " + n + "/" + n}</span>
           <span className="hint">트래픽 100%</span>
         </EnvCell>
         {a.prev && (
-          <EnvCell name={ENV[a.prev].name} chip={<Chip dot>축소됨, 읽기 전용</Chip>}>
+          <EnvCell name={ENV[a.prev].name} chip={<Chip>축소됨, 읽기 전용</Chip>}>
             <span className="hint">트래픽 0%</span>
           </EnvCell>
         )}
@@ -845,7 +845,7 @@ function ServiceDetail({ id }: { id: string }) {
         <Table head={["종류", "이름", "내용"]} rows={a.res.map((r) => [td(r[0]), td(r[1], "m"), td(r[2])])} />
       </Card>
       <Card title="변경 이력">
-        <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "nw")])} />
+        <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "num")])} />
       </Card>
     </div>
   );

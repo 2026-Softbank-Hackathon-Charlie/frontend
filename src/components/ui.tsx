@@ -62,16 +62,23 @@ export interface Cell {
   v: ReactNode;
   cls?: string;
 }
+/** `cls` "num": a number (count, duration, rate), in fixed-width digits and right-aligned; "m": an ID, commit or host in mono. */
 export const td = (v: ReactNode, cls?: string): Cell => ({ v, cls });
 
+const isNum = (c: Cell | undefined) => !!c?.cls?.split(" ").includes("num");
+
 export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
+  // a column of numbers aligns its head with them
+  const num = head.map((_, i) => rows.length > 0 && rows.every((r) => isNum(r[i])));
   return (
     <div className="scroll">
       <table className="tbl">
         <thead>
           <tr>
             {head.map((h, i) => (
-              <th key={i}>{h}</th>
+              <th key={i} className={num[i] ? "num" : undefined}>
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
