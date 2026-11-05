@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Chip } from "./components/ui";
+import { Chip, type ChipKind } from "./components/ui";
 import { apiTarget, chooseMode, logOut, useAuth, useLive } from "./data/live";
 import { Agents } from "./pages/Agents";
 import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
@@ -16,6 +16,7 @@ import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
 import { navCurrent, navigate, useRoute } from "./router";
 import { activeDeployments } from "./sim/deploy";
+import { SIM_SECURITY } from "./sim/security";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
 
@@ -37,61 +38,134 @@ function Page({ r }: { r: string }) {
   return <Overview />;
 }
 
-function SideNav({ r }: { r: string }) {
+/** One side-nav entry: route key, label and an optional status badge. */
+type NavItem = [string, string, { kind: ChipKind; text: string } | null];
+
+/** Section names for the top bar, by side-nav entry. */
+const NAV_LABEL: Record<string, string> = {
+  overview: "개요",
+  apps: "앱",
+  migrate: "이전",
+  routes: "경로별 결과",
+  agents: "AI 활동",
+  security: "보안",
+  envs: "환경",
+  device: "CLI 연결",
+  "design-system": "디자인 시스템",
+};
+
+function SimSideNav({ r }: { r: string }) {
   const { S } = useSim();
-  const c = navCurrent(r);
-  const live = useLive();
-  const busyApps = !live && (activeDeployments(S.deploy).length > 0 || S.onb.run);
-  const items: [string, string, string][] = [
-    ["overview", "개요", ""],
-    ["apps", "앱", busyApps ? "진행 중" : ""],
-    ["migrate", "이전", !live && migActive(S) ? migLabel(S) : ""],
-    ["routes", "경로별 결과", ""],
-    ["agents", "AI 활동", ""],
-    ["security", "보안", ""],
-    ["envs", "환경", ""],
-  ];
-  if (live) items.push(["device", "CLI 연결", ""]);
+  const busyApps = activeDeployments(S.deploy).length > 0 || S.onb.run;
+  const waiting = S.mig.stage === "review" || S.mig.run?.status === "awaiting_switch";
   return (
-    <nav className="side" aria-label="주 메뉴">
-      <ul>
-        {items.map(([k, label, badge]) => (
-          <li key={k}>
-            <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
-              <span className="lbl">{label}</span>
-              {badge && (
-                <>
-                  {" "}
-                  <Chip kind="run">{badge}</Chip>
-                </>
-              )}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
+    <SideNav
+      r={r}
+      apps={busyApps ? { kind: "run", text: "진행 중" } : null}
+      migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
+      high={SIM_SECURITY.summary.bySeverity.high + SIM_SECURITY.summary.bySeverity.critical}
+    />
   );
 }
 
-/** Account and mode switch in the header. Switching modes keeps the session. */
+// Live mode shows no badges: they would cost an extra API call on every page.
+function LiveSideNav({ r }: { r: string }) {
+  return <SideNav r={r} apps={null} migrate={null} high={null} device />;
+}
+
+/** Grouped side menu: overview, then work, results and infrastructure. Badges carry live state. */
+function SideNav({ r, apps, migrate, high, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; high: number | null; device?: boolean }) {
+  const c = navCurrent(r);
+  const groups: [string | null, NavItem[]][] = [
+    [null, [["overview", NAV_LABEL.overview, null]]],
+    [
+      "작업",
+      [
+        ["apps", NAV_LABEL.apps, apps],
+        ["migrate", NAV_LABEL.migrate, migrate],
+      ],
+    ],
+    [
+      "결과",
+      [
+        ["routes", NAV_LABEL.routes, null],
+        ["agents", NAV_LABEL.agents, null],
+      ],
+    ],
+    [
+      "인프라",
+      [
+        ["envs", NAV_LABEL.envs, null],
+        ["security", NAV_LABEL.security, high ? { kind: "bad", text: "높음 " + high } : null],
+      ],
+    ],
+  ];
+  if (device) groups.push(["설정", [["device", NAV_LABEL.device, null]]]);
+  return (
+    <aside className="side">
+      <a className="brand" href="#overview">
+        <img src="/brand/lockup-header.png" alt="HopCharlie" width={150} height={32} />
+      </a>
+      <nav aria-label="주 메뉴">
+        {groups.map(([title, items], i) => (
+          <div className="navgrp" key={i}>
+            {title && <div className="grp">{title}</div>}
+            <ul>
+              {items.map(([k, label, badge]) => (
+                <li key={k}>
+                  <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
+                    <span className="lbl">{label}</span>
+                    {badge && (
+                      <>
+                        {" "}
+                        <Chip kind={badge.kind}>{badge.text}</Chip>
+                      </>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+/** Mode notice, account and mode switch in the top bar. Switching modes keeps the session. */
 function Account({ r }: { r: string }) {
   const { mode, session } = useAuth();
+  const { reset } = useSim();
   if (mode !== "live" || !session) {
     return (
-      <button type="button" className="btn ghost" onClick={() => chooseMode("live")}>
-        일반 모드로 전환
-      </button>
+      <>
+        <span className="note">시연용 화면입니다. 데이터는 가상이고 실제보다 빠르게 진행됩니다.</span>
+        <button
+          type="button"
+          className="linkbtn"
+          onClick={() => {
+            reset();
+            navigate("#overview");
+          }}
+        >
+          처음 상태로 되돌리기
+        </button>
+        <button type="button" className="btn ghost sm" onClick={() => chooseMode("live")}>
+          일반 모드로 전환
+        </button>
+      </>
     );
   }
   return (
     <>
+      <span className="note">실제 플랫폼 API({apiTarget()})에 연결되어 있습니다.</span>
       <span className="user">{session.principal.name}</span>
-      <button type="button" className="btn ghost" onClick={() => void logOut()}>
+      <button type="button" className="btn ghost sm" onClick={() => void logOut()}>
         로그아웃
       </button>
       <button
         type="button"
-        className="btn ghost"
+        className="btn ghost sm"
         onClick={() => {
           // #device is live only: staying there would switch straight back
           if (r === "device") navigate("#overview");
@@ -124,60 +198,26 @@ export function App() {
 }
 
 function Console({ r }: { r: string }) {
-  const { reset } = useSim();
   const live = useLive();
   return (
-    <>
-      <div className="banner gut">
-        <div className="in">
-          {live ? (
-            <span>실제 플랫폼 API({apiTarget()})에 연결되어 있습니다. 기존 앱 가져오기 화면은 아직 시연용입니다.</span>
-          ) : (
-            <>
-              <span>시연용 화면입니다. 데이터는 모두 가상이고, 진행 속도는 실제보다 빠릅니다.</span>
-              <button
-                type="button"
-                className="linkbtn"
-                onClick={() => {
-                  reset();
-                  navigate("#overview");
-                }}
-              >
-                처음 상태로 되돌리기
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      <header className="top gut">
-        <div className="in">
-          <a className="brand" href="#overview">
-            <img src="/brand/lockup-header.png" alt="HopCharlie" width={188} height={40} />
-          </a>
-          <span className="org">team-charlie</span>
+    <div className="layout">
+      {live ? <LiveSideNav r={r} /> : <SimSideNav r={r} />}
+      <div className="col">
+        <header className="top">
+          <div className="crumbs">
+            <span>team-charlie</span>
+            <span aria-hidden="true">/</span>
+            <b>{NAV_LABEL[navCurrent(r)] ?? NAV_LABEL.overview}</b>
+          </div>
           <div className="acts">
-            <a className="btn ghost" href="#onboard">
-              기존 앱 가져오기
-            </a>
-            <a className="btn ghost" href="#new">
-              새 앱 배포
-            </a>
-            <a className="btn primary" href="#migrate-app">
-              이전하기
-            </a>
             <Account r={r} />
           </div>
-        </div>
-      </header>
-      <div className="gut">
-        <div className="in shell">
-          <SideNav r={r} />
-          <main id="main">
-            {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters keep the page */}
-            <Page key={r.startsWith("apps") ? "apps" : r} r={r} />
-          </main>
-        </div>
+        </header>
+        <main id="main">
+          {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters keep the page */}
+          <Page key={r.startsWith("apps") ? "apps" : r} r={r} />
+        </main>
       </div>
-    </>
+    </div>
   );
 }

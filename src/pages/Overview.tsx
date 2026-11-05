@@ -12,7 +12,20 @@ export function Overview() {
   const live = useLive();
   return (
     <div className="page">
-      <PageHead title="개요" sub="team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다." />
+      <PageHead
+        title="개요"
+        sub="team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다."
+        acts={
+          <>
+            <a className="btn ghost" href="#new">
+              새 앱 배포
+            </a>
+            <a className="btn primary" href="#migrate-app">
+              이전하기
+            </a>
+          </>
+        }
+      />
       {live ? <LiveRunning /> : <SimRunning />}
       <section className="sec">
         <h2>클러스터</h2>

@@ -1,5 +1,6 @@
 import { Chip, LogBox, PageHead, Table, td, type Cell } from "../components/ui";
 import { ENV, ENV_ORDER, FINDINGS, SAMPLE, type EnvKey } from "../sim/data";
+import { useLive } from "../data/live";
 import { navigate } from "../router";
 import { useSim } from "../sim/store";
 
@@ -8,6 +9,7 @@ const LABELS = ["연결 정보", "AI 점검", "샌드박스 테스트", "PR 승�
 export function Onboard() {
   const { S } = useSim();
   const o = S.onb;
+  const live = useLive();
   return (
     <div className="page">
       <PageHead
@@ -15,6 +17,7 @@ export function Onboard() {
         sub="플랫폼 밖(EC2, RDS, S3)에서 돌고 있는 앱을 AI가 점검하고 고쳐서, 클러스터에 배포할 수 있는 형태로 바꿉니다. AI 범위 결정(3장 7번) 전 시안입니다."
         crumb={<a href="#apps">앱</a>}
       />
+      {live && <p className="hint">이 화면은 일반 모드에서도 아직 시연용 데이터로 동작합니다.</p>}
       <ol className="wiz" aria-label="가져오기 단계">
         {LABELS.map((l, i) => {
           const n = i + 1;
