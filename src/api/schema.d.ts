@@ -488,8 +488,10 @@ export interface paths {
      * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
      * another registered app has the name, or the platform serves the name
      * itself under the app domain: `api`, `console`, `headlamp` and the
-     * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
-     * not taken),
+     * gateway's default app `app`; or the name is a namespace the app
+     * clusters keep for the platform and infra, such as `kube-system`,
+     * `argocd` or `traefik`, which the app ApplicationSet would never
+     * sync; a name only in PLATFORM_APPS_FILE is not taken),
      * storage_cleanup_pending (409: the bucket and key of a deleted app or
      * instance with this name are still being deleted; try again later),
      * invalid_app_spec (422: the repository, the branch or
@@ -685,7 +687,8 @@ export interface paths {
      * names.
      *
      * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-     * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+     * set by the platform (PORT, DATABASE_URL, PGHOST, PGPORT, PGDATABASE,
+     * PGUSER, PGPASSWORD, JDBC_DATABASE_URL, S3_*). Values are 1 to 4096
      * bytes. At most 50 secrets per app-wide set and per instance, so at
      * most 50 names in `set` and in `delete`.
      *
@@ -2280,11 +2283,26 @@ export interface components {
      * - 1 to 5 services and at most one resource per type. Service names,
      *   and resource names, match `^[a-z]([a-z0-9-]{0,22}[a-z0-9])?$` and
      *   are unique.
-     * - `port` is 1 to 65535, `replicas` 1 to 5, at most one service is
-     *   `public`, and `healthCheck`, when set, starts with `/`.
+     * - `port`, when set, is 1 to 65535. A service without one (or with
+     *   0) is a worker: no Service, no probes, ready once it runs, and it may be
+     *   neither `public` nor have a `healthCheck`. An app may have only
+     *   workers; it then has no URL.
+     * - `replicas` is 1 to 5, at most one service is `public`, and
+     *   `healthCheck`, when set, starts with `/`.
+     * - `memory`, when set, is a whole number of bytes from 256Mi to
+     *   1536Mi and `cpu` a whole number of millicores from 50m to 500m
+     *   (ADR 0024). Over all services, (replicas + 1) x memory adds up to
+     *   at most 3Gi and (replicas + 1) x cpu to at most 1500m, an unset
+     *   memory counting as 256Mi and an unset cpu as 50m, so that a
+     *   rolling update, with one pod more per service, fits the
+     *   namespace's quota next to the database. The nodes may have less
+     *   room than the quota: an app that uses most of its CPU budget can
+     *   stay Pending until a node has that much CPU free.
      * - `path` and `dockerfile` are relative and have no `..`.
      * - `env` keys match `^[A-Z_][A-Z0-9_]*$` and are none of the
-     *   variables the platform sets: `PORT`, `DATABASE_URL` and `S3_*`.
+     *   variables the platform sets: `PORT`, `DATABASE_URL`, `PGHOST`,
+     *   `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`,
+     *   `JDBC_DATABASE_URL` and `S3_*`.
      *
      * The rules are not repeated as schema keywords, because
      * AppSpecValidation returns the spec of a file that breaks them.
@@ -2302,6 +2320,18 @@ export interface components {
      *       "replicas": 1,
      *       "env": {
      *         "LOG_LEVEL": "info"
+     *       }
+     *     },
+     *     {
+     *       "name": "jobs",
+     *       "path": "jobs",
+     *       "dockerfile": "Dockerfile",
+     *       "public": false,
+     *       "replicas": 1,
+     *       "memory": "512Mi",
+     *       "cpu": "250m",
+     *       "env": {
+     *         "SPRING_DATASOURCE_URL": "$(JDBC_DATABASE_URL)"
      *       }
      *     }
      *   ],
@@ -2337,10 +2367,10 @@ export interface components {
        */
       dockerfile: string;
       /**
-       * @description the port the service listens on; the service gets it as PORT
+       * @description the port the service listens on; the service gets it as PORT. Left out for a worker, which gets no Service, no probes and no PORT.
        * @example 8080
        */
-      port: number;
+      port?: number;
       /**
        * @description an HTTP path that answers 2xx once the service is ready
        * @example /healthz
@@ -2354,10 +2384,31 @@ export interface components {
       /** @default 1 */
       replicas: number;
       /**
+       * @description A Kubernetes quantity, a whole number of bytes from 256Mi to
+       * 1536Mi: the container's memory request and limit. Without it the container gets the
+       * environment's defaults (request 64Mi, limit 256Mi).
+       *
+       * @example 512Mi
+       */
+      memory?: string;
+      /**
+       * @description A Kubernetes quantity, a whole number of millicores from 50m
+       * to 500m: the container's CPU request.
+       * There is no CPU limit. Without it the request is the
+       * environment's default (50m).
+       *
+       * @example 250m
+       */
+      cpu?: string;
+      /**
        * @description Environment variables besides the ones the platform sets. Values
        * are strings: a value YAML reads as a number, boolean or null
        * (`4`, `yes`, `0755`, `~`) is an error, so quote it. platform.yaml
-       * is in git, so it holds no secrets.
+       * is in git, so it holds no secrets. A value may use `$(NAME)` for
+       * a variable the platform sets, which Kubernetes expands, to give
+       * it the name the app reads: `KC_DB_URL_HOST: "$(PGHOST)"`,
+       * `SPRING_DATASOURCE_URL: "$(JDBC_DATABASE_URL)"`,
+       * `AWS_ACCESS_KEY_ID: "$(S3_ACCESS_KEY)"`.
        */
       env?: {
         [key: string]: string;
@@ -2368,7 +2419,10 @@ export interface components {
       name: string;
       /**
        * @description postgres: a CNPG Cluster `<app>-<name>`; every service gets
-       * DATABASE_URL from key `uri` of its secret `<app>-<name>-app`.
+       * DATABASE_URL from key `uri` of its secret `<app>-<name>-app`,
+       * and from the same secret PGHOST (key `host`), PGPORT (`port`),
+       * PGDATABASE (`dbname`), PGUSER (`username`), PGPASSWORD
+       * (`password`) and JDBC_DATABASE_URL (`jdbc-uri`).
        * s3: a bucket; every service gets S3_ENDPOINT, S3_BUCKET,
        * S3_REGION, S3_PATH_STYLE, S3_ACCESS_KEY and S3_SECRET_KEY.
        *
@@ -3867,8 +3921,10 @@ export interface operations {
    * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
    * another registered app has the name, or the platform serves the name
    * itself under the app domain: `api`, `console`, `headlamp` and the
-   * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
-   * not taken),
+   * gateway's default app `app`; or the name is a namespace the app
+   * clusters keep for the platform and infra, such as `kube-system`,
+   * `argocd` or `traefik`, which the app ApplicationSet would never
+   * sync; a name only in PLATFORM_APPS_FILE is not taken),
    * storage_cleanup_pending (409: the bucket and key of a deleted app or
    * instance with this name are still being deleted; try again later),
    * invalid_app_spec (422: the repository, the branch or
@@ -4259,7 +4315,8 @@ export interface operations {
    * names.
    *
    * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-   * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+   * set by the platform (PORT, DATABASE_URL, PGHOST, PGPORT, PGDATABASE,
+   * PGUSER, PGPASSWORD, JDBC_DATABASE_URL, S3_*). Values are 1 to 4096
    * bytes. At most 50 secrets per app-wide set and per instance, so at
    * most 50 names in `set` and in `delete`.
    *
