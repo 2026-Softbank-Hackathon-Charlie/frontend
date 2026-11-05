@@ -16,6 +16,7 @@ import {
   getDeviceLogin,
   getHealth,
   getPlan,
+  getPlanAttachment,
   getSecurity,
   getTraffic,
   getWrittenRecords,
@@ -156,6 +157,20 @@ describe("client requests", () => {
       "text",
       "application/octet-stream",
     ]);
+  });
+
+  it("reads an attachment back as the raw bytes, and its error as JSON", async () => {
+    setToken("secret-token");
+    let answer = () => new Response("kind: Cluster\n", { status: 200, headers: { "Content-Type": "application/octet-stream" } });
+    const calls = installFetch(() => answer());
+    const buf = await getPlanAttachment("pln_1", "a b");
+    expect(new TextDecoder().decode(buf)).toBe("kind: Cluster\n");
+    expect([calls[0].method, calls[0].url]).toEqual(["GET", "/v1/plans/pln_1/attachments/a%20b"]);
+    expect(calls[0].headers.get("Accept")).toContain("application/octet-stream");
+    expect(calls[0].headers.get("Authorization")).toBe("Bearer secret-token");
+
+    answer = () => json(404, { error: { code: "attachment_not_found", message: "no such attachment" } });
+    await expect(getPlanAttachment("pln_1", "gone.yaml")).rejects.toMatchObject({ status: 404, code: "attachment_not_found" });
   });
 
   it("builds the queries and bodies of the security, agent and plan tool calls", async () => {

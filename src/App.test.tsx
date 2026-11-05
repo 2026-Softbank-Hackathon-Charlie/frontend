@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { fakeAgentSession, fakeSession, installFetch, json, type FakeCall } from "./api/fakes";
 import { App } from "./App";
+import { sha256Hex } from "./data/attachment";
 import { initAuth } from "./data/live";
 import { AI_END, SWITCH_AT } from "./sim/mig";
 import { createSim, SimProvider, type Sim } from "./sim/store";
@@ -478,6 +479,54 @@ describe("HopCharlie console (platform API)", () => {
     // the plan session has no planRef: it comes in through the rehearsal that names it
     expect(await screen.findByText("shop 이전 계획 (eks → gke)")).toBeInTheDocument();
     expect(screen.getByText("샌드박스 리허설 (shop-eks-to-gke)")).toBeInTheDocument();
+  });
+
+  it("shows the attachment the AI uploaded as it is stored, with its hash checked against the Plan", async () => {
+    const content = "instances: 2\nmaxConnections: 200\n";
+    const sha = await sha256Hex(new TextEncoder().encode(content).buffer as ArrayBuffer);
+    const plan = { ...basePlan, revision: 4, attachments: [{ name: "values-gke.yaml", size: content.length, sha256: sha }, { name: "bad.yaml", size: 3, sha256: "0".repeat(64) }] };
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans/pln_1/attachments/values-gke.yaml") return new Response(content, { status: 200 });
+      if (u.pathname === "/v1/plans/pln_1/attachments/bad.yaml") return new Response("xyz", { status: 200 });
+      return route(() => [], plan as typeof basePlan)(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-shop";
+    const shown = await screen.findByLabelText("values-gke.yaml 내용");
+    expect(shown).toHaveTextContent("maxConnections: 200");
+    const good = shown.closest("figure")!;
+    expect(within(good as HTMLElement).getByText("SHA-256 일치")).toBeInTheDocument();
+    // content that does not match the record's hash is called out before the approval
+    expect(await screen.findByText("SHA-256 불일치")).toBeInTheDocument();
+    expect(screen.getByText(/Plan 기록의 해시와 다릅니다/)).toBeInTheDocument();
+  });
+
+  it("counts the commands blocked in every AI session of the plan, not only the one on screen", async () => {
+    const rehearsal = fakeAgentSession({ id: "ags_4", kind: "rehearsal", planRef: "pln_1", status: "failed", createdAt: "2026-11-06T01:01:00Z", totals: { events: 2, toolCalls: 1, inputTokens: 0, outputTokens: 0, durationMillis: 0 } });
+    const diagnose = fakeAgentSession({ id: "ags_8", kind: "diagnose", planRef: "pln_1", status: "succeeded", createdAt: "2026-11-06T01:02:00Z" });
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/agent/sessions") return json(200, { sessions: u.searchParams.get("planRef") === "pln_1" ? [diagnose, rehearsal] : [] });
+      if (u.pathname === "/v1/agent/sessions/ags_4/events" && u.searchParams.get("format") === "json") {
+        return json(200, {
+          events: [
+            { seq: 1, sessionId: "ags_4", time: "2026-11-06T01:01:01Z", type: "tool_call", tool: "kubectl" },
+            { seq: 2, sessionId: "ags_4", time: "2026-11-06T01:01:02Z", type: "blocked", tool: "kubectl", input: { command: "kubectl delete ns shop" }, output: "policy" },
+          ],
+        });
+      }
+      if (u.pathname.startsWith("/v1/agent/sessions/")) return new Promise<Response>(() => {});
+      return route(() => [])(c);
+    });
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-shop";
+    // the diagnosis is on screen (newest); the rehearsal's blocked command still counts
+    expect(await screen.findByText("AI 세션 2개, 막힌 명령 1건")).toBeInTheDocument();
+    expect(screen.getByText(/막힌 명령 1건, 모두 차단됨/)).toBeInTheDocument();
+    expect(screen.queryByText(/세션 기록만 셉니다/)).toBeNull();
   });
 
   it("makes no API calls in simulation mode", () => {

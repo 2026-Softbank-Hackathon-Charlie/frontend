@@ -70,7 +70,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 |------|------|
 | 시스템 | `getHealth`, `getMe` |
 | 인증 | `login`, `logout`, `getDeviceLogin`, `approveDeviceLogin(userCode, role)`, `denyDeviceLogin`, `onUnauthorized(cb)` |
-| 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment` |
+| 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment`, `getPlanAttachment` |
 | 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration`, `rollbackMigration`, `getWrittenRecords` |
 | 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
 | 보안 | `getSecurity({ environment, severity, refresh })` |
@@ -84,7 +84,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 - 호출한 쪽이 `signal`을 abort하면 `ApiError`가 아니라 fetch의 `AbortError`로 끝난다. 취소와 실패를 구분하려는 것이다.
 - `startMigration`은 Idempotency-Key를 꼭 받는다. 사용자가 시작 버튼을 누를 의도 하나마다 `newIdempotencyKey()`로 키를 한 번 만들고, 재시도에는 같은 키를 다시 보낸다. 그러면 버튼을 두 번 눌러도 run이 하나만 생긴다.
 - `approvePlan`에는 사용자가 본 계획의 `revision`을 `{ revision: plan.revision }`으로 보낸다. 첨부가 있는 계획은 revision이 없거나 그사이 첨부가 올라와 바뀌었으면 409 `plan_state_conflict`로 실패한다. 이때는 계획을 다시 읽어 보여 주고 다시 승인받는다.
-- `putPlanAttachment`는 파일 내용을 `application/octet-stream` 그대로 보낸다(최대 1 MiB). 올릴 때마다 계획의 revision이 1 오른다.
+- `putPlanAttachment`는 파일 내용을 `application/octet-stream` 그대로 보낸다(최대 1 MiB). 올릴 때마다 계획의 revision이 1 오른다. `getPlanAttachment`는 올린 내용을 그대로(`ArrayBuffer`) 돌려준다. 오류는 다른 호출처럼 JSON이다. 이전 화면은 이 내용을 보여 주고, 기록의 `sha256`과 맞는지 확인한다.
 - `rollbackMigration`은 Idempotency-Key를 받지 않는다. 서버가 run 하나를 한 번만 되돌리므로 다시 눌러도 run이 둘 생기지 않고, 이미 시작된 되돌리기는 409 `run_state_conflict`로 알려 준다.
 - `createApp`, `createDeployment`, `createAppInstance`는 platform.yaml이 규칙을 어기면 422 `invalid_app_spec`으로 실패한다. 본문의 `validation`이 `ApiError.validation`에 들어 있고, `specInvalid(e)`로 꺼내면 `validateAppSpec`의 답과 같은 모양이다. 화면은 이 경우를 일반 오류가 아니라 확인 결과(고칠 항목과 위치)로 보여 준다.
 - `deleteApp`은 본문 없는 202로 끝난다. Argo CD가 앱과 그 데이터(DB, 버킷)를 지우므로 되돌릴 수 없다. 파일(`PLATFORM_APPS_FILE`)에만 있는 앱은 409 `app_not_registered`다.

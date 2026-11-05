@@ -92,8 +92,10 @@ export interface MigrationView {
   /** the engine plan the record was made from, when known */
   engine?: EnginePlan;
   sessions: AgentSession[];
-  /** events of one AI session; the live side follows the selected one */
+  /** events of one AI session; the live side follows the selected one and reads the others' stored events */
   sessionEvents(id: string): AgentEvent[];
+  /** live: some sessions' stored events have not loaded (yet, or failed), so counts over all sessions are partial */
+  sessionsPartial?: boolean;
   selectSession(id: string): void;
   /** the AI's values fix, shown as a diff (simulation; live plans carry it as an attachment) */
   fix?: { file: string; minus: string; plus: string };
@@ -256,6 +258,48 @@ function useLinkedPlanSession(sessions: AgentSession[]): AgentSession | undefine
   return linked && linked.rid === rid ? linked.session : undefined;
 }
 
+/**
+ * The stored events of every session but the one followed live (that one streams). A session is read again,
+ * from its last seq on, when the polled list shows it gained events or ended; nothing is read twice.
+ * `missing` is true while a session has never loaded, or its last read failed.
+ */
+export function useStoredSessionEvents(sessions: AgentSession[], follow: string | null): { events: Record<string, AgentEvent[]>; missing: boolean } {
+  const [store, setStore] = useState<Record<string, { ver: string; events: AgentEvent[]; failed?: boolean }>>({});
+  const want = sessions.filter((s) => s.id !== follow).map((s) => ({ id: s.id, ver: s.status + ":" + s.totals.events }));
+  const key = want.map((w) => w.id + "@" + w.ver).join(" ");
+  const [busy] = useState(() => new Map<string, AbortController>());
+  useEffect(() => {
+    for (const w of want) {
+      const have = store[w.id];
+      // loaded at this version, or failed at it: wait until the session changes (no retry loop)
+      if ((have && have.ver === w.ver) || busy.has(w.id)) continue;
+      const ctrl = new AbortController();
+      busy.set(w.id, ctrl);
+      (async () => {
+        const out = [...(have?.events ?? [])];
+        let after = out.at(-1)?.seq ?? 0;
+        for (;;) {
+          const page = await listAgentEvents(w.id, { after: after || undefined, limit: 2000 }, { signal: ctrl.signal });
+          for (const e of page.events) if (e.seq > (out.at(-1)?.seq ?? 0)) out.push(e);
+          if (page.nextAfter === undefined) break;
+          // a cursor that does not move would ask for the same page forever
+          if (page.nextAfter <= after) throw new Error("nextAfter did not advance");
+          after = page.nextAfter;
+        }
+        if (!ctrl.signal.aborted) setStore((s) => ({ ...s, [w.id]: { ver: w.ver, events: out } }));
+      })()
+        .catch(() => {
+          if (!ctrl.signal.aborted) setStore((s) => ({ ...s, [w.id]: { ver: w.ver, events: have?.events ?? [], failed: true } }));
+        })
+        .finally(() => busy.delete(w.id));
+    }
+  }, [key, store]); // `key` names every session and its version
+  useEffect(() => () => busy.forEach((c) => c.abort()), [busy]);
+  const events: Record<string, AgentEvent[]> = {};
+  for (const [id, x] of Object.entries(store)) events[id] = x.events;
+  return { events, missing: want.some((w) => !store[w.id] || store[w.id].failed) };
+}
+
 function envLabel(name: string): string {
   const k = envKeyOf(name);
   return k ? ENV[k].name : name;
@@ -333,6 +377,8 @@ export function useLiveMigration(): MigrationView {
   }, [planning, ofPlan, linked]);
   const follow = selected ?? sessionList[0]?.id ?? null;
   const ses = useAgentSession(enabled ? follow : null);
+  // the other sessions' stored events, so the map and the checks count every session, not only the one followed
+  const stored = useStoredSessionEvents(enabled ? sessionList : [], follow);
 
   const src = run?.source.env ?? plan?.summary.source.env ?? envs[0] ?? "";
   const target = run?.target.env ?? plan?.summary.target.env ?? (tgt && tgt !== src ? tgt : envs.find((e) => e !== src) ?? "");
@@ -370,7 +416,8 @@ export function useLiveMigration(): MigrationView {
     plan: planning ? undefined : plan,
     engine,
     sessions: sessionList,
-    sessionEvents: (id) => (id === follow ? ses.events : []),
+    sessionEvents: (id) => (id === follow ? ses.events : (stored.events[id] ?? [])),
+    sessionsPartial: stored.missing,
     selectSession: setSelected,
     run,
     events: watch.events,

@@ -518,6 +518,25 @@ export interface paths {
      */
     post: operations["draftPlan"];
   };
+  "/v1/residency/buckets/inspect": {
+    /**
+     * @description Measure a bucket the residency policy registers, the way the gate
+     * does before a files copy, and compare its first-level prefixes with
+     * the policy's prefix catalog. With `prefix` (one listed prefix), the
+     * objects under it are also described for classification: counts of
+     * content types, extensions, user metadata names and of keys matching
+     * fixed personal-data patterns (`email`, `kr_resident_number`,
+     * `kr_phone`, `card_number`, `date`, `uuid`, `non_ascii`). Object keys,
+     * metadata values and contents are never returned.
+     *
+     * This helps a person or the AI agent propose labels for unclassified
+     * prefixes. It is not a verdict: only the policy file, reviewed and
+     * loaded at startup, decides whether a run may start.
+     *
+     * Roles: agent, operator.
+     */
+    post: operations["inspectBucket"];
+  };
   "/v1/migrations/{runId}/rollback": {
     /**
      * @description One-click rollback of a `succeeded` run: migrate back the way it came.
@@ -785,6 +804,44 @@ export interface paths {
      * github_not_configured (503).
      */
     get: operations["listGitHubRepos"];
+  };
+  "/v1/github/push-tokens": {
+    /**
+     * @description A GitHub token that may push to one imported repository, for the AI
+     * agent that adds a Dockerfile and platform.yaml to an open-source copy
+     * (ADR 0023). The platform reads the repository's id and current name
+     * from GitHub (renames and transfers are followed) and creates a GitHub
+     * App installation token bound to that id (`repository_ids: [id]`) with
+     * `contents: write`; GitHub expires it after an hour. A token GitHub
+     * answers with a wider scope is revoked and not returned. Every call
+     * creates a new token; the platform keeps none of them.
+     *
+     * Only repositories `scripts/import-repo.sh` imported get a token: the
+     * repository must be in the platform's GitHub organization, under the
+     * name asked for and its current name, and have the topic
+     * `hopcharlie-imported`. The configured gitops repository never gets
+     * one. `repo` in the answer is the current name. The agent pushes the
+     * `hopcharlie` branch with it, as the password of user `x-access-token`
+     * for `https://github.com/<repo>.git`, and an operator registers that
+     * branch with `POST /v1/apps`. GitHub does not enforce the branch: the
+     * token can write any branch of that one repository.
+     *
+     * The answer has `Cache-Control: no-store`. The audit log records the
+     * repository and `expiresAt`, never the token, and is written before
+     * the answer: when it cannot be written, the token is revoked and the
+     * answer is 503 audit_unavailable.
+     *
+     * Error codes: invalid_request (400: repo is not owner/name, or its
+     * name is `.`, `..` or ends in `.git`), repo_not_imported (403: the
+     * repository has no `hopcharlie-imported` topic, is not in the
+     * organization, or is the gitops repository), repo_not_found (404: the
+     * repository does not exist, the GitHub App installation cannot see
+     * it, or the installation cannot grant a token for it),
+     * github_unreachable (502, also when GitHub answers with a wider
+     * token), github_not_configured (503), audit_unavailable (503). Roles:
+     * agent, operator.
+     */
+    post: operations["createPushToken"];
   };
   "/v1/webhooks/github": {
     /**
@@ -1793,6 +1850,93 @@ export interface components {
        */
       bucket?: string;
     };
+    BucketInspectRequest: {
+      /**
+       * @description A bucket the residency policy registers, as plans name it (`remote:bucket[/path]`).
+       * @example minio:moimroom-photos-onprem
+       */
+      bucket: string;
+      /**
+       * @description One listed first-level prefix (ending in `/`) to describe the objects of.
+       * @example hosts/
+       */
+      prefix?: string;
+    };
+    /** @description What the server measured through the rclone remote a copy would use. */
+    BucketObservation: {
+      /**
+       * @description `provider`: AWS S3 or GCS at the provider's endpoint, whose location the provider reports. `self`: a store the operator runs (MinIO), whose region is only its own setting.
+       * @enum {string}
+       */
+      hosting: "provider" | "self";
+      /** @description Lowercase location code; empty when a self-hosted store reports none. */
+      location: string;
+      /** @description region, dual-region or multi-region; empty when unknown. */
+      locationType: string;
+      /** @description Addresses the endpoint host resolved to. */
+      endpointIPs: string[];
+      /** @description First-level prefixes; "" stands for objects directly under the bucket path. */
+      prefixes: string[];
+      /** @description Buckets the bucket replicates into (not read by inspect). */
+      replicas: string[];
+      /** @description A self-hosted store's lifecycle moves objects to another tier. */
+      tiered: boolean;
+    };
+    BucketPrefixStatus: {
+      prefix: string;
+      /**
+       * @description `unclassified`: listed but not in the policy (a run would be denied); `missing`: in the policy but not listed.
+       * @enum {string}
+       */
+      status: "classified" | "unclassified" | "missing";
+      /**
+       * @description The policy's label, when it has one.
+       * @enum {string}
+       */
+      label?: "kr-only" | "apac" | "global";
+    };
+    /** @description Counts describing the first objects under one prefix. No key, value or content. */
+    BucketSample: {
+      prefix: string;
+      /** @description Objects read (at most 50). */
+      objects: number;
+      /** @description More objects exist than were read. */
+      truncated: boolean;
+      contentTypes: {
+        [key: string]: number;
+      };
+      extensions: {
+        [key: string]: number;
+      };
+      /** @description User metadata names (never values). */
+      metadataKeys: {
+        [key: string]: number;
+      };
+      /** @description Keys matching each personal-data pattern. */
+      keyPatterns: {
+        [key: string]: number;
+      };
+      /** Format: int64 */
+      minSize: number;
+      /** Format: int64 */
+      maxSize: number;
+      /** @description Deepest key below the prefix, in path segments. */
+      maxDepth: number;
+    };
+    BucketInspection: {
+      bucket: string;
+      policyDigest: string;
+      /** @description Where the policy says the bucket is. */
+      environment: string;
+      /**
+       * @description The bucket label (objects directly under its path).
+       * @enum {string}
+       */
+      label: "kr-only" | "apac" | "global";
+      observation: components["schemas"]["BucketObservation"];
+      prefixes: components["schemas"]["BucketPrefixStatus"][];
+      sample?: components["schemas"]["BucketSample"];
+    };
     PlanDraftRequest: {
       /** @example shop */
       app: string;
@@ -2186,8 +2330,11 @@ export interface components {
      * @description queued: waiting for the deployer. A server without a deployer leaves deployments queued.
      * building: building and pushing one image per service.
      * committing: writing apps/<instance>/<env>.yaml to the gitops repository.
-     * syncing: Argo CD is applying the commit; waiting for every environment to be healthy.
-     * healthy: every environment is synced and healthy. Final.
+     * syncing: Argo CD is applying the commit; waiting for every environment to be healthy and, for an app
+     *   with a public service, for it to answer in the environments the traffic gateway sends requests to.
+     * healthy: every environment is synced and healthy, and the public service (if any) answered where the
+     *   traffic gateway sends requests. An environment that gets no requests and did not answer is left out
+     *   of the gateway, with a `message`. Final.
      * failed: the deployment stopped; `error` says why. Final.
      * superseded: a newer deployment of the same instance to the same environments (or more) was created
      *   before this one finished. This one stopped, and writes nothing to the gitops repository
@@ -2201,7 +2348,8 @@ export interface components {
      * syncing: apps/<instance>/<env>.yaml is committed and Argo CD is applying it.
      * healthy: Argo CD reports Synced and Healthy for the commit.
      * degraded: synced, but Argo CD reports the Application <instance>-<env> Degraded.
-     * failed: the sync failed, or the environment did not become healthy in time.
+     * failed: the sync failed, or the environment did not become healthy in time, or (Synced and Healthy)
+     *   the public service did not answer there in time though the traffic gateway sends it requests.
      *
      * @enum {string}
      */
@@ -2388,6 +2536,28 @@ export interface components {
     GitHubRepoList: {
       repos: components["schemas"]["GitHubRepo"][];
     };
+    PushTokenRequest: {
+      /**
+       * @description owner/name of a repository scripts/import-repo.sh imported, without .git.
+       * @example 2026-Softbank-Hackathon-Charlie/gitea
+       */
+      repo: string;
+    };
+    /** @description A GitHub App installation token that may only write the contents of `repo`. */
+    PushToken: {
+      /**
+       * @description The repository's current owner/name, which differs from the request after a rename.
+       * @example 2026-Softbank-Hackathon-Charlie/gitea
+       */
+      repo: string;
+      /** @description The token, for git over HTTPS as the password of user `x-access-token`. Keep it out of logs. */
+      token: string;
+      /**
+       * Format: date-time
+       * @description When GitHub stops accepting the token, an hour after it was created.
+       */
+      expiresAt: string;
+    };
   };
   responses: {
     /** @description invalid_request, invalid_plan */
@@ -2402,13 +2572,13 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description forbidden: the token's role may not do this; console_session_required: only a console session may do this */
+    /** @description forbidden: the token's role may not do this; console_session_required: only a console session may do this; repo_not_imported: the repository gets no push token */
     Forbidden: {
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found, device_login_not_found, secret_not_found */
+    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found, device_login_not_found, secret_not_found, bucket_not_registered, prefix_not_listed, repo_not_found */
     NotFound: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -3663,6 +3833,54 @@ export interface operations {
     };
   };
   /**
+   * @description Measure a bucket the residency policy registers, the way the gate
+   * does before a files copy, and compare its first-level prefixes with
+   * the policy's prefix catalog. With `prefix` (one listed prefix), the
+   * objects under it are also described for classification: counts of
+   * content types, extensions, user metadata names and of keys matching
+   * fixed personal-data patterns (`email`, `kr_resident_number`,
+   * `kr_phone`, `card_number`, `date`, `uuid`, `non_ascii`). Object keys,
+   * metadata values and contents are never returned.
+   *
+   * This helps a person or the AI agent propose labels for unclassified
+   * prefixes. It is not a verdict: only the policy file, reviewed and
+   * loaded at startup, decides whether a run may start.
+   *
+   * Roles: agent, operator.
+   */
+  inspectBucket: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BucketInspectRequest"];
+      };
+    };
+    responses: {
+      /** @description The bucket's policy entry next to its measurement. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BucketInspection"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      /** @description bucket_probe_failed: the bucket could not be measured; the message holds the probe's fixed code */
+      502: {
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description residency_not_configured: the server has no residency policy */
+      503: {
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
    * @description One-click rollback of a `succeeded` run: migrate back the way it came.
    * The server builds the reverse of the run's plan (source and target
    * swapped, files and gateway backends swapped, no target manifest because
@@ -4170,6 +4388,66 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description A GitHub token that may push to one imported repository, for the AI
+   * agent that adds a Dockerfile and platform.yaml to an open-source copy
+   * (ADR 0023). The platform reads the repository's id and current name
+   * from GitHub (renames and transfers are followed) and creates a GitHub
+   * App installation token bound to that id (`repository_ids: [id]`) with
+   * `contents: write`; GitHub expires it after an hour. A token GitHub
+   * answers with a wider scope is revoked and not returned. Every call
+   * creates a new token; the platform keeps none of them.
+   *
+   * Only repositories `scripts/import-repo.sh` imported get a token: the
+   * repository must be in the platform's GitHub organization, under the
+   * name asked for and its current name, and have the topic
+   * `hopcharlie-imported`. The configured gitops repository never gets
+   * one. `repo` in the answer is the current name. The agent pushes the
+   * `hopcharlie` branch with it, as the password of user `x-access-token`
+   * for `https://github.com/<repo>.git`, and an operator registers that
+   * branch with `POST /v1/apps`. GitHub does not enforce the branch: the
+   * token can write any branch of that one repository.
+   *
+   * The answer has `Cache-Control: no-store`. The audit log records the
+   * repository and `expiresAt`, never the token, and is written before
+   * the answer: when it cannot be written, the token is revoked and the
+   * answer is 503 audit_unavailable.
+   *
+   * Error codes: invalid_request (400: repo is not owner/name, or its
+   * name is `.`, `..` or ends in `.git`), repo_not_imported (403: the
+   * repository has no `hopcharlie-imported` topic, is not in the
+   * organization, or is the gitops repository), repo_not_found (404: the
+   * repository does not exist, the GitHub App installation cannot see
+   * it, or the installation cannot grant a token for it),
+   * github_unreachable (502, also when GitHub answers with a wider
+   * token), github_not_configured (503), audit_unavailable (503). Roles:
+   * agent, operator.
+   */
+  createPushToken: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PushTokenRequest"];
+      };
+    };
+    responses: {
+      /** @description The token, valid until `expiresAt`. */
+      201: {
+        headers: {
+          "Cache-Control"?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["PushToken"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
       502: components["responses"]["BadGateway"];
       503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];

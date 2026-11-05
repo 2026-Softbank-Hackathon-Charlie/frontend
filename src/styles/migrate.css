@@ -36,6 +36,12 @@
 .mg-progmore { border-top: 1px solid var(--line-soft); }
 
 /* "확인한 것": one row per check with a round state mark */
+/* a plan attachment as uploaded (live) */
+.mg-attach { margin: var(--sp-sm) 0 0; border: 1px solid var(--hairline); border-radius: var(--r-control); }
+.mg-attach figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-xs) var(--sp-sm); padding: var(--sp-xs) var(--sp-sm); background: var(--fill); font-size: 13px; }
+.mg-attach figcaption b { font-family: var(--font-mono); font-weight: 500; }
+.mg-attach > p { padding: var(--sp-xs) var(--sp-sm); }
+.mg-attach pre { margin: 0; padding: var(--sp-sm); max-height: 360px; overflow: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre; }
 .mg-checks { list-style: none; margin: 0; padding: 0; }
 .mg-checks > li { display: flex; gap: var(--sp-md); align-items: flex-start; padding: var(--sp-md); border-bottom: 1px solid var(--line-soft); }
 .mg-checks > li:last-child { border-bottom: 0; }
