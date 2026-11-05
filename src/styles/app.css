@@ -28,7 +28,10 @@ button, input, select { font: inherit; color: inherit; }
 /* the current entry fills in; its weight stays, so the label keeps its width */
 .side a[aria-current="page"] { background: var(--side-current); color: var(--heading); }
 .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.top { display: flex; align-items: center; gap: var(--sp-sm) var(--sp-md); flex-wrap: wrap; min-height: 60px; box-sizing: border-box; padding: var(--sp-sm) max(var(--sp-2xl), env(safe-area-inset-right, 0px)) var(--sp-sm) var(--sp-2xl); border-bottom: 1px solid var(--line-soft); }
+/* Top bar and page share one centred column: on a wide screen the gutters grow, so the content does not sit in the
+   top-left corner. The percentage is of .col, the containing block of both. */
+.col { --gutter: max(var(--sp-2xl), calc((100% - 1176px) / 2)); }
+.top { display: flex; align-items: center; gap: var(--sp-sm) var(--sp-md); flex-wrap: wrap; min-height: 60px; box-sizing: border-box; padding: var(--sp-sm) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--sp-sm) var(--gutter); border-bottom: 1px solid var(--line-soft); }
 .crumbs { display: flex; gap: var(--sp-xs); align-items: center; font-size: 13px; color: var(--muted); }
 .crumbs b, .crumbs a { color: var(--heading); font-weight: 500; }
 .crumbs a { text-underline-offset: 3px; }
@@ -39,7 +42,7 @@ button, input, select { font: inherit; color: inherit; }
 .skip { position: absolute; left: var(--sp-md); top: var(--sp-sm); z-index: 20; padding: var(--sp-xs) var(--sp-sm); border-radius: var(--r-control); background: var(--fg); color: var(--canvas); font-size: 14px; text-decoration: none; }
 .skip:not(:focus) { width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 main#main:focus { outline: none; }
-main#main { box-sizing: border-box; width: 100%; max-width: 1240px; padding: var(--sp-xl) max(var(--sp-2xl), env(safe-area-inset-right, 0px)) var(--sp-3xl) var(--sp-2xl); }
+main#main { box-sizing: border-box; width: 100%; padding: var(--sp-xl) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--sp-3xl) var(--gutter); }
 @media (max-width: 899px) {
   .layout { flex-direction: column; }
   .side { flex: none; gap: var(--sp-xs); padding: var(--sp-sm) max(var(--sp-md), env(safe-area-inset-right, 0px)) var(--sp-sm) max(var(--sp-md), env(safe-area-inset-left, 0px)); border-right: 0; border-bottom: 1px solid var(--line-soft); }
