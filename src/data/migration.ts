@@ -440,6 +440,8 @@ export function useLiveMigration(): MigrationView {
     approve: () =>
       act(async () => {
         if (!plan) return;
+        const blocked = approvalBlock(plan);
+        if (blocked) throw new Error("리허설을 통과하지 않은 AI 계획이라 승인할 수 없습니다: " + blocked);
         try {
           // approve exactly the revision on screen; a newer attachment makes the server answer 409.
           // Approving an approved plan again is a no-op, so this also retries a refused start.
@@ -478,4 +480,13 @@ export function useLiveMigration(): MigrationView {
       setStartKey(newIdempotencyKey());
     },
   };
+}
+
+// approvalBlock is why the platform refuses to approve this plan, or "" when it can be approved: an AI plan
+// (submitted by the agent) needs a passing rehearsal report for the plan as it is now (platform #24).
+// The platform makes the decision; the console only hides the approve buttons and shows the reason.
+export function approvalBlock(plan: PlanRecord | undefined | null): string {
+  const g = plan?.status === "pending_approval" ? plan.rehearsal : undefined;
+  if (!g?.required || g.passed) return "";
+  return g.reason ?? "rehearsal evidence required";
 }

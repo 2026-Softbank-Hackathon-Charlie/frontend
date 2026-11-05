@@ -1042,6 +1042,8 @@ export interface components {
       rollbackOf?: string;
       summary: components["schemas"]["PlanSummary"];
       submittedBy: string;
+      /** @description The role the plan was submitted with. An agent's (AI) plan needs a passing rehearsal report before it can be approved. Absent for plans stored before the role was kept. */
+      submittedRole?: components["schemas"]["Role"];
       /** Format: date-time */
       submittedAt: string;
       /** @description who approved or rejected */
@@ -1052,6 +1054,16 @@ export interface components {
       runId?: string;
       /** @description Files uploaded for this plan (PUT /v1/plans/{ref}/attachments/{name}). */
       attachments?: components["schemas"]["PlanAttachment"][];
+      rehearsal?: components["schemas"]["PlanRehearsalGate"];
+    };
+    /** @description Set on plans waiting for approval. When required, approving needs the rehearsal-report.json attachment to have passed (schemaVersion hopcharlie.rehearsal/v1) for exactly the plan body and target.yaml attached now, uploaded by the principal that submitted the plan; otherwise approve answers 409 rehearsal_required. The report is the trusted runner's word: the gate binds it to the content, it does not prove the rehearsal ran. */
+    PlanRehearsalGate: {
+      /** @description the plan was submitted by an agent (AI) */
+      required: boolean;
+      /** @description a passing rehearsal report matches the plan as it is now */
+      passed: boolean;
+      /** @description why approval is blocked, when it is */
+      reason?: string;
     };
     PlanList: {
       plans: components["schemas"]["PlanRecord"][];

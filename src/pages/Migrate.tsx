@@ -7,7 +7,7 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
-import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
+import { approvalBlock, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -74,6 +74,8 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <RunStatusChip r={v.run} />
                   ) : v.stage === "review" && v.plan?.status === "approved" ? (
                     <Chip kind={v.preflight?.blocked ? "bad" : "warn"}>{v.preflight?.blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}</Chip>
+                  ) : v.stage === "review" && approvalBlock(v.plan) ? (
+                    <Chip kind="bad">승인 불가 (리허설 미통과)</Chip>
                   ) : v.stage === "review" ? (
                     <Chip kind="warn">승인 대기</Chip>
                   ) : v.stage === "ai" ? (
@@ -403,12 +405,43 @@ function PlanFacts({ v }: { v: MigrationView }) {
   );
 }
 
+// An AI plan that has not passed its rehearsal: the platform refuses to approve it (platform #24), so
+// the card offers no approve button, only the reason and a reject.
+function BlockedApproveBox({ v, reason }: { v: MigrationView; reason: string }) {
+  if (!v.plan) return null;
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>승인</b>
+        <Chip kind="bad" dot>
+          승인 불가
+        </Chip>
+      </div>
+      <div className="bb">
+        <b>
+          Plan {v.plan.ref} (revision {v.plan.revision})은 AI가 제출했지만 리허설을 통과하지 않아 승인할 수 없습니다.
+        </b>
+        <p className="hint">플랫폼이 이유를 이렇게 남겼습니다: {reason}</p>
+        <p className="hint">AI 실행기(hopai run)로 다시 계획하고 리허설하면, 통과한 새 Plan이 승인 대기로 올라옵니다. 이 Plan은 반려하세요.</p>
+        <div className="mg-decide">
+          <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reject}>
+            <Icon name="x" size={16} />
+            반려
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PLAN_STATUS = { pending_approval: "승인 대기", approved: "승인됨", rejected: "반려됨", starting: "시작 중", started: "실행됨" } as const;
 
 // The decision column: what the start will do, the options, and approve or reject.
 function ApproveBox({ v }: { v: MigrationView }) {
   if (v.stage !== "review" || !v.plan) return null;
   if (v.plan.status === "approved") return <StartAgainBox v={v} />;
+  const blocked = approvalBlock(v.plan);
+  if (blocked) return <BlockedApproveBox v={v} reason={blocked} />;
   const s = v.plan.summary;
   return (
     <div className="box">

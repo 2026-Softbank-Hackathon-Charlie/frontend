@@ -178,3 +178,20 @@ describe("currentOf", () => {
     expect(currentOf(ph("done", "skip"))).toBe(-1);
   });
 });
+
+describe("migration map: an AI plan that has not passed its rehearsal (platform #24)", () => {
+  const blocked = plan({ submittedRole: "agent", rehearsal: { required: true, passed: false, reason: "the rehearsal did not pass: fix the plan and rehearse it again" } });
+
+  it("offers no approve button and says why", () => {
+    const s = snap(view({ stage: "review", plan: blocked }));
+    expect(s.actions.map((a) => a.key)).toEqual([]);
+    expect(s.banners[0].title).toContain("승인할 수 없음");
+    expect(s.banners[0].text).toContain("did not pass");
+    expect(s.kpi.pill).toEqual(["no", "승인 불가 · 리허설 미통과"]);
+  });
+
+  it("offers approve once the rehearsal passed for this plan", () => {
+    const ok = plan({ submittedRole: "agent", rehearsal: { required: true, passed: true } });
+    expect(snap(view({ stage: "review", plan: ok })).actions.map((a) => a.key)).toEqual(["approve"]);
+  });
+});
