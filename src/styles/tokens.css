@@ -15,6 +15,14 @@
   font-display: swap;
   src: url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2-variations"), url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2");
 }
+/* SUIT draws the arrows as thin chevrons, so "EKS → GKE" reads like "EKS > GKE". Only the arrow block comes from
+   the system UI font (the later face wins inside its unicode-range); every other character stays SUIT. */
+@font-face {
+  font-family: "SUIT Variable";
+  font-weight: 100 900;
+  src: local("Segoe UI"), local("Apple SD Gothic Neo"), local("Arial");
+  unicode-range: U+2190-21FF;
+}
 
 :root {
   --canvas: #ffffff;
@@ -48,6 +56,8 @@
   --card-line: #dcdcde;
   --line-soft: #ececee;
   --side-bg: #f7f7f8;
+  --side-hover: #ececee;
+  --side-current: #e4e4e7;
   --r-card: 8px;
   --r-chip: 4px;
 

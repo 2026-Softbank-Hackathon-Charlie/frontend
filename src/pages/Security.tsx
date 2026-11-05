@@ -10,7 +10,7 @@ import { SIM_SECURITY } from "../sim/security";
 const SEV: Record<SecuritySeverity, [string, ChipKind]> = {
   critical: ["치명", "bad"],
   high: ["높음", "bad"],
-  medium: ["중간", "run"],
+  medium: ["중간", "warn"],
   low: ["낮음", ""],
   info: ["정보", ""],
 };

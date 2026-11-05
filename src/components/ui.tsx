@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
 
@@ -109,12 +109,25 @@ export interface TabItem {
   label: ReactNode;
 }
 
+type TabsProps = { label: string; items: TabItem[]; current: string } & (
+  | { hrefOf: (id: string) => string; onSelect?: never; idBase?: never }
+  | { onSelect: (id: string) => void; idBase: string; hrefOf?: never }
+);
+
+/** ids that tie an in-page tab to its panel: give the panel `id={tabPanelId(idBase, id)}` and `aria-labelledby={tabId(idBase, id)}`. */
+export const tabId = (base: string, id: string) => base + "-tab-" + id;
+export const tabPanelId = (base: string, id: string) => base + "-panel-" + id;
+
 /**
- * A row of tabs. With `hrefOf` each tab is a link (route tabs, so back works and tests can open a tab by hash);
- * otherwise each is a role="tab" button that calls `onSelect`. The caller renders the panel.
+ * A row of tabs.
+ * - `hrefOf`: each tab is a link (route tabs, so back works and a tab opens by hash).
+ * - `onSelect` + `idBase`: an in-page tablist following the ARIA tabs pattern (one tab in the Tab order,
+ *   arrow keys, Home and End move and select); the caller renders the panel with `tabPanelId`.
  */
-export function Tabs({ label, items, current, onSelect, hrefOf }: { label: string; items: TabItem[]; current: string; onSelect?: (id: string) => void; hrefOf?: (id: string) => string }) {
-  if (hrefOf) {
+export function Tabs(p: TabsProps) {
+  const { label, items, current } = p;
+  if (p.hrefOf) {
+    const hrefOf = p.hrefOf;
     return (
       <nav className="tabs" aria-label={label}>
         {items.map((t) => (
@@ -125,10 +138,30 @@ export function Tabs({ label, items, current, onSelect, hrefOf }: { label: strin
       </nav>
     );
   }
+  const { onSelect, idBase } = p;
+  const move = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = items.findIndex((t) => t.id === current);
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const t = items[(next + items.length) % items.length];
+    onSelect(t.id);
+    document.getElementById(tabId(idBase, t.id))?.focus();
+  };
   return (
-    <div className="tabs" role="tablist" aria-label={label}>
+    <div className="tabs" role="tablist" aria-label={label} onKeyDown={move}>
       {items.map((t) => (
-        <button key={t.id} type="button" role="tab" className="tab" aria-selected={t.id === current} onClick={() => onSelect?.(t.id)}>
+        <button
+          key={t.id}
+          id={tabId(idBase, t.id)}
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={t.id === current}
+          aria-controls={tabPanelId(idBase, t.id)}
+          tabIndex={t.id === current ? 0 : -1}
+          onClick={() => onSelect(t.id)}
+        >
           {t.label}
         </button>
       ))}

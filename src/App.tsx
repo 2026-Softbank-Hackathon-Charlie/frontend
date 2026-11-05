@@ -63,18 +63,24 @@ function SimSideNav({ r }: { r: string }) {
       r={r}
       apps={busyApps ? { kind: "run", text: "진행 중" } : null}
       migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
-      high={SIM_SECURITY.summary.bySeverity.high + SIM_SECURITY.summary.bySeverity.critical}
+      security={highBadge(SIM_SECURITY.summary.bySeverity.high + SIM_SECURITY.summary.bySeverity.critical)}
     />
   );
 }
 
-// Live mode shows no badges: they would cost an extra API call on every page.
+/** "높음 N" for findings rated high or critical; none when there are none. */
+function highBadge(n: number): NavItem[2] {
+  return n > 0 ? { kind: "bad", text: "높음 " + n } : null;
+}
+
+// Live mode keeps the API traffic it had before the redesign, so the side menu shows no badges there
+// (a security badge would add GET /v1/security to every console load).
 function LiveSideNav({ r }: { r: string }) {
-  return <SideNav r={r} apps={null} migrate={null} high={null} device />;
+  return <SideNav r={r} apps={null} migrate={null} security={null} device />;
 }
 
 /** Grouped side menu: overview, then work, results and infrastructure. Badges carry live state. */
-function SideNav({ r, apps, migrate, high, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; high: number | null; device?: boolean }) {
+function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; security: NavItem[2]; device?: boolean }) {
   const c = navCurrent(r);
   const groups: [string | null, NavItem[]][] = [
     [null, [["overview", NAV_LABEL.overview, null]]],
@@ -96,13 +102,13 @@ function SideNav({ r, apps, migrate, high, device }: { r: string; apps: NavItem[
       "인프라",
       [
         ["envs", NAV_LABEL.envs, null],
-        ["security", NAV_LABEL.security, high ? { kind: "bad", text: "높음 " + high } : null],
+        ["security", NAV_LABEL.security, security],
       ],
     ],
   ];
   if (device) groups.push(["설정", [["device", NAV_LABEL.device, null]]]);
   return (
-    <aside className="side">
+    <div className="side">
       <a className="brand" href="#overview">
         <img src="/brand/lockup-header.png" alt="HopCharlie" width={150} height={32} />
       </a>
@@ -128,7 +134,7 @@ function SideNav({ r, apps, migrate, high, device }: { r: string; apps: NavItem[
           </div>
         ))}
       </nav>
-    </aside>
+    </div>
   );
 }
 

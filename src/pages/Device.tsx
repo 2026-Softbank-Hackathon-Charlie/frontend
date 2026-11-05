@@ -35,7 +35,7 @@ const ROLE_NAME: Record<Role, string> = { operator: "관리자", agent: "조회�
 const roleText = (r: Role) => ROLE_NAME[r] + " (" + r + ")";
 
 const STATUS: Record<DeviceLoginStatus, [ChipKind, string]> = {
-  pending: ["run", "승인 대기"],
+  pending: ["warn", "승인 대기"],
   approved: ["ok", "승인됨"],
   denied: ["bad", "거절됨"],
 };

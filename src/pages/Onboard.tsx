@@ -288,7 +288,7 @@ function Step4() {
         <div className="box">
           <div className="bh">
             <b>PR #14 shop을 플랫폼 배포 형태로 변경</b>
-            {o.done[4] ? <Chip kind="ok">머지됨</Chip> : <Chip kind="run">{o.approved ? "머지 중" : "승인 대기"}</Chip>}
+            {o.done[4] ? <Chip kind="ok">머지됨</Chip> : <Chip kind={o.approved ? "run" : "warn"}>{o.approved ? "머지 중" : "승인 대기"}</Chip>}
           </div>
           <div className="bb">
             <dl className="kv">
