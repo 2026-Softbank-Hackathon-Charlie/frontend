@@ -497,6 +497,67 @@ describe("app secrets (platform API)", () => {
     expect(posts(calls)).toEqual([{ branch: "main", redeploy: true }]);
   });
 
+  it("puts focus back on the add button when its form closes, and on the card's first button when the staged changes go", async () => {
+    const { user, appWide } = await openSecrets();
+    const add = screen.getByRole("button", { name: "시크릿 추가" });
+    await user.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(appWide).getByRole("button", { name: "닫기" }));
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    expect(add).toHaveFocus();
+    expect(within(appWide).queryByLabelText("이름")).not.toBeInTheDocument();
+
+    // no form is open, so no field to go to: the card's first button takes the focus
+    await user.click(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 삭제" }));
+    await user.click(within(statusWith(appWide, PENDING)!).getByRole("button", { name: "취소" }));
+    expect(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 값 보기" })).toHaveFocus();
+  });
+
+  it("opens one form at a time in a card, and the add button says whether its form is open", async () => {
+    const { user, appWide } = await openSecrets();
+    const add = screen.getByRole("button", { name: "시크릿 추가" });
+    await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 수정" }));
+    await user.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    expect(within(appWide).getByLabelText("이름")).toHaveFocus();
+    expect(within(appWide).queryByLabelText("HOST_CODE 새 값")).not.toBeInTheDocument();
+
+    await user.click(within(appWide).getByRole("button", { name: "HOST_CODE 수정" }));
+    expect(within(appWide).getByLabelText("HOST_CODE 새 값")).toBeInTheDocument();
+    expect(within(appWide).queryByLabelText("이름")).not.toBeInTheDocument();
+    expect(add).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps staged changes and the redeploy offer across a tab switch", async () => {
+    const { user, appWide } = await openSecrets();
+    await user.click(within(appWide).getByRole("button", { name: "ADMIN_TOKEN 삭제" }));
+    await openTab(user, "인스턴스");
+    expect(screen.queryByRole("region", { name: "앱 공통 시크릿" })).not.toBeInTheDocument();
+    await openTab(user, "시크릿");
+    let again = screen.getByRole("region", { name: "앱 공통 시크릿" });
+    expect(rowOf(again, "ADMIN_TOKEN")).toHaveTextContent("삭제 예정");
+    expect(statusWith(again, PENDING)).toHaveTextContent("저장하지 않은 변경 1개");
+
+    await user.click(within(again).getByRole("button", { name: "저장" }));
+    await findStatus(again, SAVED);
+    await openTab(user, "개요");
+    await openTab(user, "시크릿");
+    again = screen.getByRole("region", { name: "앱 공통 시크릿" });
+    expect(within(statusWith(again, SAVED)!).getByRole("button", { name: "모든 인스턴스 재배포" })).toBeEnabled();
+  });
+
+  it("reads the secret names once for the page: the overview's summary and the secrets tab share them", async () => {
+    const { user } = setup("#app-moimroom");
+    const calls = live();
+    expect(await screen.findByText("앱 공통 2개, 인스턴스 덮어쓰기 1개")).toBeInTheDocument();
+    expect(screen.getByText("ADMIN_TOKEN, HOST_CODE")).toBeInTheDocument();
+    await openTab(user, "시크릿");
+    await screen.findByRole("region", { name: "앱 공통 시크릿" });
+    await openTab(user, "개요");
+    expect(screen.getByText("앱 공통 2개, 인스턴스 덮어쓰기 1개")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "GET" && c.url === "/v1/apps/moimroom/secrets")).toHaveLength(1);
+  });
+
   it("says the server has no secrets key", async () => {
     setup("#app-moimroom/secrets");
     live((_c, u) => (u.pathname === "/v1/apps/moimroom/secrets" ? json(503, { error: { code: "secrets_not_configured", message: "PLATFORM_SECRETS_KEY is not set" } }) : undefined));

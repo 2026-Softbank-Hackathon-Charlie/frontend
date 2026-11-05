@@ -15,6 +15,7 @@
 .ad-more { position: relative; }
 .ad-more > .btn { padding-inline: 10px; }
 .ad-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 140px; display: grid; padding: 4px; background: var(--canvas); border: 1px solid var(--card-line); border-radius: var(--r-card); }
+.ad-menu[hidden] { display: none; }
 .ad-menu button { text-align: left; background: none; border: 0; border-radius: var(--r-control); padding: 8px 12px; font-size: 14px; color: var(--bad); cursor: pointer; white-space: nowrap; }
 .ad-menu button:hover:not(:disabled) { background: var(--fill); }
 .ad-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -52,7 +53,7 @@
 .ad-formh b { font-size: 14px; color: var(--heading); }
 /* row actions in the tables are small, so a row's buttons fit on one line */
 .ad-page .tbl .btn { padding: 4px 10px; font-size: 13px; }
-.ad-page .tbl .actrow { gap: 6px; }
+.ad-page .tbl .actrow { gap: 6px; flex-wrap: nowrap; }
 /* short notes in a cell ("앱 공통 값", "1시간 전") stay on one line; on a phone the table scrolls instead */
 .ad-page .tbl td .hint { white-space: nowrap; }
 

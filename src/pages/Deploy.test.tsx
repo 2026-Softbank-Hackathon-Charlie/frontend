@@ -151,6 +151,42 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it("closes the 더 보기 menu on Escape, on a click outside and when focus leaves it", async () => {
+    const { user } = setup("#app-todo-api");
+    const more = screen.getByRole("button", { name: "더 보기" });
+    await user.click(more);
+    expect(document.getElementById(more.getAttribute("aria-controls")!)).toContainElement(screen.getByRole("button", { name: "앱 삭제" }));
+    await user.keyboard("{Escape}");
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "앱 삭제" })).not.toBeInTheDocument();
+
+    await user.click(more);
+    await user.click(screen.getByRole("heading", { level: 1, name: "todo-api" }));
+    expect(more).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(more);
+    await user.tab();
+    expect(screen.getByRole("button", { name: "앱 삭제" })).toHaveFocus();
+    await user.tab();
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("group", { name: "앱 삭제 확인" })).not.toBeInTheDocument();
+  });
+
+  it("opens the branch form on its button and puts focus back on the button on 취소", async () => {
+    const { user } = setup("#app-todo-api/instances");
+    const open = screen.getByRole("button", { name: "브랜치 추가" });
+    await user.click(open);
+    expect(screen.getByLabelText("추가할 브랜치")).toHaveFocus();
+    await user.type(screen.getByLabelText("추가할 브랜치"), "dev");
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("추가할 브랜치")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "브랜치 추가" })).toHaveFocus();
+    // opened again, it starts empty
+    await user.click(screen.getByRole("button", { name: "브랜치 추가" }));
+    expect(screen.getByLabelText("추가할 브랜치")).toHaveValue("");
+  });
+
   it("deploys again from the app page and supersedes nothing that already finished", async () => {
     const { sim, user } = setup("#app-todo-api");
     await user.click(screen.getByRole("button", { name: "기본 브랜치 다시 배포" }));
@@ -523,6 +559,28 @@ describe("GitHub deploy screens (platform API)", () => {
     await waitFor(() => expect(within(section).queryByText("moimroom--dev")).not.toBeInTheDocument());
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/v1/apps/moimroom/instances/moimroom--dev"]);
     expect(screen.getByRole("button", { name: "기본 브랜치 다시 배포" })).toBeEnabled();
+  });
+
+  it("keeps the instances tab's work across a tab switch: a delete that fails meanwhile still says why", async () => {
+    const { user } = setup("#app-moimroom/instances");
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    appRoutes((c, u) =>
+      u.pathname === "/v1/apps/moimroom/instances/moimroom--dev" && c.method === "DELETE"
+        ? gate.then(() => json(409, { error: { code: "deployment_in_progress", message: "moimroom--dev has a deployment in progress" } }))
+        : undefined,
+    );
+    const section = (await screen.findByRole("heading", { name: "브랜치별 인스턴스" })).closest("section") as HTMLElement;
+    await user.click(within(section).getByRole("button", { name: "moimroom--dev 삭제" }));
+    await user.type(screen.getByLabelText("확인하려면 인스턴스 이름 moimroom--dev을(를) 입력하세요"), "moimroom--dev");
+    await user.click(within(screen.getByRole("group", { name: "인스턴스 삭제 확인" })).getByRole("button", { name: "삭제" }));
+
+    await openTab(user, "개요");
+    release();
+    await waitFor(() => expect(screen.getByRole("button", { name: "기본 브랜치 다시 배포" })).toBeEnabled());
+    await openTab(user, "인스턴스");
+    const box = screen.getByRole("group", { name: "인스턴스 삭제 확인" });
+    expect(within(box).getByRole("alert")).toHaveTextContent(/^인스턴스를 지우지 못했습니다: /);
   });
 
   it("deploys the default instance from its row with no branch in the body", async () => {

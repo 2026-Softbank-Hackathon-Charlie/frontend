@@ -38,10 +38,18 @@ export function appRoute(r: string): { name: string; tab: AppTab } {
   return { name, tab: (tab ?? "overview") as AppTab };
 }
 
+/** The page a route shows: an app's tabs are one page. */
+const pageOf = (r: string) => (r.startsWith("app-") ? r.split("/")[0] : r);
+/** The route of a whole URL, as a hashchange event names the old and new one. */
+const routeOfUrl = (url: string) => parseRoute(url.includes("#") ? url.slice(url.indexOf("#")) : "");
+
 function subscribe(cb: () => void) {
-  const on = () => {
+  const on = (e: HashChangeEvent) => {
     cb();
-    window.scrollTo(0, 0);
+    // A new page starts at the top. Another tab of the same app keeps the scroll, so the tabs stay where they were tapped.
+    const from = routeOfUrl(e.oldURL ?? "");
+    const sameApp = !!e.oldURL && !!e.newURL && from.startsWith("app-") && pageOf(from) === pageOf(routeOfUrl(e.newURL));
+    if (!sameApp) window.scrollTo(0, 0);
   };
   window.addEventListener("hashchange", on);
   return () => window.removeEventListener("hashchange", on);

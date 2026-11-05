@@ -1,4 +1,5 @@
-import { appRoute, navCurrent, parseRoute } from "./router";
+import { act, renderHook } from "@testing-library/react";
+import { appRoute, navCurrent, parseRoute, useRoute } from "./router";
 
 describe("routes", () => {
   it("opens the migration page at #migrate-app and at the old #migrate-shop", () => {
@@ -18,6 +19,21 @@ describe("routes", () => {
     }
     expect(parseRoute("#app-todo-api/nope")).toBe("overview");
     expect(parseRoute("#app-todo-api/")).toBe("overview");
+  });
+
+  it("starts a new page at the top but keeps the scroll between one app's tabs", () => {
+    renderHook(() => useRoute());
+    const scroll = vi.spyOn(window, "scrollTo");
+    const go = (from: string, to: string) => act(() => void window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL: "http://x/" + from, newURL: "http://x/" + to })));
+    go("#app-todo-api", "#app-todo-api/secrets");
+    go("#app-todo-api/secrets", "#app-todo-api/instances");
+    go("#app-todo-api/instances", "#app-todo-api");
+    expect(scroll).not.toHaveBeenCalled();
+    go("#app-todo-api/secrets", "#app-notice-board/secrets");
+    go("#apps", "#app-todo-api");
+    go("#app-todo-api", "#deploy-dep_1");
+    expect(scroll).toHaveBeenCalledTimes(3);
+    scroll.mockRestore();
   });
 
   it("falls back to the overview for unknown routes", () => {

@@ -7,6 +7,7 @@ import { envName } from "../components/shared";
 import { Chip, PageHead, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
+import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
 import { navigate, type AppTab } from "../router";
 import { ENV, SAMPLE } from "../sim/data";
 import { branchSlug, instanceName, MAX_INSTANCES } from "../sim/deploy";
@@ -96,7 +97,10 @@ export function AppDetail({ id, tab = "overview" }: { id: string; tab?: AppTab }
   return useLive() ? <LiveAppDetail id={id} tab={tab} /> : <SimAppDetail id={id} tab={tab} />;
 }
 function LiveAppDetail({ id, tab }: { id: string; tab: AppTab }) {
-  return <AppDetailView m={useLiveApp(id)} name={id} tab={tab} />;
+  const m = useLiveApp(id);
+  // One read of the secret names for the whole page (overview summary and secrets tab), once the app is known to be registered: a file app has none.
+  const s = useLiveSecrets(m.app?.deploy ? id : "");
+  return <AppDetailView m={m} s={s} name={id} tab={tab} />;
 }
 function SimAppDetail({ id, tab }: { id: string; tab: AppTab }) {
   const { S } = useSim();
@@ -104,7 +108,7 @@ function SimAppDetail({ id, tab }: { id: string; tab: AppTab }) {
   return S.apps[id] ? <ServiceDetail id={id} /> : <SimRegisteredDetail id={id} tab={tab} />;
 }
 function SimRegisteredDetail({ id, tab }: { id: string; tab: AppTab }) {
-  return <AppDetailView m={useSimApp(id)} name={id} tab={tab} />;
+  return <AppDetailView m={useSimApp(id)} s={useSimSecrets(id)} name={id} tab={tab} />;
 }
 
 /** The app page's head: the name with where the app comes from, one line about it, and the actions. */
@@ -161,17 +165,24 @@ function EnvCell({ name, chip, children }: { name: string; chip: ReactNode; chil
   );
 }
 
-/** A "더 보기" button that opens a small menu of the rarer actions. A click outside or Escape closes it, and so does choosing one. */
+/**
+ * A "더 보기" disclosure: a button that shows a few rarer actions under it. A click outside, focus moving
+ * out of it, or choosing an action closes it; Escape closes it and puts focus back on the button.
+ */
 function MoreMenu({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const id = useId();
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
     const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      button.current?.focus();
     };
     document.addEventListener("pointerdown", outside);
     document.addEventListener("keydown", esc);
@@ -181,19 +192,23 @@ function MoreMenu({ children }: { children: ReactNode }) {
     };
   }, [open]);
   return (
-    <div className="ad-more" ref={ref}>
-      <button type="button" className="btn ghost" aria-label="더 보기" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+    <div
+      className="ad-more"
+      ref={ref}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <button ref={button} type="button" className="btn ghost" aria-label="더 보기" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="3.5" cy="8" r="1.3" fill="currentColor" />
           <circle cx="8" cy="8" r="1.3" fill="currentColor" />
           <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
         </svg>
       </button>
-      {open && (
-        <div className="ad-menu" onClick={() => setOpen(false)}>
-          {children}
-        </div>
-      )}
+      <div id={id} className="ad-menu" hidden={!open} onClick={() => setOpen(false)}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -219,14 +234,15 @@ type Busy = "" | "deploy" | "redeploy" | "delete" | "add" | "remove";
 
 const triggerText = (x: Deployment) => TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : "");
 
-function AppDetailView({ m, name, tab }: { m: AppModel; name: string; tab: AppTab }) {
+function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name: string; tab: AppTab }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<Busy>("");
   const [msg, setMsg] = useState("");
   const [invalid, setInvalid] = useState<AppSpecValidation>();
-  // Once opened, the secrets tab stays mounted (hidden on the other tabs): staged changes and the redeploy offer outlive a tab switch, as on the one long page before.
-  const [secretsOpened, setSecretsOpened] = useState(false);
-  if (tab === "secrets" && !secretsOpened) setSecretsOpened(true);
+  // Once opened, the instances and secrets tabs stay mounted (hidden on the other tabs): an open form, a staged change, the
+  // redeploy offer and an answer that arrives meanwhile all outlive a tab switch, as on the one long page before.
+  const [kept, setKept] = useState<AppTab[]>([]);
+  if ((tab === "instances" || tab === "secrets") && !kept.includes(tab)) setKept([...kept, tab]);
   const a = m.app;
   if (!a) {
     if (m.notFound) return <NotFound id={name} />;
@@ -403,7 +419,7 @@ function AppDetailView({ m, name, tab }: { m: AppModel; name: string; tab: AppTa
               }
             >
               <div className="bb">
-                <SecretsSummary m={m} app={a.name} />
+                <SecretsSummary s={s} />
               </div>
             </Card>
           </div>
@@ -411,8 +427,6 @@ function AppDetailView({ m, name, tab }: { m: AppModel; name: string; tab: AppTa
         {migration}
       </>
     );
-  } else if (d && tab === "instances") {
-    panel = <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} redeployNoBuild={redeployNoBuild} />;
   } else if (d && tab === "deploys") {
     panel = (
       <Card title="배포 이력" side={deps.length > 0 && <span className="hint">{deps.length}건</span>}>
@@ -508,9 +522,14 @@ function AppDetailView({ m, name, tab }: { m: AppModel; name: string; tab: AppTa
               ]}
             />
             {panel}
-            {secretsOpened && (
+            {kept.includes("instances") && (
+              <div hidden={tab !== "instances"}>
+                <Instances m={m} app={a.name} busy={busy} setBusy={setBusy} deploy={redeploy} redeployNoBuild={redeployNoBuild} />
+              </div>
+            )}
+            {kept.includes("secrets") && (
               <div hidden={tab !== "secrets"}>
-                <AppSecrets m={m} app={a.name} busy={!!busy} setRedeploying={(on) => setBusy(on ? "redeploy" : "")} />
+                <AppSecrets s={s} m={m} busy={!!busy} setRedeploying={(on) => setBusy(on ? "redeploy" : "")} />
               </div>
             )}
           </div>
@@ -578,6 +597,8 @@ function Instances({
   redeployNoBuild: (i: AppInstance) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  /** the form was closed with 취소: the 브랜치 추가 button that comes back takes the focus */
+  const [closed, setClosed] = useState(false);
   const [branch, setBranch] = useState("");
   const [autoDeploy, setAutoDeploy] = useState(true);
   /** what the last add got back instead of a deployment */
@@ -615,6 +636,7 @@ function Instances({
   }
   function close() {
     setAdding(false);
+    setClosed(true);
     setBranch("");
     setRefused(undefined);
   }
@@ -635,7 +657,7 @@ function Instances({
                 인스턴스 {m.instances.length}/{MAX_INSTANCES}개
               </span>
               {!adding && (
-                <button type="button" className="btn" disabled={!!busy} onClick={() => setAdding(true)}>
+                <button type="button" className="btn" disabled={!!busy} autoFocus={closed} onClick={() => setAdding(true)}>
                   브랜치 추가
                 </button>
               )}
@@ -808,7 +830,7 @@ function ServiceDetail({ id }: { id: string }) {
         </EnvCell>
         {a.prev && (
           <EnvCell name={ENV[a.prev].name} chip={<Chip dot>축소됨, 읽기 전용</Chip>}>
-              <span className="hint">트래픽 0%</span>
+            <span className="hint">트래픽 0%</span>
           </EnvCell>
         )}
       </EnvStrip>

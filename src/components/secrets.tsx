@@ -9,7 +9,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { AppInstance, AppSecretInfo, AppSecretsUpdate } from "../api/types";
 import { REDEPLOY_WAIT, redeployState, type AppModel, type SubmitResult } from "../data/deploy";
-import { useLiveSecrets, useSimSecrets, type RevealResult, type SecretsModel } from "../data/secrets";
+import type { RevealResult, SecretsModel } from "../data/secrets";
 import { navigate } from "../router";
 import { MAX_SECRETS, MAX_SECRET_VALUE, secretNameError, secretValueError } from "../sim/secrets";
 import { ago, short } from "./deploy";
@@ -19,34 +19,16 @@ import { Chip, Table, td, type Cell } from "./ui";
 const REVEAL_MS = 60_000;
 
 interface Props {
+  /** the app page's secrets, also what its overview summarizes (useLiveSecrets or useSimSecrets) */
+  s: SecretsModel;
   m: AppModel;
-  app: string;
   /** another action of the page is in flight */
   busy: boolean;
   setRedeploying(on: boolean): void;
 }
 
-export function AppSecrets(p: Props) {
-  return p.m.live ? <LiveSecrets {...p} /> : <SimSecrets {...p} />;
-}
-function LiveSecrets(p: Props) {
-  return <SecretsSection {...p} s={useLiveSecrets(p.app)} />;
-}
-function SimSecrets(p: Props) {
-  return <SecretsSection {...p} s={useSimSecrets(p.app)} />;
-}
-
 /** The app overview's secrets card: how many there are, and the app-wide names. Names only, never a value. */
-export function SecretsSummary({ m, app }: { m: AppModel; app: string }) {
-  return m.live ? <LiveSummary app={app} /> : <SimSummary app={app} />;
-}
-function LiveSummary({ app }: { app: string }) {
-  return <Summary s={useLiveSecrets(app)} />;
-}
-function SimSummary({ app }: { app: string }) {
-  return <Summary s={useSimSecrets(app)} />;
-}
-function Summary({ s }: { s: SecretsModel }) {
+export function SecretsSummary({ s }: { s: SecretsModel }) {
   if (s.notConfigured) return <p className="hint">서버에 시크릿 키가 설정되어 있지 않습니다.</p>;
   if (!s.data) return <p className="hint">{s.error ? "시크릿을 불러오지 못했습니다: " + s.error : "불러오는 중"}</p>;
   const overrides = s.data.instances.reduce((n, x) => n + x.secrets.length, 0);
@@ -70,14 +52,20 @@ interface Row {
 /** Which add form is open: the app-wide one, the picked instance's, or none. */
 type Adding = "" | "app" | "instance";
 
-function SecretsSection({ s, m, busy, setRedeploying }: Props & { s: SecretsModel }) {
+export function AppSecrets({ s, m, busy, setRedeploying }: Props) {
   const [picked, setPicked] = useState("");
   const [dirty, setDirty] = useState(false);
   const [adding, setAdding] = useState<Adding>("");
+  const openers = { app: useRef<HTMLButtonElement>(null), instance: useRef<HTMLButtonElement>(null) };
   const pickId = useId();
   const selected = m.instances.find((i) => i.name === picked) ?? m.instances[0];
-  const shared = { s, m, busy, setRedeploying, onAddClose: () => setAdding("") };
-  const toggle = (a: Adding) => setAdding((x) => (x === a ? "" : a));
+  /** Closes the open add form; `refocus` puts focus back on the button that opened it (the form's own close button goes away). */
+  function closeAdd(refocus: boolean) {
+    if (refocus && adding) openers[adding].current?.focus();
+    setAdding("");
+  }
+  const shared = { s, m, busy, setRedeploying, onAddClose: closeAdd };
+  const toggle = (a: Exclude<Adding, "">) => setAdding((x) => (x === a ? "" : a));
   const retry = (
     <div className="actrow">
       <button type="button" className="btn ghost" onClick={s.reload}>
@@ -129,11 +117,11 @@ function SecretsSection({ s, m, busy, setRedeploying }: Props & { s: SecretsMode
           {s.canEdit && (
             <div className="actrow">
               {selected && (
-                <button type="button" className="btn ghost" aria-expanded={adding === "instance"} onClick={() => toggle("instance")}>
+                <button ref={openers.instance} type="button" className="btn ghost" aria-expanded={adding === "instance"} onClick={() => toggle("instance")}>
                   덮어쓰기 추가
                 </button>
               )}
-              <button type="button" className="btn primary" aria-expanded={adding === "app"} onClick={() => toggle("app")}>
+              <button ref={openers.app} type="button" className="btn primary" aria-expanded={adding === "app"} onClick={() => toggle("app")}>
                 시크릿 추가
               </button>
             </div>
@@ -286,15 +274,25 @@ interface ScopeProps {
   targets: AppInstance[];
   /** the add form is open */
   adding: boolean;
-  onAddClose(): void;
+  /** Closes the add form; `refocus` returns focus to the button that opened it. */
+  onAddClose(refocus: boolean): void;
   onDirty?(dirty: boolean): void;
 }
 
 function SecretScope(p: ScopeProps) {
   const { s, m, instance, onDirty } = p;
   const [changes, setChanges] = useState<ReadonlyMap<string, Change>>(() => new Map());
-  /** the name being edited; "" shows the add form */
-  const [editing, setEditing] = useState("");
+  /** the name being edited; one form at a time, so it and the add form close each other */
+  const [editing, setEditingName] = useState("");
+  const [wasAdding, setWasAdding] = useState(p.adding);
+  if (p.adding !== wasAdding) {
+    setWasAdding(p.adding);
+    if (p.adding) setEditingName("");
+  }
+  function setEditing(name: string) {
+    if (name && p.adding) p.onAddClose(false);
+    setEditingName(name);
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -538,7 +536,7 @@ function SecretScope(p: ScopeProps) {
               check={taken}
               disabled={saving}
               onStage={(name, value) => stage(name, { value })}
-              onClose={p.onAddClose}
+              onClose={() => p.onAddClose(true)}
             />
           )
         ))}
