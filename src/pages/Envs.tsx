@@ -1,5 +1,6 @@
 import { useEnvironments, useTraffic } from "../api/hooks";
-import { Chip, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
+import type { DatabaseCluster } from "../api/types";
+import { Chip, type ChipKind, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
@@ -24,15 +25,21 @@ function LiveEnvs() {
         ) : (
           <div className="box">
             <Table
-              head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "게이트웨이 백엔드", "상태"]}
+              head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태"]}
               rows={envs.data.map((e) => [
                 td(<b>{e.displayName}</b>),
                 td(e.region ?? "-"),
                 td(e.status.kubernetesVersion ?? "-", "m"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
                 td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
+                td(<DbBackups dbs={e.status.databases} />),
                 td(e.gatewayBackend, "m"),
-                td(<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>),
+                td(
+                  <>
+                    <Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>
+                    {e.status.reachable && e.status.error && <div className="hint">일부를 읽지 못함: {e.status.error}</div>}
+                  </>,
+                ),
               ])}
             />
           </div>
@@ -73,6 +80,51 @@ function LiveEnvs() {
         )}
       </section>
     </div>
+  );
+}
+
+const when = (s: string) =>
+  new Date(s).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** A base backup older than this is late: the schedule is daily. */
+const STALE_MS = 26 * 3_600_000;
+
+/** What the console says about one database's backups (platform ADR 0025). */
+export function backupStatus(d: DatabaseCluster, now = Date.now()): { chip: ChipKind; label: string; detail: string } {
+  const b = d.backup;
+  if (!b) return { chip: "neu", label: "백업 없음", detail: "" };
+  const last = b.lastSuccessfulBackup ? Date.parse(b.lastSuccessfulBackup) : NaN;
+  const failed = b.lastFailedBackup ? Date.parse(b.lastFailedBackup) : NaN;
+  const detail = ["마지막 백업 " + (b.lastSuccessfulBackup ? when(b.lastSuccessfulBackup) : "없음"), b.firstRecoverabilityPoint ? when(b.firstRecoverabilityPoint) + "부터 복구 가능" : ""]
+    .filter(Boolean)
+    .join(", ");
+  const [chip, label]: [ChipKind, string] = !b.walArchiving
+    ? ["bad", "WAL 보관 실패"]
+    : !Number.isNaN(failed) && (Number.isNaN(last) || failed > last)
+      ? ["warn", "마지막 백업 실패"]
+      : Number.isNaN(last)
+        ? ["warn", "백업 기록 없음"]
+        : now - last > STALE_MS
+          ? ["warn", "백업 오래됨"]
+          : ["ok", "백업 정상"];
+  return { chip, label, detail };
+}
+
+/** Every database: whether it is backed up, the last backup and how far back a restore reaches. */
+function DbBackups({ dbs }: { dbs?: DatabaseCluster[] }) {
+  if (!dbs?.length) return <>-</>;
+  return (
+    <>
+      {dbs.map((d) => {
+        const st = backupStatus(d);
+        return (
+          <div key={d.namespace + "/" + d.name}>
+            <span className="m">{d.namespace + "/" + d.name}</span> <Chip kind={st.chip}>{st.label}</Chip>
+            {st.detail && <div className="hint">{st.detail}</div>}
+          </div>
+        );
+      })}
+    </>
   );
 }
 

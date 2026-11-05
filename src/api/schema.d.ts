@@ -528,6 +528,29 @@ export interface paths {
      */
     post: operations["draftPlan"];
   };
+  "/v1/ai-runs": {
+    /**
+     * @description The AI runner's runs (ai-sandbox hopai as a Kubernetes Job next to the
+     * platform), newest first. A run plans the move, submits the plan,
+     * rehearses it in a sandbox and uploads the report; its steps show as
+     * agent sessions (`GET /v1/agent/sessions`) and its plan in `GET /v1/plans`.
+     * Finished runs disappear once the cluster cleans up their Job.
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["listAIRuns"];
+    /**
+     * @description Start the AI runner for one app and route, so nobody runs hopai by
+     * hand. The app and both environments must be in the server's
+     * configuration (`GET /v1/apps`). One run per app at a time: a second
+     * one while the first is running answers 409 `ai_run_active`. Without a
+     * configured Job template (PLATFORM_AIRUN_JOB_TEMPLATE) the server
+     * answers 503 `ai_runner_not_configured`.
+     *
+     * Roles: operator.
+     */
+    post: operations["startAIRun"];
+  };
   "/v1/residency/buckets/inspect": {
     /**
      * @description Measure a bucket the residency policy registers, the way the gate
@@ -1067,6 +1090,40 @@ export interface components {
       attachments?: components["schemas"]["PlanAttachment"][];
       rehearsal?: components["schemas"]["PlanRehearsalGate"];
     };
+    AIRunRequest: {
+      /** @example moimroom */
+      app: string;
+      /**
+       * @description environment the app moves from
+       * @example gke
+       */
+      source: string;
+      /**
+       * @description environment the app moves to
+       * @example eks
+       */
+      target: string;
+    };
+    AIRun: {
+      /**
+       * @description the Job's name
+       * @example hopai-moimroom-x7k2p
+       */
+      name: string;
+      app: string;
+      source: string;
+      target: string;
+      /** @enum {string} */
+      status: "running" | "succeeded" | "failed";
+      requestedBy: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      finishedAt?: string;
+    };
+    AIRunList: {
+      runs: components["schemas"]["AIRun"][];
+    };
     /** @description Set on plans waiting for approval. When required, approving needs the rehearsal-report.json attachment to have passed (schemaVersion hopcharlie.rehearsal/v1) for exactly the plan body and target.yaml attached now, uploaded by the principal that submitted the plan; otherwise approve answers 409 rehearsal_required. The report is the trusted runner's word: the gate binds it to the content, it does not prove the rehearsal ran. */
     PlanRehearsalGate: {
       /** @description the plan was submitted by an agent (AI) */
@@ -1447,6 +1504,23 @@ export interface components {
       currentPrimary?: string;
       /** @description spec.replica.enabled, or the topology names another cluster as primary */
       replica: boolean;
+      backup?: components["schemas"]["DatabaseBackup"];
+    };
+    /** @description Backups of a CNPG Cluster whose WAL archiver is an enabled Barman Cloud plugin (ADR 0025); absent on a Cluster without one. The times come from the plugin's ObjectStore; when the platform cannot read it they are absent and EnvironmentStatus.error says why. */
+    DatabaseBackup: {
+      /** @description the plugin's ObjectStore in the Cluster's namespace */
+      objectStore: string;
+      /** @description false when the Cluster's ContinuousArchiving condition is False: WAL is not reaching the object store. A Cluster that has not reported the condition yet counts as archiving */
+      walArchiving: boolean;
+      /** Format: date-time */
+      lastSuccessfulBackup?: string;
+      /** Format: date-time */
+      lastFailedBackup?: string;
+      /**
+       * Format: date-time
+       * @description the earliest time a restore can reach
+       */
+      firstRecoverabilityPoint?: string;
     };
     EnvironmentList: {
       environments: components["schemas"]["Environment"][];
@@ -2744,7 +2818,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, version_mismatch, device_login_state_conflict, nothing_to_redeploy, storage_cleanup_pending, deployment_in_progress */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, version_mismatch, device_login_state_conflict, nothing_to_redeploy, storage_cleanup_pending, deployment_in_progress, ai_run_active */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -2774,7 +2848,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description gateway_not_configured, github_not_configured, login_not_configured, secrets_not_configured, storage_not_configured, audit_unavailable */
+    /** @description gateway_not_configured, github_not_configured, login_not_configured, secrets_not_configured, storage_not_configured, audit_unavailable, ai_runner_not_configured */
     Unavailable: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -3999,6 +4073,67 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description The AI runner's runs (ai-sandbox hopai as a Kubernetes Job next to the
+   * platform), newest first. A run plans the move, submits the plan,
+   * rehearses it in a sandbox and uploads the report; its steps show as
+   * agent sessions (`GET /v1/agent/sessions`) and its plan in `GET /v1/plans`.
+   * Finished runs disappear once the cluster cleans up their Job.
+   *
+   * Roles: viewer, agent, operator.
+   */
+  listAIRuns: {
+    parameters: {
+      query?: {
+        /** @description only this app's runs */
+        app?: string;
+      };
+    };
+    responses: {
+      /** @description The runs. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AIRunList"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Start the AI runner for one app and route, so nobody runs hopai by
+   * hand. The app and both environments must be in the server's
+   * configuration (`GET /v1/apps`). One run per app at a time: a second
+   * one while the first is running answers 409 `ai_run_active`. Without a
+   * configured Job template (PLATFORM_AIRUN_JOB_TEMPLATE) the server
+   * answers 503 `ai_runner_not_configured`.
+   *
+   * Roles: operator.
+   */
+  startAIRun: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AIRunRequest"];
+      };
+    };
+    responses: {
+      /** @description The run started. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["AIRun"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };
   };
