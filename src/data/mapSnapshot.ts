@@ -546,7 +546,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
         ? ["info", "AI 작업 중"]
         : v.plan?.status === "approved"
           ? [v.preflight?.blocked ? "no" : "wa", v.preflight?.blocked ? "시작 막힘" : "승인됨 · 시작 전"]
-          : ["wa", "승인 대기"];
+          : approvalBlock(v.plan)
+            ? ["no", "승인 불가 · 리허설 미통과"]
+            : ["wa", "승인 대기"];
   const phaseTitle = r?.status === "succeeded" ? "완료" : r?.status === "rolled_back" ? "롤백" : r?.status === "halted" ? "멈춤" : v.stage === "setup" ? "이전 설정" : (curPhase?.label ?? (r ? statusText(r.status, r.phase) : "-"));
   const slo = f?.slo;
   const errEdge = !!slo && slo.errorRate > PLATFORM_GATE.maxErrorRate && sh > 0;

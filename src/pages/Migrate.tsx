@@ -74,6 +74,8 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <RunStatusChip r={v.run} />
                   ) : v.stage === "review" && v.plan?.status === "approved" ? (
                     <Chip kind={v.preflight?.blocked ? "bad" : "warn"}>{v.preflight?.blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}</Chip>
+                  ) : v.stage === "review" && approvalBlock(v.plan) ? (
+                    <Chip kind="bad">승인 불가 (리허설 미통과)</Chip>
                   ) : v.stage === "review" ? (
                     <Chip kind="warn">승인 대기</Chip>
                   ) : v.stage === "ai" ? (

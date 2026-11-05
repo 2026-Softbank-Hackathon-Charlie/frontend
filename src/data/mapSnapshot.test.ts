@@ -187,6 +187,7 @@ describe("migration map: an AI plan that has not passed its rehearsal (platform 
     expect(s.actions.map((a) => a.key)).toEqual([]);
     expect(s.banners[0].title).toContain("승인할 수 없음");
     expect(s.banners[0].text).toContain("did not pass");
+    expect(s.kpi.pill).toEqual(["no", "승인 불가 · 리허설 미통과"]);
   });
 
   it("offers approve once the rehearsal passed for this plan", () => {
