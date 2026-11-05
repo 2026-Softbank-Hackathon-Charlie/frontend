@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppSpecValidation } from "../api/types";
 import { SpecResult } from "../components/deploy";
+import { Icon } from "../components/Icon";
 import { PageHead } from "../components/ui";
 import { useLiveNewApp, useSimNewApp, type NewAppModel } from "../data/deploy";
 import { useLive } from "../data/live";
@@ -63,7 +64,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
 
   return (
     <div className="page">
-      <PageHead title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." />
+      <PageHead icon="upload" title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." />
       <div className="box">
         <div className="bb">
           <div className="form">
@@ -128,6 +129,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
       )}
       <div className="actrow">
         <button type="button" className="btn primary" disabled={!can} onClick={submit}>
+          <Icon name="upload" size={16} />
           {busy ? "등록하는 중" : "배포 시작"}
         </button>
         <span className="hint">{why || "예상 2~4분, 목표 5분 이내"}</span>

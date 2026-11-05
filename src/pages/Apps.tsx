@@ -4,6 +4,7 @@ import type { AppInstance, AppSpecValidation, Deployment } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
 import { AppSecrets, SecretsSummary } from "../components/secrets";
 import { envName } from "../components/shared";
+import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
@@ -34,14 +35,17 @@ export function Apps({ filter = "all" }: { filter?: AppFilter }) {
   return (
     <div className="page">
       <PageHead
+        icon="boxes"
         title="앱"
         sub="플랫폼이 Argo CD로 관리하는 앱입니다. GitHub 레포로 새 앱을 등록하거나 플랫폼 밖에서 돌던 앱을 가져올 수 있고, 게이트웨이 뒤에서 한 곳에서만 도는 앱은 다른 클러스터로 이전할 수 있습니다."
         acts={
           <>
             <a className="btn ghost" href="#onboard">
+              <Icon name="download" size={16} />
               기존 앱 가져오기
             </a>
             <a className="btn ghost" href="#new">
+              <Icon name="upload" size={16} />
               새 앱 배포
             </a>
           </>
@@ -117,7 +121,7 @@ function AppHead({ name, source, line, acts }: { name: string; source?: string; 
     <div className="appd-head">
       <div className="appd-title">
         <div className="appd-name">
-          <h1>{name}</h1>
+          <h1 className="icon-label"><Icon name="boxes" size={24} /><span>{name}</span></h1>
           {source && <Chip>{source}</Chip>}
         </div>
         {line && <p>{line}</p>}
@@ -300,11 +304,13 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
     <>
       {d && (
         <button type="button" className="btn primary" disabled={!!busy} onClick={() => redeploy()}>
+          <Icon name="refresh-cw" size={16} />
           기본 브랜치 다시 배포
         </button>
       )}
       {a.environments.length > 0 && (
         <a className="btn ghost" href="#migrate-app">
+          <Icon name="arrow-right-left" size={16} />
           이전
         </a>
       )}
@@ -410,7 +416,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
               </div>
             </Card>
             <Card
-              title="시크릿"
+              title={<span className="icon-label"><Icon name="key-round" /><span>시크릿</span></span>}
               side={
                 <a className="btn ghost sm" href={tabHref("secrets")}>
                   관리
@@ -659,6 +665,7 @@ function Instances({
               </span>
               {!adding && (
                 <button type="button" className="btn" disabled={!!busy} autoFocus={closed} onClick={() => setAdding(true)}>
+                  <Icon name="plus" size={16} />
                   브랜치 추가
                 </button>
               )}
@@ -820,6 +827,7 @@ function ServiceDetail({ id }: { id: string }) {
         }
         acts={
           <a className="btn primary" href="#migrate-app">
+            <Icon name="arrow-right-left" size={16} />
             이전
           </a>
         }

@@ -96,6 +96,7 @@ export function DevicePage() {
   return (
     <div className="page">
       <PageHead
+        icon="terminal"
         title="CLI 연결"
         sub={
           <>

@@ -5,6 +5,7 @@ import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, Run, RunResult, SecurityReport } from "../api/types";
 import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
 import { EnvGrid, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
+import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, type ChipKind } from "../components/ui";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
@@ -24,14 +25,17 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
   return (
     <div className="page ov">
       <PageHead
+        icon="layout-dashboard"
         title="개요"
         sub="team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다."
         acts={
           <>
             <a className="btn ghost" href="#new">
+              <Icon name="upload" size={16} />
               새 앱 배포
             </a>
             <a className="btn primary" href="#migrate-app">
+              <Icon name="arrow-right-left" size={16} />
               이전하기
             </a>
           </>
@@ -40,7 +44,7 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
       {now}
       <section className="sec">
         <div className="sech">
-          <h2>클러스터</h2>
+          <h2 className="icon-label"><Icon name="server" /><span>클러스터</span></h2>
           <a className="more" href="#envs">
             환경 관리
           </a>
@@ -50,7 +54,7 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
       <div className="ov-two">
         <section className="box ov-routes">
           <div className="bh">
-            <h2>경로별 결과</h2>
+            <h2 className="icon-label"><Icon name="route" /><span>경로별 결과</span></h2>
             <span className="hint">목표: {TARGET_SEC / 60}분 이내, 실패 0, 누락 0</span>
           </div>
           <div className="bb">
@@ -59,14 +63,14 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
         </section>
         <section className="box">
           <div className="bh">
-            <h2>최근 활동</h2>
+            <h2 className="icon-label"><Icon name="activity" /><span>최근 활동</span></h2>
           </div>
           {activity}
         </section>
       </div>
       <section className="sec">
         <div className="sech">
-          <h2>앱</h2>
+          <h2 className="icon-label"><Icon name="boxes" /><span>앱</span></h2>
           <a className="more" href="#apps">
             전체 보기
           </a>
@@ -128,7 +132,7 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
   return (
     <section className="box">
       <div className="bh">
-        <h2>지금 볼 것</h2>
+        <h2 className="icon-label"><Icon name="clipboard-check" /><span>지금 볼 것</span></h2>
         {open > 0 && <span className="hint">{open}건</span>}
       </div>
       {sorted.length > 0 ? (

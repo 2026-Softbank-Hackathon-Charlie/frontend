@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
+import { Icon, type IconName } from "./Icon";
 
 /** "" and "neu" are the same neutral grey; "warn" waits on a person (approval, switch). */
 export type ChipKind = "" | "neu" | "ok" | "bad" | "run" | "warn";
@@ -56,6 +57,7 @@ export function LoadError({ title, error, retry }: { title: string; error: React
             retry();
           }}
         >
+          <Icon name="refresh-cw" size={16} />
           {asked ? "다시 불러오는 중" : "다시 불러오기"}
         </button>
       )}
@@ -147,12 +149,15 @@ export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
   );
 }
 
-export function PageHead({ title, sub, acts, crumb }: { title: ReactNode; sub?: ReactNode; acts?: ReactNode; crumb?: ReactNode }) {
+export function PageHead({ title, sub, acts, crumb, icon }: { title: ReactNode; sub?: ReactNode; acts?: ReactNode; crumb?: ReactNode; icon?: IconName }) {
   return (
     <div className="ph">
       <div>
         {crumb && <div className="crumb">{crumb}</div>}
-        <h1>{title}</h1>
+        <h1 className={icon ? "icon-label" : undefined}>
+          {icon && <Icon name={icon} size={24} />}
+          <span>{title}</span>
+        </h1>
         {sub && <p>{sub}</p>}
       </div>
       {acts && <div className="acts">{acts}</div>}

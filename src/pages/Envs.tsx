@@ -14,7 +14,7 @@ function LiveEnvs() {
   const t = traffic.data;
   return (
     <div className="page">
-      <PageHead title="환경" sub="플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다." />
+      <PageHead icon="server" title="환경" sub="플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다." />
       <section className="sec">
         <h2>대상 클러스터</h2>
         {envs.error && !envs.data ? (
@@ -80,6 +80,7 @@ function SimEnvs() {
   return (
     <div className="page">
       <PageHead
+        icon="server"
         title="환경"
         sub="환경마다 독립된 Kubernetes 클러스터를 둡니다. 환경 차이는 Helm values(환경 프로필)로만 흡수하고, 같은 chart로 모든 클러스터에 배포합니다."
         acts={

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Icon, type IconName } from "./components/Icon";
 import { Chip, type ChipKind } from "./components/ui";
 import { apiTarget, chooseMode, logOut, useAuth, useLive } from "./data/live";
 import { Agents } from "./pages/Agents";
@@ -55,6 +56,17 @@ const NAV_LABEL: Record<string, string> = {
   envs: "환경",
   device: "CLI 연결",
   "design-system": "디자인 시스템",
+};
+
+const NAV_ICON: Record<string, IconName> = {
+  overview: "layout-dashboard",
+  apps: "boxes",
+  migrate: "arrow-right-left",
+  routes: "route",
+  agents: "bot",
+  security: "shield-check",
+  envs: "server",
+  device: "terminal",
 };
 
 function SimSideNav({ r }: { r: string }) {
@@ -123,7 +135,10 @@ function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavI
               {items.map(([k, label, badge]) => (
                 <li key={k}>
                   <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
-                    <span className="lbl">{label}</span>
+                    <span className="lbl icon-label">
+                      <Icon name={NAV_ICON[k]} />
+                      <span>{label}</span>
+                    </span>
                     {badge && (
                       <>
                         {" "}

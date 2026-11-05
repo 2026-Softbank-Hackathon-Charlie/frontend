@@ -8,6 +8,7 @@ import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
 import { useSim } from "../sim/store";
+import { Icon } from "./Icon";
 import { Chip, LoadError, Skeleton, Table, td, type ChipKind } from "./ui";
 
 /** Display name for a platform environment name (eks → AWS EKS). */
@@ -33,7 +34,7 @@ function EnvCard({ name, chip, loc, figs, note }: { name: string; chip: ReactNod
   return (
     <div className="box envcard">
       <div className="cellh">
-        <b>{name}</b>
+        <b className="icon-label"><Icon name="server" size={16} /><span>{name}</span></b>
         {chip}
       </div>
       <span className="hint">{loc}</span>
