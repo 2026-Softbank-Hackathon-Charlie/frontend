@@ -99,6 +99,8 @@ a.tab:hover { opacity: 1; color: var(--heading); }
 .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tbl th { text-align: left; font-weight: 500; font-size: 12px; letter-spacing: 0.03em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
 .tbl td { padding: 11px 12px; border-bottom: 1px solid var(--fill); vertical-align: top; }
+.tbl td, .tbl th { word-break: keep-all; } /* Korean words break between words, not inside them */
+@media (max-width: 640px) { .scroll > .tbl { min-width: 600px; } } /* scroll a wide table instead of crushing its columns */
 .tbl tr:last-child td { border-bottom: 0; }
 .tbl .m, .m { font-family: var(--font-mono); font-size: 13px; }
 .tbl .nw { white-space: nowrap; }
@@ -154,7 +156,7 @@ input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-
 .diff .d { background: var(--bad-bg); }
 .diff .a { background: var(--ok-bg); }
 .log { font-family: var(--font-mono); font-size: 12.5px; background: var(--fill); padding: 12px 14px; display: grid; gap: 3px; max-height: 300px; overflow: auto; align-content: start; }
-.log div { white-space: pre; }
+.log div { white-space: pre-wrap; overflow-wrap: anywhere; }
 .log time { color: var(--muted); margin-right: 12px; }
 .log .empty { color: var(--muted); }
 .log .err { background: var(--bad-bg); color: var(--bad); margin: 0 -14px; padding: 0 14px; }
