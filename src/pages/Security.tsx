@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSecurity } from "../api/hooks";
-import type { SecurityCategory, SecurityReport, SecuritySeverity, StorageKey, StorageKeyState, StorageKeyUse } from "../api/types";
+import type { SecurityCategory, SecurityReport, SecuritySeverity, SecuritySource, StorageKey, StorageKeyState, StorageKeyUse } from "../api/types";
 import { ms } from "../components/deploy";
 import { envName } from "../components/shared";
 import { Chip, LoadError, PageHead, Skeleton, Table, td, type ChipKind } from "../components/ui";
@@ -21,7 +21,14 @@ const SRC_STATUS = { ok: ["정상", "ok"], unavailable: ["응답 없음", "bad"]
 const sourceName = (s: string) => SOURCE_LABEL[s] ?? s;
 
 const KEY_USE: Record<StorageKeyUse, string> = { current: "사용 중인 키", old: "교체 전 키(파드가 아직 쓸 수 있음)", unrecorded: "플랫폼 기록에 없는 키" };
-const KEY_STATE: Record<StorageKeyState, [string, ChipKind]> = { ok: ["확인", "ok"], missing: ["클라우드에 없음", "warn"], unread: ["확인 못 함", ""] };
+const KEY_STATE: Record<StorageKeyState, [string, ChipKind]> = { ok: ["확인", "ok"], inactive: ["비활성", "warn"], missing: ["클라우드에 없음", "warn"], unread: ["확인 못 함", ""] };
+
+/** The state chip of a key: a key the platform has no record of is a warning even when active, and a deactivated key in use breaks the app. */
+function keyChip(k: StorageKey): [string, ChipKind] {
+  if (k.use === "unrecorded" && k.state === "ok") return ["기록에 없음", "warn"];
+  if (k.use === "current" && k.state === "inactive") return ["비활성", "bad"];
+  return KEY_STATE[k.state] ?? [k.state, ""];
+}
 const KEY_DRIVER: Record<string, string> = { aws: "IAM 액세스 키", gcs: "GCS HMAC 키", minio: "MinIO 키" };
 /** The AWS account check (aws.access-key-age) flags access keys from this age on. */
 const OLD_KEY_DAYS = 90;
@@ -169,7 +176,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
           />
         </div>
       </section>
-      <StorageKeys keys={report.storageKeys} />
+      <StorageKeys keys={report.storageKeys} sources={report.sources.filter((x) => x.name === "storage-keys")} />
       <section className="sec">
         <h2>점검 출처</h2>
         <div className="box">
@@ -194,8 +201,10 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
 }
 
 /** The bucket keys the platform made for app instances: when the cloud made each and what it may do (platform ADR 0027). */
-function StorageKeys({ keys }: { keys: StorageKey[] | undefined }) {
+function StorageKeys({ keys, sources }: { keys: StorageKey[] | undefined; sources: SecuritySource[] }) {
   const now = Date.now();
+  // An environment whose storage-keys source is not ok may have keys missing from the list.
+  const unread = sources.filter((x) => x.status !== "ok");
   return (
     <section className="sec">
       <h2>앱 저장소 키</h2>
@@ -203,17 +212,31 @@ function StorageKeys({ keys }: { keys: StorageKey[] | undefined }) {
         플랫폼이 앱 인스턴스마다 만든 버킷 전용 키입니다. 만든 시각은 클라우드에서 읽고(AWS IAM, GCS HMAC), 허용 범위는 플랫폼이 배포할 때마다 거는 권한입니다. 키 id는 끝
         4자만 보입니다.
       </p>
-      {keys === undefined ? (
+      {keys != null && unread.length > 0 && (
+        <div className="hint" role="status">
+          다음 환경의 키는 확인하지 못했습니다. 목록에서 빠졌거나 &lsquo;확인 못 함&rsquo;으로 나옵니다.
+          {unread.map((x) => (
+            <small key={x.environment} className="block">
+              <b>{envName(x.environment)}</b> <Chip kind={SRC_STATUS[x.status]?.[1] ?? ""}>{SRC_STATUS[x.status]?.[0] ?? x.status}</Chip> {x.message}
+            </small>
+          ))}
+        </div>
+      )}
+      {keys == null ? (
         <p className="hint">연결한 플랫폼이 아직 저장소 키를 보고하지 않습니다.</p>
       ) : keys.length === 0 ? (
-        <p className="hint">버킷이 있는 앱 인스턴스가 없습니다.</p>
+        sources.length === 0 ? (
+          <p className="hint">저장소 드라이버가 있는 환경이 없습니다.</p>
+        ) : (
+          unread.length === 0 && <p className="hint">버킷이 있는 앱 인스턴스가 없습니다.</p>
+        )
       ) : (
         <div className="box">
           <Table
             head={["앱 인스턴스", "환경", "키", "만든 시각", "허용 범위", "상태"]}
             rows={keys.map((k) => {
               // A state or use a newer platform adds shows as its raw value instead of breaking the page.
-              const [stateLabel, stateKind] = KEY_STATE[k.state] ?? [k.state, ""];
+              const [stateLabel, stateKind] = keyChip(k);
               const made = k.createdAt ? ms(k.createdAt) : NaN;
               const days = Math.floor((now - made) / DAY);
               return [
@@ -243,7 +266,7 @@ function StorageKeys({ keys }: { keys: StorageKey[] | undefined }) {
                     <>
                       {new Date(made).toLocaleString("ko-KR", { hour12: false })}
                       <small className="block">
-                        {days < 1 ? "만든 지 하루 안 됨" : "만든 지 " + days + "일"} {days >= OLD_KEY_DAYS && <Chip kind="warn">{OLD_KEY_DAYS}일 넘음</Chip>}
+                        {days < 1 ? "만든 지 하루 안 됨" : "만든 지 " + days + "일"} {k.state === "ok" && days >= OLD_KEY_DAYS && <Chip kind="warn">{OLD_KEY_DAYS}일 넘음</Chip>}
                       </small>
                     </>
                   ),

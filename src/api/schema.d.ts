@@ -316,9 +316,11 @@ export interface paths {
      * (a refresh within that window gets the latest result).
      *
      * `storageKeys` lists the bucket keys the platform made for app
-     * instances, with when the provider made each and what it may do
-     * (ADR 0027). Every environment with a storage driver is the source
-     * `storage-keys`.
+     * instances, with when the provider made each, whether it is active and
+     * what it may do (ADR 0027). Every environment with a storage driver is
+     * the source `storage-keys`; a key of an instance's user that the
+     * platform has no record of is also a finding
+     * (`storage.unrecorded-key`).
      *
      * The filters apply to `findings`, to the counts in `sources` and to
      * `summary`; `environment` also applies to `storageKeys`. Error codes:
@@ -1596,7 +1598,7 @@ export interface components {
       environment: string;
       provider: components["schemas"]["SecurityProvider"];
       /**
-       * @description kubernetes, aws-iam, aws-ec2, aws-cloudtrail, aws-guardduty, aws-securityhub, aws-s3, platform-audit, platform-config
+       * @description kubernetes, aws-iam, aws-ec2, aws-cloudtrail, aws-guardduty, aws-securityhub, aws-s3, platform-audit, platform-config, storage-keys
        * @example aws-guardduty
        */
       source: string;
@@ -1681,8 +1683,11 @@ export interface components {
        * @description The bucket keys of app instances (ADR 0016), by environment (in
        * the order of `sources`) and then instance; for each instance, the
        * key in use first, then the old one, then keys the platform has no
-       * record of. Empty when no instance
-       * has a bucket or the server has no storage drivers.
+       * record of. Empty when no instance has a bucket or the server has
+       * no storage drivers. An environment's keys are also left out when
+       * its `storage-keys` source could not read the platform's records
+       * or did not answer in time, so an empty list means "no keys" only
+       * when every `storage-keys` source is `ok`.
        */
       storageKeys: components["schemas"]["StorageKey"][];
     };
@@ -1695,13 +1700,14 @@ export interface components {
      */
     StorageKeyUse: "current" | "old" | "unrecorded";
     /**
-     * @description - ok: the provider has the key.
+     * @description - ok: the provider has the key, and it is active.
+     * - inactive: the provider has the key, but it is deactivated. The platform still counts it as present, so a deactivated key in use breaks the app until someone activates or deletes it.
      * - missing: the platform's record names a key the provider does not have (deleted outside the platform). The next deployment makes a new key.
      * - unread: the key could not be read back from the provider; `message` says why.
      *
      * @enum {string}
      */
-    StorageKeyState: "ok" | "missing" | "unread";
+    StorageKeyState: "ok" | "inactive" | "missing" | "unread";
     /** @description One key of an app instance's bucket in one environment (ADR 0027). */
     StorageKey: {
       /** @example moimroom */
@@ -3445,9 +3451,11 @@ export interface operations {
    * (a refresh within that window gets the latest result).
    *
    * `storageKeys` lists the bucket keys the platform made for app
-   * instances, with when the provider made each and what it may do
-   * (ADR 0027). Every environment with a storage driver is the source
-   * `storage-keys`.
+   * instances, with when the provider made each, whether it is active and
+   * what it may do (ADR 0027). Every environment with a storage driver is
+   * the source `storage-keys`; a key of an instance's user that the
+   * platform has no record of is also a finding
+   * (`storage.unrecorded-key`).
    *
    * The filters apply to `findings`, to the counts in `sources` and to
    * `summary`; `environment` also applies to `storageKeys`. Error codes:
