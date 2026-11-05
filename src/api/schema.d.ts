@@ -315,8 +315,16 @@ export interface paths {
      * seconds; `refresh=true` collects again, at most once every 10 seconds
      * (a refresh within that window gets the latest result).
      *
+     * `storageKeys` lists the bucket keys the platform made for app
+     * instances, with when the provider made each, whether it is active and
+     * what it may do (ADR 0027). Every environment with a storage driver is
+     * the source `storage-keys`; a key of an instance's user that the
+     * platform has no record of is also a finding
+     * (`storage.unrecorded-key`).
+     *
      * The filters apply to `findings`, to the counts in `sources` and to
-     * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+     * `summary`; `environment` also applies to `storageKeys`. Error codes:
+     * invalid_request (400), security_not_configured (503).
      */
     get: operations["getSecurity"];
   };
@@ -480,8 +488,10 @@ export interface paths {
      * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
      * another registered app has the name, or the platform serves the name
      * itself under the app domain: `api`, `console`, `headlamp` and the
-     * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
-     * not taken),
+     * gateway's default app `app`; or the name is a namespace the app
+     * clusters keep for the platform and infra, such as `kube-system`,
+     * `argocd` or `traefik`, which the app ApplicationSet would never
+     * sync; a name only in PLATFORM_APPS_FILE is not taken),
      * storage_cleanup_pending (409: the bucket and key of a deleted app or
      * instance with this name are still being deleted; try again later),
      * invalid_app_spec (422: the repository, the branch or
@@ -677,7 +687,8 @@ export interface paths {
      * names.
      *
      * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-     * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+     * set by the platform (PORT, DATABASE_URL, PGHOST, PGPORT, PGDATABASE,
+     * PGUSER, PGPASSWORD, JDBC_DATABASE_URL, S3_*). Values are 1 to 4096
      * bytes. At most 50 secrets per app-wide set and per instance, so at
      * most 50 names in `set` and in `delete`.
      *
@@ -1590,7 +1601,7 @@ export interface components {
       environment: string;
       provider: components["schemas"]["SecurityProvider"];
       /**
-       * @description kubernetes, aws-iam, aws-ec2, aws-cloudtrail, aws-guardduty, aws-securityhub, aws-s3, platform-audit, platform-config
+       * @description kubernetes, aws-iam, aws-ec2, aws-cloudtrail, aws-guardduty, aws-securityhub, aws-s3, platform-audit, platform-config, storage-keys
        * @example aws-guardduty
        */
       source: string;
@@ -1671,6 +1682,92 @@ export interface components {
       sources: components["schemas"]["SecuritySource"][];
       /** @description Most severe first. */
       findings: components["schemas"]["SecurityFinding"][];
+      /**
+       * @description The bucket keys of app instances (ADR 0016), by environment (in
+       * the order of `sources`) and then instance; for each instance, the
+       * key in use first, then the old one, then keys the platform has no
+       * record of. Empty when no instance has a bucket or the server has
+       * no storage drivers. An environment's keys are also left out when
+       * its `storage-keys` source could not read the platform's records
+       * or did not answer in time, so an empty list means "no keys" only
+       * when every `storage-keys` source is `ok`.
+       */
+      storageKeys: components["schemas"]["StorageKey"][];
+    };
+    /**
+     * @description - current: the key the instance's pods are given.
+     * - old: the key a new key replaced; pods that did not restart may still use it. It is deleted after a healthy deployment restarted them (ADR 0016).
+     * - unrecorded: a key of the instance's user the platform has no record of, e.g. made by hand. The driver deletes it before it makes the next new key.
+     *
+     * @enum {string}
+     */
+    StorageKeyUse: "current" | "old" | "unrecorded";
+    /**
+     * @description - ok: the provider has the key, and it is active.
+     * - inactive: the provider has the key, but it is deactivated. The platform still counts it as present, so a deactivated key in use breaks the app until someone activates or deletes it.
+     * - missing: the platform's record names a key the provider does not have (deleted outside the platform). The next deployment makes a new key.
+     * - unread: the key could not be read back from the provider; `message` says why.
+     *
+     * @enum {string}
+     */
+    StorageKeyState: "ok" | "inactive" | "missing" | "unread";
+    /** @description One key of an app instance's bucket in one environment (ADR 0027). */
+    StorageKey: {
+      /** @example moimroom */
+      app: string;
+      /** @example moimroom */
+      instance: string;
+      /** @example eks */
+      environment: string;
+      /**
+       * @description the storage driver that made the key: aws, gcs or minio
+       * @example aws
+       */
+      driver: string;
+      /**
+       * @description the only bucket the key may use
+       * @example hopcharlie-eks-moimroom
+       */
+      bucket: string;
+      /**
+       * @description the last four characters of the key id only
+       * @example ...WXYZ
+       */
+      keyId: string;
+      use: components["schemas"]["StorageKeyUse"];
+      state: components["schemas"]["StorageKeyState"];
+      /**
+       * Format: date-time
+       * @description When the provider made the key: the IAM access key's CreateDate
+       * (aws) or the HMAC key's timeCreated (gcs). Absent when the
+       * provider does not record it (minio) or the key was not read.
+       */
+      createdAt?: string;
+      scope?: components["schemas"]["StorageKeyScope"];
+      /** @description why the state is not ok, or what to do about the key */
+      message?: string;
+    };
+    /**
+     * @description What the key may do on `bucket`: the grant the driver writes on every
+     * deployment (aws: the user's inline policy `hopcharlie-bucket`; minio:
+     * the user's canned policy; gcs: the service account's roles on the
+     * bucket). It is the platform's grant, not read back from the provider.
+     * Absent when the key's driver could not be used (the environment has no
+     * usable storage driver, or its driver now is not the one that made the
+     * key).
+     */
+    StorageKeyScope: {
+      /**
+       * @description S3 actions (aws, minio) or GCS roles (gcs).
+       * @example [
+       *   "s3:ListBucket",
+       *   "s3:GetObject",
+       *   "s3:PutObject"
+       * ]
+       */
+      actions: string[];
+      /** @description aws: the permissions boundary every app user is made with, which caps any policy the user has */
+      boundary?: string;
     };
     /** @enum {string} */
     AgentSessionKind: "plan" | "rehearsal" | "diagnose" | "explain" | "other";
@@ -2186,11 +2283,26 @@ export interface components {
      * - 1 to 5 services and at most one resource per type. Service names,
      *   and resource names, match `^[a-z]([a-z0-9-]{0,22}[a-z0-9])?$` and
      *   are unique.
-     * - `port` is 1 to 65535, `replicas` 1 to 5, at most one service is
-     *   `public`, and `healthCheck`, when set, starts with `/`.
+     * - `port`, when set, is 1 to 65535. A service without one (or with
+     *   0) is a worker: no Service, no probes, ready once it runs, and it may be
+     *   neither `public` nor have a `healthCheck`. An app may have only
+     *   workers; it then has no URL.
+     * - `replicas` is 1 to 5, at most one service is `public`, and
+     *   `healthCheck`, when set, starts with `/`.
+     * - `memory`, when set, is a whole number of bytes from 256Mi to
+     *   1536Mi and `cpu` a whole number of millicores from 50m to 500m
+     *   (ADR 0024). Over all services, (replicas + 1) x memory adds up to
+     *   at most 3Gi and (replicas + 1) x cpu to at most 1500m, an unset
+     *   memory counting as 256Mi and an unset cpu as 50m, so that a
+     *   rolling update, with one pod more per service, fits the
+     *   namespace's quota next to the database. The nodes may have less
+     *   room than the quota: an app that uses most of its CPU budget can
+     *   stay Pending until a node has that much CPU free.
      * - `path` and `dockerfile` are relative and have no `..`.
      * - `env` keys match `^[A-Z_][A-Z0-9_]*$` and are none of the
-     *   variables the platform sets: `PORT`, `DATABASE_URL` and `S3_*`.
+     *   variables the platform sets: `PORT`, `DATABASE_URL`, `PGHOST`,
+     *   `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`,
+     *   `JDBC_DATABASE_URL` and `S3_*`.
      *
      * The rules are not repeated as schema keywords, because
      * AppSpecValidation returns the spec of a file that breaks them.
@@ -2208,6 +2320,18 @@ export interface components {
      *       "replicas": 1,
      *       "env": {
      *         "LOG_LEVEL": "info"
+     *       }
+     *     },
+     *     {
+     *       "name": "jobs",
+     *       "path": "jobs",
+     *       "dockerfile": "Dockerfile",
+     *       "public": false,
+     *       "replicas": 1,
+     *       "memory": "512Mi",
+     *       "cpu": "250m",
+     *       "env": {
+     *         "SPRING_DATASOURCE_URL": "$(JDBC_DATABASE_URL)"
      *       }
      *     }
      *   ],
@@ -2243,10 +2367,10 @@ export interface components {
        */
       dockerfile: string;
       /**
-       * @description the port the service listens on; the service gets it as PORT
+       * @description the port the service listens on; the service gets it as PORT. Left out for a worker, which gets no Service, no probes and no PORT.
        * @example 8080
        */
-      port: number;
+      port?: number;
       /**
        * @description an HTTP path that answers 2xx once the service is ready
        * @example /healthz
@@ -2260,10 +2384,31 @@ export interface components {
       /** @default 1 */
       replicas: number;
       /**
+       * @description A Kubernetes quantity, a whole number of bytes from 256Mi to
+       * 1536Mi: the container's memory request and limit. Without it the container gets the
+       * environment's defaults (request 64Mi, limit 256Mi).
+       *
+       * @example 512Mi
+       */
+      memory?: string;
+      /**
+       * @description A Kubernetes quantity, a whole number of millicores from 50m
+       * to 500m: the container's CPU request.
+       * There is no CPU limit. Without it the request is the
+       * environment's default (50m).
+       *
+       * @example 250m
+       */
+      cpu?: string;
+      /**
        * @description Environment variables besides the ones the platform sets. Values
        * are strings: a value YAML reads as a number, boolean or null
        * (`4`, `yes`, `0755`, `~`) is an error, so quote it. platform.yaml
-       * is in git, so it holds no secrets.
+       * is in git, so it holds no secrets. A value may use `$(NAME)` for
+       * a variable the platform sets, which Kubernetes expands, to give
+       * it the name the app reads: `KC_DB_URL_HOST: "$(PGHOST)"`,
+       * `SPRING_DATASOURCE_URL: "$(JDBC_DATABASE_URL)"`,
+       * `AWS_ACCESS_KEY_ID: "$(S3_ACCESS_KEY)"`.
        */
       env?: {
         [key: string]: string;
@@ -2274,7 +2419,10 @@ export interface components {
       name: string;
       /**
        * @description postgres: a CNPG Cluster `<app>-<name>`; every service gets
-       * DATABASE_URL from key `uri` of its secret `<app>-<name>-app`.
+       * DATABASE_URL from key `uri` of its secret `<app>-<name>-app`,
+       * and from the same secret PGHOST (key `host`), PGPORT (`port`),
+       * PGDATABASE (`dbname`), PGUSER (`username`), PGPASSWORD
+       * (`password`) and JDBC_DATABASE_URL (`jdbc-uri`).
        * s3: a bucket; every service gets S3_ENDPOINT, S3_BUCKET,
        * S3_REGION, S3_PATH_STYLE, S3_ACCESS_KEY and S3_SECRET_KEY.
        *
@@ -3356,8 +3504,16 @@ export interface operations {
    * seconds; `refresh=true` collects again, at most once every 10 seconds
    * (a refresh within that window gets the latest result).
    *
+   * `storageKeys` lists the bucket keys the platform made for app
+   * instances, with when the provider made each, whether it is active and
+   * what it may do (ADR 0027). Every environment with a storage driver is
+   * the source `storage-keys`; a key of an instance's user that the
+   * platform has no record of is also a finding
+   * (`storage.unrecorded-key`).
+   *
    * The filters apply to `findings`, to the counts in `sources` and to
-   * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+   * `summary`; `environment` also applies to `storageKeys`. Error codes:
+   * invalid_request (400), security_not_configured (503).
    */
   getSecurity: {
     parameters: {
@@ -3765,8 +3921,10 @@ export interface operations {
    * PLATFORM_ENVS_FILE, a repo that is not owner/name), app_exists (409:
    * another registered app has the name, or the platform serves the name
    * itself under the app domain: `api`, `console`, `headlamp` and the
-   * gateway's default app `app`; a name only in PLATFORM_APPS_FILE is
-   * not taken),
+   * gateway's default app `app`; or the name is a namespace the app
+   * clusters keep for the platform and infra, such as `kube-system`,
+   * `argocd` or `traefik`, which the app ApplicationSet would never
+   * sync; a name only in PLATFORM_APPS_FILE is not taken),
    * storage_cleanup_pending (409: the bucket and key of a deleted app or
    * instance with this name are still being deleted; try again later),
    * invalid_app_spec (422: the repository, the branch or
@@ -4157,7 +4315,8 @@ export interface operations {
    * names.
    *
    * Names match `^[A-Z_][A-Z0-9_]*$`, at most 64 characters, and are not
-   * set by the platform (PORT, DATABASE_URL, S3_*). Values are 1 to 4096
+   * set by the platform (PORT, DATABASE_URL, PGHOST, PGPORT, PGDATABASE,
+   * PGUSER, PGPASSWORD, JDBC_DATABASE_URL, S3_*). Values are 1 to 4096
    * bytes. At most 50 secrets per app-wide set and per instance, so at
    * most 50 names in `set` and in `delete`.
    *

@@ -1,7 +1,7 @@
 // MOCK: 시뮬레이션 모드의 보안 화면용 고정 데이터. API에 연결하면 GET /v1/security 결과로 바뀐다.
 // 출처 이름은 플랫폼 수집기(security.Collectors)와 같다. GCP Security Command Center는 시연용으로
 // 연결된 것처럼 두었다. 실제 플랫폼은 아직 연결하지 않아 not_configured로 보여 준다.
-import type { SecurityFinding, SecurityReport } from "../api/types";
+import type { SecurityFinding, SecurityReport, StorageKey } from "../api/types";
 
 const at = "2026-11-06T00:50:00Z";
 
@@ -38,6 +38,19 @@ const findings: SecurityFinding[] = [
   },
 ];
 
+const s3Actions = ["s3:ListBucket", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"];
+
+const storageKeys: StorageKey[] = [
+  {
+    app: "moimroom", instance: "moimroom", environment: "eks", driver: "aws", bucket: "hopcharlie-eks-moimroom", keyId: "...Q2XA", use: "current", state: "ok",
+    createdAt: "2026-11-04T08:21:52Z", scope: { actions: s3Actions, boundary: "arn:aws:iam::123456789012:policy/hopcharlie-app-boundary" },
+  },
+  {
+    app: "moimroom", instance: "moimroom", environment: "gke", driver: "gcs", bucket: "hopcharlie-gke-moimroom", keyId: "...7F3K", use: "current", state: "ok",
+    createdAt: "2026-11-05T02:10:00Z", scope: { actions: ["roles/storage.objectAdmin", "roles/storage.legacyBucketReader"] },
+  },
+];
+
 export const SIM_SECURITY: SecurityReport = {
   generatedAt: at,
   summary: {
@@ -55,6 +68,9 @@ export const SIM_SECURITY: SecurityReport = {
     { name: "kubernetes", provider: "gcp", environment: "gke", status: "ok", checkedAt: at, findings: 0 },
     { name: "gcp-scc", provider: "gcp", environment: "gke", status: "ok", checkedAt: at, findings: 2 },
     { name: "kubernetes", provider: "onprem", environment: "k3s", status: "ok", checkedAt: at, findings: 2 },
+    { name: "storage-keys", provider: "aws", environment: "eks", status: "ok", message: "1 key of 1 instance", checkedAt: at, findings: 0 },
+    { name: "storage-keys", provider: "gcp", environment: "gke", status: "ok", message: "1 key of 1 instance", checkedAt: at, findings: 0 },
   ],
   findings,
+  storageKeys,
 };
