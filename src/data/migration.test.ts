@@ -1,7 +1,7 @@
 import { CANARY_PRESETS } from "../sim/mig";
-import { DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest } from "./migration";
+import { approvalBlock, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest } from "./migration";
 import { fakeAgentSession } from "../api/fakes";
-import type { AgentEvent } from "../api/types";
+import type { AgentEvent, PlanRecord } from "../api/types";
 
 describe("start request", () => {
   it("sends the quick read canary and no observation by default", () => {
@@ -76,5 +76,23 @@ describe("AI runner sessions", () => {
     expect(linkedPlanSessionId([ev({ tool: "sandbox_apply", output: { planSession: "x" } }), ev({ tool: "plan", output: { planRef: "pln_1", planSession: "ags_3", planId: "p" } })])).toBe("ags_3");
     expect(linkedPlanSessionId([ev({ tool: "plan", output: "ags_3" }), ev({ tool: "plan", output: { planSession: "" } })])).toBeUndefined();
     expect(linkedPlanSessionId([])).toBeUndefined();
+  });
+});
+
+describe("approval block (platform #24)", () => {
+  const rec = (p: Partial<PlanRecord>): PlanRecord =>
+    ({ ref: "pln_1", status: "pending_approval", revision: 3, summary: {} as PlanRecord["summary"], submittedBy: "hopai", submittedAt: "2026-11-05T00:00:00Z", ...p }) as PlanRecord;
+
+  it("blocks an AI plan without a passing rehearsal, with the platform's reason", () => {
+    expect(approvalBlock(rec({ rehearsal: { required: true, passed: false, reason: "no rehearsal report" } }))).toBe("no rehearsal report");
+    expect(approvalBlock(rec({ rehearsal: { required: true, passed: false } }))).not.toBe("");
+  });
+
+  it("lets other plans through: passed, not required, no gate info (older platform), or not pending", () => {
+    expect(approvalBlock(rec({ rehearsal: { required: true, passed: true } }))).toBe("");
+    expect(approvalBlock(rec({ rehearsal: { required: false, passed: false } }))).toBe("");
+    expect(approvalBlock(rec({}))).toBe("");
+    expect(approvalBlock(rec({ status: "approved", rehearsal: { required: true, passed: false } }))).toBe("");
+    expect(approvalBlock(undefined)).toBe("");
   });
 });

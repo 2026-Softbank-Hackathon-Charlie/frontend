@@ -6,7 +6,7 @@ import type { AgentEvent, AgentSession, Environment, Run, RunEvent, TrafficState
 import { blockedOf, eventText as agentText } from "../components/agent";
 import { ENV, ENV_ORDER, envKeyOf, sampleBucketName, type EnvKey } from "../sim/data";
 import { CANARY, CANARY_PRESETS, ENGINE_STEPS, statusText } from "../sim/mig";
-import { PLATFORM_GATE, type MigrationView } from "./migration";
+import { approvalBlock, PLATFORM_GATE, type MigrationView } from "./migration";
 import { isAfter } from "../api/hooks";
 import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
@@ -582,7 +582,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     banners.push(
       v.plan.status === "approved"
         ? { cls: v.preflight?.blocked ? "" : "wab", title: v.preflight?.blocked ? "시작 전 검사에서 막혔습니다" : "승인됐지만 아직 시작하지 않았습니다", text: v.preflight?.blocked ? "검사 결과의 이유를 해결한 뒤 다시 시작하세요." : "다시 시작할 수 있습니다." }
-        : { cls: "wab", title: "사람 승인 필요 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "승인하면 시작 전 검사를 거쳐 엔진이 실행합니다. [승인 ✓]을 누르거나 오른쪽 승인 카드에서 옵션을 고르세요." },
+        : approvalBlock(v.plan)
+          ? { cls: "", title: "승인할 수 없음 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "AI 계획이 리허설을 통과하지 않았습니다. AI 실행기로 다시 리허설하거나 반려하세요. (" + approvalBlock(v.plan) + ")" }
+          : { cls: "wab", title: "사람 승인 필요 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "승인하면 시작 전 검사를 거쳐 엔진이 실행합니다. [승인 ✓]을 누르거나 오른쪽 승인 카드에서 옵션을 고르세요." },
     );
   }
 
@@ -610,7 +612,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
 
   // the real commands the state allows
   const actions: MapSnapshot["actions"] = [];
-  if (!r && v.stage === "review" && v.plan && (v.plan.status === "pending_approval" || v.plan.status === "approved"))
+  if (!r && v.stage === "review" && v.plan && (v.plan.status === "pending_approval" || v.plan.status === "approved") && !approvalBlock(v.plan))
     actions.push({ key: "approve", label: v.plan.status === "approved" ? "다시 시작" : "승인 ✓", cls: "attn" });
   if (r) {
     if (r.status === "awaiting_switch") actions.push({ key: "switch", label: "전환", cls: "attn" });
