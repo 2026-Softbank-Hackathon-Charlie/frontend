@@ -1,7 +1,8 @@
 import "../styles/migrate.css";
 import { Fragment, useState, type ReactNode } from "react";
-import type { AgentEvent, AgentSession, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
-import { blockedOf, KIND_LABEL, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
+import type { AgentEvent, AgentSession, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
+import { useAttachment } from "../data/attachment";
+import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
@@ -700,7 +701,7 @@ function AiView({ v }: { v: MigrationView }) {
         {/* the AI at work: its log first */}
         {!review && feed}
         <FixBox v={v} />
-        <Checked v={v} events={all} viewing={shown} />
+        <Checked v={v} events={all} />
       </div>
       <aside className="mg-side">
         {review ? (
@@ -769,7 +770,10 @@ function FixBox({ v }: { v: MigrationView }) {
             </div>
           </>
         ) : p.attachments?.length ? (
-          <p>첨부: {p.attachments.map((a) => a.name).join(", ")}</p>
+          <>
+            <p>{(typeof why === "string" ? why + ". " : "") + "AI가 올린 첨부입니다. 승인하면 엔진이 이 내용으로 실행합니다."}</p>
+            {v.live ? p.attachments.map((a) => <AttachmentView key={a.name} planRef={p.ref} a={a} revision={p.revision} />) : <p>첨부: {p.attachments.map((a) => a.name).join(", ")}</p>}
+          </>
         ) : (
           <p className="hint">AI가 바꾼 것이 없습니다. 리허설이 실패하면 AI가 로그를 읽고 수정안을 냅니다.</p>
         )}
@@ -778,26 +782,58 @@ function FixBox({ v }: { v: MigrationView }) {
   );
 }
 
+// One attachment as uploaded (live), with its hash checked against the plan record's.
+function AttachmentView({ planRef, a, revision }: { planRef: string; a: PlanAttachment; revision: number }) {
+  const c = useAttachment(planRef, a, revision);
+  const check = c.verified === true ? <Chip kind="ok">SHA-256 일치</Chip> : c.verified === false ? <Chip kind="bad">SHA-256 불일치</Chip> : null;
+  return (
+    <figure className="mg-attach" aria-busy={c.loading}>
+      <figcaption>
+        <b>{a.name}</b>
+        <span className="hint">
+          {fmt(a.size)}B · sha256 {a.sha256.slice(0, 12)}
+        </span>
+        {check}
+      </figcaption>
+      {c.loading ? (
+        <p className="hint">내용을 불러오는 중입니다.</p>
+      ) : c.error ? (
+        <p className="hint" role="alert">
+          내용을 불러오지 못했습니다: {c.error}
+        </p>
+      ) : c.text === undefined ? (
+        <p className="hint">텍스트가 아닌 파일이라 내용을 보여 주지 않습니다 ({fmt(c.bytes ?? 0)}B).</p>
+      ) : (
+        <pre tabIndex={0} aria-label={a.name + " 내용"}>
+          {c.text}
+        </pre>
+      )}
+      {c.verified === false && <p className="hint">받은 내용이 Plan 기록의 해시와 다릅니다. 승인하기 전에 Plan을 다시 확인하세요.</p>}
+    </figure>
+  );
+}
+
 function sessionMark(s?: AgentSession): MarkSt {
   return !s ? "wait" : s.status === "succeeded" ? "ok" : s.status === "running" ? "run" : "bad";
 }
 
 // What was checked before the approval: the AI plan, the rehearsal, the commands the platform blocked, the pre-start checks.
-// Live only follows the events of the session on screen (`viewing`), so its blocked commands are that session's alone.
-function Checked({ v, events, viewing }: { v: MigrationView; events: AgentEvent[]; viewing?: AgentSession }) {
+// Live streams the session on screen and reads the others' stored events, so the counts cover every session
+// once they have loaded (`sessionsPartial` until then, or when a read failed).
+function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
   const plan = v.sessions.find((s) => s.kind === "plan");
   const reh = v.sessions.find((s) => s.kind === "rehearsal");
   const fails = v.sessions.filter((s) => s.kind === "diagnose").length;
   const fixed = !!v.fix || !!v.plan?.attachments?.length;
   const blocked = blockedOf(events);
   const pf = v.preflight;
-  const scope = !v.live ? "" : viewing ? KIND_LABEL[viewing.kind] + " 세션 기록만 셉니다. 다른 세션은 AI 세션 기록에서 고르세요." : "AI 세션 기록이 없습니다.";
+  const scope = !v.live ? "" : !v.sessions.length ? "AI 세션 기록이 없습니다." : v.sessionsPartial ? "일부 세션 기록을 아직 받지 못해 세는 중이거나 불러오지 못했습니다. 숫자가 실제보다 적을 수 있습니다." : "";
   const tools = (s: AgentSession) => " 도구 호출 " + fmt(s.totals.toolCalls) + "회, 토큰 " + fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens) + ".";
   return (
     <div className="box">
       <div className="bh">
         <b>확인한 것</b>
-        <span className="hint">{"AI 세션 " + v.sessions.length + "개" + (v.live ? "" : ", 막힌 명령 " + blocked.length + "건")}</span>
+        <span className="hint">{"AI 세션 " + v.sessions.length + "개, 막힌 명령 " + blocked.length + "건" + (v.sessionsPartial ? " 이상" : "")}</span>
       </div>
       <ul className="mg-checks">
         <li>
@@ -844,7 +880,7 @@ function Checked({ v, events, viewing }: { v: MigrationView; events: AgentEvent[
           ) : (
             <div>
               <b>{v.live ? "막힌 명령 0건" : "막힌 명령 없음"}</b>
-              <small>{v.live ? scope : "AI가 권한 밖의 명령을 시도하지 않았습니다."}</small>
+              <small>{scope || "AI가 권한 밖의 명령을 시도하지 않았습니다."}</small>
             </div>
           )}
         </li>

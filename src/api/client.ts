@@ -194,6 +194,8 @@ interface Call extends RequestOptions {
   noContent?: boolean;
   /** Let the request finish even if the page unloads (fetch keepalive). */
   keepalive?: boolean;
+  /** The answer is raw bytes (application/octet-stream): resolve with its ArrayBuffer instead of parsing JSON. */
+  raw?: boolean;
 }
 
 async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, c: Call = {}): Promise<T> {
@@ -208,7 +210,8 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
   if (c.signal?.aborted) cancel();
   else c.signal?.addEventListener("abort", cancel, { once: true });
 
-  const headers = authHeaders({ Accept: "application/json", ...c.headers });
+  // errors are JSON either way; a raw answer is the bytes as uploaded
+  const headers = authHeaders({ Accept: c.raw ? "application/octet-stream, application/json" : "application/json", ...c.headers });
   if (c.bytes !== undefined) headers.set("Content-Type", "application/octet-stream");
   else if (c.body !== undefined) headers.set("Content-Type", "application/json");
   try {
@@ -227,6 +230,7 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
       await res.body?.cancel();
       return undefined as T;
     }
+    if (c.raw) return (await res.arrayBuffer()) as T;
     try {
       return (await res.json()) as T;
     } catch (e) {
@@ -307,6 +311,9 @@ export const putPlanAttachment = (
   body: Blob | ArrayBuffer | Uint8Array<ArrayBuffer> | string,
   o?: RequestOptions,
 ) => request<PlanAttachment>("PUT", `/v1/plans/${seg(ref)}/attachments/${seg(name)}`, { ...o, bytes: body });
+/** An attachment's content exactly as uploaded. 404 attachment_not_found. */
+export const getPlanAttachment = (ref: string, name: string, o?: RequestOptions) =>
+  request<ArrayBuffer>("GET", `/v1/plans/${seg(ref)}/attachments/${seg(name)}`, { ...o, raw: true });
 
 // --- migrations ---
 
