@@ -136,7 +136,7 @@ export function DesignSystem() {
         </div>
       </Section>
 
-      <Section id="type" title="글꼴" sub="본문 IBM Plex Sans KR (400, 500, 700), 코드와 숫자 IBM Plex Mono (400, 500). Google Fonts에서 불러옵니다.">
+      <Section id="type" title="글꼴" sub="본문 SUIT 가변 폰트 (400, 500, 600, 700, jsDelivr에서 v2.0.5 고정), 코드와 숫자 IBM Plex Mono (400, 500, Google Fonts).">
         <div className="box">
           <Table head={["용도", "예시", "규격"]} rows={TYPE.map(([n, s, spec]) => [td(n, "nw"), td(s), td(spec, "m nw")])} />
         </div>

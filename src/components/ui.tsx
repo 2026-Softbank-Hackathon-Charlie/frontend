@@ -1,11 +1,18 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
 
-export type ChipKind = "" | "ok" | "bad" | "run";
+/** "" and "neu" are the same neutral grey; "warn" waits on a person (approval, switch). */
+export type ChipKind = "" | "neu" | "ok" | "bad" | "run" | "warn";
 
-export function Chip({ kind = "", children }: { kind?: ChipKind; children: ReactNode }) {
-  return <span className={"chip" + (kind ? " " + kind : "")}>{children}</span>;
+/** Status label: a flat tint, never outlined, so it does not read as a button. `dot` adds a leading dot for headline states. */
+export function Chip({ kind = "", dot, children }: { kind?: ChipKind; dot?: boolean; children: ReactNode }) {
+  return (
+    <span className={"chip" + (kind ? " " + kind : "")}>
+      {dot && <span className="dot" aria-hidden="true" />}
+      {children}
+    </span>
+  );
 }
 
 /** Square status indicator. Purely decorative: the adjacent text always carries the state. */
@@ -93,6 +100,71 @@ export function PageHead({ title, sub, acts, crumb }: { title: ReactNode; sub?: 
         {sub && <p>{sub}</p>}
       </div>
       {acts && <div className="acts">{acts}</div>}
+    </div>
+  );
+}
+
+export interface TabItem {
+  id: string;
+  label: ReactNode;
+}
+
+type TabsProps = { label: string; items: TabItem[]; current: string } & (
+  | { hrefOf: (id: string) => string; onSelect?: never; idBase?: never }
+  | { onSelect: (id: string) => void; idBase: string; hrefOf?: never }
+);
+
+/** ids that tie an in-page tab to its panel: give the panel `id={tabPanelId(idBase, id)}` and `aria-labelledby={tabId(idBase, id)}`. */
+export const tabId = (base: string, id: string) => base + "-tab-" + id;
+export const tabPanelId = (base: string, id: string) => base + "-panel-" + id;
+
+/**
+ * A row of tabs.
+ * - `hrefOf`: each tab is a link (route tabs, so back works and a tab opens by hash).
+ * - `onSelect` + `idBase`: an in-page tablist following the ARIA tabs pattern (one tab in the Tab order,
+ *   arrow keys, Home and End move and select); the caller renders the panel with `tabPanelId`.
+ */
+export function Tabs(p: TabsProps) {
+  const { label, items, current } = p;
+  if (p.hrefOf) {
+    const hrefOf = p.hrefOf;
+    return (
+      <nav className="tabs" aria-label={label}>
+        {items.map((t) => (
+          <a key={t.id} className="tab" href={hrefOf(t.id)} aria-current={t.id === current ? "page" : undefined}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+    );
+  }
+  const { onSelect, idBase } = p;
+  const move = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = items.findIndex((t) => t.id === current);
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const t = items[(next + items.length) % items.length];
+    onSelect(t.id);
+    document.getElementById(tabId(idBase, t.id))?.focus();
+  };
+  return (
+    <div className="tabs" role="tablist" aria-label={label} onKeyDown={move}>
+      {items.map((t) => (
+        <button
+          key={t.id}
+          id={tabId(idBase, t.id)}
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={t.id === current}
+          aria-controls={tabPanelId(idBase, t.id)}
+          tabIndex={t.id === current ? 0 : -1}
+          onClick={() => onSelect(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -97,7 +97,7 @@ describe("HopCharlie console (simulation)", () => {
 
   it("shows security findings by environment and category, and filters by a cell", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("link", { name: "보안" }));
+    await user.click(screen.getByRole("link", { name: /^보안/ }));
     expect(screen.getByRole("heading", { name: "환경 × 분류" })).toBeInTheDocument();
     // on-prem has no threat detection: not checked, which is not the same as clean
     expect(screen.getAllByText("점검 안 함").length).toBeGreaterThan(0);

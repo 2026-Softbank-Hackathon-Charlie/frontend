@@ -11,7 +11,7 @@ import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, PHASE_LABEL,
 
 const STATUS_KIND: Record<RunStatus, ChipKind> = {
   running: "run",
-  awaiting_switch: "run",
+  awaiting_switch: "warn",
   succeeded: "ok",
   rolled_back: "",
   halted: "bad",
@@ -42,9 +42,14 @@ function MigrateListView({ v }: { v: MigrationView }) {
         title="이전"
         sub="가동 중인 앱을 데이터와 함께 다른 클러스터로 옮깁니다. AI가 계획하고 샌드박스에서 리허설한 뒤, 운영자가 승인하면 엔진이 실행합니다."
         acts={
-          <a className="btn ghost" href="#routes">
-            경로별 결과
-          </a>
+          <>
+            <a className="btn primary" href="#migrate-app">
+              이전하기
+            </a>
+            <a className="btn ghost" href="#routes">
+              경로별 결과
+            </a>
+          </>
         }
       />
       {!v.ready ? (

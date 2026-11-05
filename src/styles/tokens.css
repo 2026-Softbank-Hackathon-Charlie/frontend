@@ -7,6 +7,23 @@
  * The DS publishes no status, muted or fill colors and no shadows; the extra
  * tokens below are console extensions kept in the same quiet, flat register.
  */
+/* SUIT (sun-typeface, OFL), variable 100-900 in one file, pinned to v2.0.5. Declared here rather than with the
+   upstream CSS so text shows in the fallback font while it loads (font-display: swap). index.html preloads the file. */
+@font-face {
+  font-family: "SUIT Variable";
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2-variations"), url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2");
+}
+/* SUIT draws the arrows as thin chevrons, so "EKS → GKE" reads like "EKS > GKE". Only the arrow block comes from
+   the system UI font (the later face wins inside its unicode-range); every other character stays SUIT. */
+@font-face {
+  font-family: "SUIT Variable";
+  font-weight: 100 900;
+  src: local("Segoe UI"), local("Apple SD Gothic Neo"), local("Arial");
+  unicode-range: U+2190-21FF;
+}
+
 :root {
   --canvas: #ffffff;
   --fg: #333333;
@@ -22,7 +39,29 @@
   --bad: #a3271c;
   --bad-bg: #f9ebe9;
 
-  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
+  /* console extensions, 2026-11-05 redesign: one hue per state, each a dark text on a light tint (all pass 4.5:1) */
+  --run: #1f5aa6;
+  --run-bg: #e8eff9;
+  --warn: #7a4a00;
+  --warn-bg: #fbf0dc;
+  --warn-line: #e6c98f;
+  --warn-tint: #fffbf3;
+  --warn-bar: #d99a2b;
+  --ok-line: #b7d8c4;
+  --ok-tint: #f5fbf7;
+  --bad-line: #e5b9b3;
+  --bad-tint: #fdf6f5;
+  --neu: #5f5f64;
+  --neu-bg: #f1f1f2;
+  --card-line: #dcdcde;
+  --line-soft: #ececee;
+  --side-bg: #f7f7f8;
+  --side-hover: #ececee;
+  --side-current: #e4e4e7;
+  --r-card: 8px;
+  --r-chip: 4px;
+
+  --font-body: "SUIT Variable", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --r-none: 0;
