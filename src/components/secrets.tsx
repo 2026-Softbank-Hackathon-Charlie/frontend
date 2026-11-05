@@ -148,7 +148,7 @@ export function AppSecrets({ s, m, busy, setRedeploying }: Props) {
     );
   }
   return (
-    <div className="ad-stack">
+    <div className="appd-stack">
       {body}
       <p className="hint">
         앱에 환경 변수로 넣는 비밀 값입니다. 서버가 암호화해 보관하고, 보기를 누를 때만 값을 불러와 {REVEAL_MS / 1000}초 동안 보여 줍니다. platform.yaml의 env와 이름이 같으면 시크릿이
@@ -390,7 +390,7 @@ function SecretScope(p: ScopeProps) {
     shown.clear();
     setLines([]);
     setSaved(true);
-    focusNext.current = ".ad-part.ok";
+    focusNext.current = ".appd-part.ok";
   }
 
   const appName = m.app?.name ?? "";
@@ -534,7 +534,7 @@ function SecretScope(p: ScopeProps) {
           )
         ))}
       {canEdit && dirty && (
-        <div className="ad-part fill" role="status">
+        <div className="appd-part fill" role="status">
           <div className="actrow">
             <b>저장하지 않은 변경 {changes.size}개</b>
             <span className="hint">{[...changes].map(([n, c]) => n + " " + changeLabel(byName.get(n), c)).join(", ")}</span>
@@ -551,12 +551,12 @@ function SecretScope(p: ScopeProps) {
         </div>
       )}
       {error && (
-        <div className="ad-part bad" role="alert">
+        <div className="appd-part bad" role="alert">
           <p>{error}</p>
         </div>
       )}
       {saved && (
-        <div className="ad-part ok" role="status" tabIndex={-1}>
+        <div className="appd-part ok" role="status" tabIndex={-1}>
           <b>{whatObj} 저장했습니다.</b>
           <p>
             실행 중인 {instance ? "인스턴스는" : "인스턴스들은"} 재배포할 때까지 이전 값을 씁니다. 재배포는 빌드하지 않고 마지막 정상 배포(괄호 안의 커밋)를 지금 시크릿으로 다시
@@ -686,8 +686,8 @@ function SecretForm(p: FormProps) {
       </span>
     ) : null;
   return (
-    <div className="ad-part">
-      <div className="ad-formh">
+    <div className="appd-part">
+      <div className="appd-formh">
         <b>{p.title}</b>
         <span className="hint">저장을 누르기 전에는 서버에 보내지 않습니다</span>
       </div>
