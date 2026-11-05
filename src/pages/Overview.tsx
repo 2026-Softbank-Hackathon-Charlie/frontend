@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 import { deploymentRank, useAudit, useRuns, useSecurity } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, Run, RunResult, SecurityReport } from "../api/types";
-import { AppsList, DEPLOY_LABEL, elapsedSec } from "../components/deploy";
+import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
 import { EnvGrid, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
 import { Chip, PageHead, type ChipKind } from "../components/ui";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { ENV, SAMPLE } from "../sim/data";
 import { dur, fmt } from "../sim/format";
-import { statusText, TARGET_SEC } from "../sim/mig";
+import { iso, statusText, TARGET_SEC } from "../sim/mig";
 import { SIM_SECURITY } from "../sim/security";
 import { migLabel, type SimState } from "../sim/state";
 import { useSim } from "../sim/store";
@@ -19,7 +19,8 @@ export function Overview() {
   return useLive() ? <LiveOverview /> : <SimOverview />;
 }
 
-function OverviewView({ now, apps, activity }: { now: ReactNode; apps: AppsModel; activity: ReactNode }) {
+/** `runs`: the live runs LiveOverview polls, so the route matrix shows the ones in progress too. */
+function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: AppsModel; activity: ReactNode; runs?: Run[] }) {
   return (
     <div className="page ov">
       <PageHead
@@ -53,7 +54,7 @@ function OverviewView({ now, apps, activity }: { now: ReactNode; apps: AppsModel
             <span className="hint">목표: {TARGET_SEC / 60}분 이내, 실패 0, 누락 0</span>
           </div>
           <div className="bb">
-            <RouteMatrix />
+            <RouteMatrix active={runs?.filter(isActive)} />
             <a className="more hint" href="#routes">
               6개 경로 자세히
             </a>
@@ -86,7 +87,8 @@ function SimOverview() {
   const current = m.run;
   // the current run first; once it succeeds, history holds a copy of it
   const runs = current ? [current, ...m.history.filter((r) => r.runId !== current.runId)] : m.history;
-  const items = [...simWork(S), ...deployItems(apps.apps ?? [], apps.now), ...runItems(runs, current?.runId), ...securityItems(SIM_SECURITY)];
+  // run times are on the migration's simulated clock
+  const items = [...simWork(S), ...deployItems(apps.apps ?? [], apps.now), ...runItems(runs, Date.parse(iso(m.now)), current?.runId), ...securityItems(SIM_SECURITY)];
   return <OverviewView now={<NowList items={items} />} apps={apps} activity={<SimActivity />} />;
 }
 
@@ -94,10 +96,10 @@ function LiveOverview() {
   const apps = useLiveApps();
   const runs = useRuns(5_000);
   const sec = useSecurity(60_000);
-  const items = [...deployItems(apps.apps ?? [], apps.now), ...runItems(runs.data ?? []), ...securityItems(sec.data)];
+  const items = [...deployItems(apps.apps ?? [], apps.now), ...runItems(runs.data ?? [], Date.now()), ...securityItems(sec.data)];
   const failed = [runs.error && !runs.data ? "이전 목록" : "", sec.error && !sec.data ? "보안 점검" : "", apps.error ? "앱 목록" : ""].filter(Boolean);
   const loading = runs.loading || sec.loading || (!apps.apps && !apps.error);
-  return <OverviewView now={<NowList items={items} loading={loading} failed={failed} />} apps={apps} activity={<LiveActivity />} />;
+  return <OverviewView now={<NowList items={items} loading={loading} failed={failed} />} apps={apps} activity={<LiveActivity />} runs={runs.data} />;
 }
 
 /* ---------- what needs attention ---------- */
@@ -118,11 +120,13 @@ const RANK: Record<ChipKind, number> = { warn: 0, bad: 1, run: 2, "": 3, neu: 3,
 
 function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: boolean; failed?: string[] }) {
   const sorted = [...items].sort((a, b) => RANK[a.kind] - RANK[b.kind]);
+  // a finished migration is there to read, not to act on
+  const open = items.filter((it) => it.kind !== "ok").length;
   return (
     <section className="box">
       <div className="bh">
         <h2>지금 볼 것</h2>
-        {items.length > 0 && <span className="hint">{items.length}건</span>}
+        {open > 0 && <span className="hint">{open}건</span>}
       </div>
       {sorted.length > 0 ? (
         <ul className="ov-now">
@@ -142,7 +146,8 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
           ))}
         </ul>
       ) : (
-        <p className="hint ov-none">{loading ? "불러오는 중" : "지금 확인할 것이 없습니다."}</p>
+        // with a source missing, "nothing to check" could be wrong: the failure line below says why instead
+        failed.length === 0 && <p className="hint ov-none">{loading ? "불러오는 중" : "지금 확인할 것이 없습니다."}</p>
       )}
       {failed.length > 0 && <p className="hint ov-none">{failed.join(", ")}을 불러오지 못해 빠진 항목이 있을 수 있습니다.</p>}
     </section>
@@ -178,14 +183,19 @@ const routeOf = (r: Run) => envName(r.source.env) + "에서 " + envName(r.target
 const whatOf = (r: Run) => r.source.namespace + (r.rollbackOf ? " 롤백" : " 이전");
 
 /**
- * Runs in progress and the newest finished one. `current` is the run the
- * migration page shows (simulation), so its result links to the report there;
- * other finished runs link to the per-route results.
+ * Runs in progress, and the newest finished one if it ended within a day of
+ * `now`. `current` is the run the migration page shows (simulation), so its
+ * result links to the report there; other finished runs link to the
+ * per-route results.
  */
-function runItems(runs: Run[], current?: string): NowItem[] {
+function runItems(runs: Run[], now: number, current?: string): NowItem[] {
   const out = runs.filter(isActive).map(activeItem);
   const last = runs.find((r) => !isActive(r));
-  if (last) out.push(finishedItem(last, last.runId === current));
+  const ended = last && (last.endedAt ?? last.updatedAt);
+  if (last && ended && now - ms(ended) < 86_400_000) {
+    const item = finishedItem(last, last.runId === current);
+    out.push({ ...item, sub: item.sub + ", " + ago(ended, now) + " 끝남" });
+  }
   return out;
 }
 

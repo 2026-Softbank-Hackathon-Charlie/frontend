@@ -270,3 +270,13 @@ small.block { display: block; color: var(--muted); font-size: 12.5px; margin-top
 .obsopts { display: grid; gap: 8px; margin-top: 8px; }
 .obsopts select { width: auto; padding: 4px 8px; font-size: 13px; }
 .chips .btn[aria-pressed="true"], .tbl .btn[aria-pressed="true"] { border-color: var(--heading); color: var(--heading); font-weight: 600; }
+
+/* App list (AppsList, on the overview and the Apps page): one short chip per environment and their legend.
+   An environment the app is not in gets a dashed chip, like an empty cell of the overview's route matrix. */
+.envchips { display: inline-flex; gap: 4px; }
+.chip.off { background: transparent; color: var(--muted); outline: 1px dashed var(--card-line); outline-offset: -1px; }
+.envlegend { gap: 6px 14px; padding: 10px 16px 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+.envlegend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* text for screen readers only */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

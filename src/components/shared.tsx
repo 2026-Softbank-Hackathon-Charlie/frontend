@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useEnvironments, useMatrix } from "../api/hooks";
-import type { Environment, MatrixRoute, RunStatus } from "../api/types";
+import type { Environment, MatrixRoute, Run, RunStatus } from "../api/types";
 import { errorText, useLive } from "../data/live";
 import { navigate } from "../router";
-import { ENV, ENV_ORDER, SAMPLE, envKeyOf } from "../sim/data";
+import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
@@ -187,39 +187,55 @@ function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: 
 }
 
 /** The same six routes as a 3×3 grid: sources as rows, targets as columns, the diagonal empty. */
-export function RouteMatrix() {
-  return useLive() ? <LiveMatrix /> : <SimMatrix />;
+/**
+ * In live mode `active` are the runs in progress the caller already polls: GET /v1/matrix has only finished
+ * runs, so they are laid over it, and the matrix loads again when that set changes (a run started or ended).
+ * The simulation lays its own run over the matrix.
+ */
+export function RouteMatrix({ active = [] }: { active?: Run[] }) {
+  return useLive() ? <LiveMatrix active={active} /> : <SimMatrix />;
 }
 function SimMatrix() {
   return <MatrixView routes={useSimRoutes()} />;
 }
-function LiveMatrix() {
+function LiveMatrix({ active }: { active: Run[] }) {
   const m = useMatrix();
+  const ids = active.map((r) => r.runId).join(" ");
+  const seen = useRef(ids);
+  const reload = m.reload;
+  useEffect(() => {
+    if (seen.current === ids) return;
+    seen.current = ids;
+    reload();
+  }, [ids, reload]);
   if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
   if (!m.data) return <p className="hint">불러오는 중</p>;
-  return <MatrixView routes={m.data.routes} />;
+  const now = active.map((r): MatrixRoute => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status }));
+  // a cell takes the first route that matches it, so a run in progress wins over the route's last result
+  return <MatrixView routes={[...now, ...m.data.routes]} />;
 }
 
 function MatrixView({ routes }: { routes: MatrixRoute[] }) {
-  const envs = ENV_ORDER.map((k) => ENV[k].id);
+  // environments match by key: the platform names on-prem "onprem", the simulation "k3s"
+  const at = (s: EnvKey, t: EnvKey) => routes.find((r) => envKeyOf(r.source) === s && envKeyOf(r.target) === t);
   return (
     <div className="scroll">
       <table className="rmx">
         <thead>
           <tr>
             <td />
-            {envs.map((t) => (
+            {ENV_ORDER.map((t) => (
               <th key={t} scope="col">
-                {envShort(t)}로
+                {ENV[t].short}로
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {envs.map((s) => (
+          {ENV_ORDER.map((s) => (
             <tr key={s}>
-              <th scope="row">{envShort(s)}에서</th>
-              {envs.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(routes.find((r) => r.source === s && r.target === t))}</td>))}
+              <th scope="row">{ENV[s].short}에서</th>
+              {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
             </tr>
           ))}
         </tbody>
@@ -229,14 +245,15 @@ function MatrixView({ routes }: { routes: MatrixRoute[] }) {
 }
 
 // A run in progress opens the migration page; a finished one the per-route table, which has its numbers.
-function routeCell(r: MatrixRoute | undefined): ReactNode {
+function routeCell(s: EnvKey, t: EnvKey, r: MatrixRoute | undefined): ReactNode {
   if (!r?.status) return <span className="no">아직 없음</span>;
   const active = r.status === "running" || r.status === "awaiting_switch";
   const ms = r.finishedAt ? r.result?.durationMillis : undefined;
+  const time = ms !== undefined ? dur(ms / 1000) : "";
   return (
-    <a className={RESULT_KIND[r.status] || "neu"} href={active ? "#migrate-app" : "#routes"}>
+    <a className={RESULT_KIND[r.status] || "neu"} href={active ? "#migrate-app" : "#routes"} aria-label={ENV[s].short + "에서 " + ENV[t].short + "로 " + RUN_SHORT[r.status] + (time && ", " + time)}>
       <b>{RUN_SHORT[r.status]}</b>
-      {ms !== undefined && <span className="m">{dur(ms / 1000)}</span>}
+      {time && <span className="m">{time}</span>}
     </a>
   );
 }

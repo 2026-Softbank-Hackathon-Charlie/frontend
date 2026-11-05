@@ -1,7 +1,6 @@
 /*
- * Overview (2026-11-05 redesign): what needs attention, compact cluster cards, the route matrix, and the
- * app list's environment chips and legend. App.tsx imports the overview statically, so these rules are always
- * loaded; the Apps page shows the same app list.
+ * Overview (2026-11-05 redesign): what needs attention, compact cluster cards, the route matrix and recent
+ * activity. The app list's environment chips are shared with the Apps page and live in app.css.
  */
 .ov .bh h2 { font-size: 15px; font-weight: 700; }
 .ov-none { padding: 14px 16px; }
@@ -34,14 +33,14 @@
 .ov-act .when { min-width: 48px; }
 
 /* route matrix: sources as rows, targets as columns */
-.rmx { width: 100%; min-width: 400px; border-collapse: separate; border-spacing: 6px; table-layout: fixed; }
+.rmx { width: 100%; border-collapse: separate; border-spacing: 6px; table-layout: fixed; }
 .rmx th { font-size: 12.5px; font-weight: 400; color: var(--muted); text-align: left; padding: 0 4px; white-space: nowrap; }
-.rmx thead td, .rmx tbody th { width: 76px; }
+.rmx thead td, .rmx tbody th { width: 64px; }
 .rmx td { padding: 0; }
 .rmx tbody td { height: 52px; }
 .rmx td.x { background: var(--side-bg); border-radius: 6px; }
-.rmx .no, .rmx a { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 52px; padding: 8px 12px; border-radius: 6px; }
-.rmx .no { border: 1px dashed var(--card-line); color: var(--muted); font-size: 12.5px; }
+.rmx .no, .rmx a { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 52px; padding: 8px 10px; border-radius: 6px; }
+.rmx .no { border: 1px dashed var(--card-line); color: var(--muted); font-size: 12.5px; word-break: keep-all; }
 .rmx a { text-decoration: none; }
 .rmx a b { font-size: 13px; }
 .rmx a .m { font-size: 12px; }
@@ -50,10 +49,3 @@
 .rmx a.warn { background: var(--warn-bg); color: var(--warn); }
 .rmx a.bad { background: var(--bad-bg); color: var(--bad); }
 .rmx a.neu { background: var(--neu-bg); color: var(--neu); }
-
-/* app list: the three environment chips stay on one line, with their color legend under the table */
-.envchips { display: inline-flex; gap: 4px; }
-.envlegend { gap: 6px 14px; padding: 10px 16px 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
-.envlegend > span { display: inline-flex; align-items: center; gap: 6px; }
-
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
