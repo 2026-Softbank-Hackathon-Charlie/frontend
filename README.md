@@ -38,6 +38,15 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 | v17 | [#17](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/17) | 11/4 14:42 | 시작 전 검사의 대기 서버 설정 문장 (실제 API 모드에서만) |
 | v18 | [#18](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/18) | 11/4 16:01 | 승인 화면에서 전환 후 관찰과 자동 롤백 선택 (실제 API 모드에서만) |
 | v19 | [#19](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/19) | 11/4 16:12 | 데모 모드의 이전 대상을 moimroom으로 |
+| v20 | [#20](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/20) | 11/4 16:36 | 앱 시크릿 편집과 빌드 없는 재배포 |
+| v21 | [#21](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/21) | 11/4 16:40 | 버전 히스토리에 v8~v19 추가 (화면 변화 없음) |
+| v22 | [#22](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/22) | 11/4 16:56 | 읽기 카나리 7단계와 판단 보류 표시 |
+| v23 | [#24](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/24) | 11/4 17:35 | 읽기 카나리 기본값을 10%, 50%, 100%로 |
+| v24 | [#25](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/25) | 11/4 21:18 | 콘솔 게시를 self-hosted runner에서 (화면 변화 없음) |
+| v25 | [#23](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/23) | 11/4 21:46 | 이전 화면에 AI 실행기의 계획 세션 (실제 API 모드에서만) |
+| v26 | [#26](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/26) | 11/5 10:20 | 콘솔 개편 1단계: 묶음 사이드 메뉴, 상태 색, SUIT 글꼴 |
+| v27 | [#27](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/27) | 11/5 10:27 | 콘솔 개편 2단계: 이전 상태 카드, 앱 상세 탭, 개요 |
+| v28 | [#28](https://github.com/2026-Softbank-Hackathon-Charlie/frontend/pull/28) | 11/5 12:04 | 콘솔 마감 다듬기, 넓은 화면 정렬 |
 
 ## 화면
 
