@@ -34,7 +34,12 @@ function LiveEnvs() {
                 td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
                 td(<DbBackups dbs={e.status.databases} />),
                 td(e.gatewayBackend, "m"),
-                td(<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>),
+                td(
+                  <>
+                    <Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>
+                    {e.status.reachable && e.status.error && <div className="hint">일부를 읽지 못함: {e.status.error}</div>}
+                  </>,
+                ),
               ])}
             />
           </div>
@@ -81,34 +86,44 @@ function LiveEnvs() {
 const when = (s: string) =>
   new Date(s).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
-/** What the console says about one database's backups (platform ADR 0025), or null when it has none. */
-export function backupStatus(d: DatabaseCluster): { chip: ChipKind; label: string; detail: string } | null {
+/** A base backup older than this is late: the schedule is daily. */
+const STALE_MS = 26 * 3_600_000;
+
+/** What the console says about one database's backups (platform ADR 0025). */
+export function backupStatus(d: DatabaseCluster, now = Date.now()): { chip: ChipKind; label: string; detail: string } {
   const b = d.backup;
-  if (!b) return null;
-  const last = b.lastSuccessfulBackup;
-  const failedLater = !!b.lastFailedBackup && (!last || b.lastFailedBackup > last);
-  const label = !b.walArchiving ? "WAL 보관 실패" : failedLater ? "마지막 백업 실패" : "백업 중";
-  const detail = ["마지막 백업 " + (last ? when(last) : "없음"), b.firstRecoverabilityPoint ? when(b.firstRecoverabilityPoint) + "부터 복구 가능" : ""]
+  if (!b) return { chip: "neu", label: "백업 없음", detail: "" };
+  const last = b.lastSuccessfulBackup ? Date.parse(b.lastSuccessfulBackup) : NaN;
+  const failed = b.lastFailedBackup ? Date.parse(b.lastFailedBackup) : NaN;
+  const detail = ["마지막 백업 " + (b.lastSuccessfulBackup ? when(b.lastSuccessfulBackup) : "없음"), b.firstRecoverabilityPoint ? when(b.firstRecoverabilityPoint) + "부터 복구 가능" : ""]
     .filter(Boolean)
     .join(", ");
-  return { chip: !b.walArchiving ? "bad" : failedLater ? "warn" : "ok", label, detail };
+  const [chip, label]: [ChipKind, string] = !b.walArchiving
+    ? ["bad", "WAL 보관 실패"]
+    : !Number.isNaN(failed) && (Number.isNaN(last) || failed > last)
+      ? ["warn", "마지막 백업 실패"]
+      : Number.isNaN(last)
+        ? ["warn", "백업 기록 없음"]
+        : now - last > STALE_MS
+          ? ["warn", "백업 오래됨"]
+          : ["ok", "백업 정상"];
+  return { chip, label, detail };
 }
 
-/** Databases with backups: archiving, the last backup and how far back a restore reaches. */
+/** Every database: whether it is backed up, the last backup and how far back a restore reaches. */
 function DbBackups({ dbs }: { dbs?: DatabaseCluster[] }) {
-  const rows = (dbs ?? []).flatMap((d) => {
-    const st = backupStatus(d);
-    return st ? [{ d, st }] : [];
-  });
-  if (rows.length === 0) return <>-</>;
+  if (!dbs?.length) return <>-</>;
   return (
     <>
-      {rows.map(({ d, st }) => (
-        <div key={d.namespace + "/" + d.name}>
-          {d.name} <Chip kind={st.chip}>{st.label}</Chip>
-          <div className="hint">{st.detail}</div>
-        </div>
-      ))}
+      {dbs.map((d) => {
+        const st = backupStatus(d);
+        return (
+          <div key={d.namespace + "/" + d.name}>
+            <span className="m">{d.namespace + "/" + d.name}</span> <Chip kind={st.chip}>{st.label}</Chip>
+            {st.detail && <div className="hint">{st.detail}</div>}
+          </div>
+        );
+      })}
     </>
   );
 }
