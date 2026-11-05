@@ -1,5 +1,5 @@
 import { useEnvironments, useTraffic } from "../api/hooks";
-import { Chip, PageHead, Table, td } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
@@ -18,12 +18,14 @@ function LiveEnvs() {
       <section className="sec">
         <h2>대상 클러스터</h2>
         {envs.error && !envs.data ? (
-          <p className="hint">불러오지 못했습니다: {errorText(envs.error)}</p>
+          <LoadError title="클러스터 상태를 불러오지 못했습니다." error={errorText(envs.error)} retry={envs.reload} />
+        ) : !envs.data ? (
+          <Skeleton box />
         ) : (
           <div className="box">
             <Table
               head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "게이트웨이 백엔드", "상태"]}
-              rows={(envs.data ?? []).map((e) => [
+              rows={envs.data.map((e) => [
                 td(<b>{e.displayName}</b>),
                 td(e.region ?? "-"),
                 td(e.status.kubernetesVersion ?? "-", "m"),
@@ -39,9 +41,9 @@ function LiveEnvs() {
       <section className="sec">
         <h2>트래픽 게이트웨이</h2>
         {traffic.error && !t ? (
-          <p className="hint">불러오지 못했습니다: {errorText(traffic.error)}</p>
+          <LoadError title="트래픽 게이트웨이 상태를 불러오지 못했습니다." error={errorText(traffic.error)} retry={traffic.reload} />
         ) : !t ? (
-          <p className="hint">불러오는 중</p>
+          <Skeleton box />
         ) : (
           <div className="box">
             <div className="bb">

@@ -4,7 +4,7 @@ import type { AppInstance, AppSpecValidation, Deployment } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
 import { AppSecrets, SecretsSummary } from "../components/secrets";
 import { envName } from "../components/shared";
-import { Chip, PageHead, Table, Tabs, td } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
@@ -59,8 +59,8 @@ function SimAppsBody({ filter }: { filter: AppFilter }) {
 }
 
 function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
-  if (m.error) return <p className="hint">앱을 불러오지 못했습니다: {m.error}</p>;
-  if (!m.apps) return <p className="hint">불러오는 중</p>;
+  if (m.error) return <LoadError title="앱 목록을 불러오지 못했습니다." error={m.error} />;
+  if (!m.apps) return <Skeleton box />;
   const health = new Map(m.apps.map((a) => [a.name, appHealth(a)]));
   const count = (f: AppFilter) => (f === "all" ? m.apps!.length : m.apps!.filter((a) => health.get(a.name) === f).length);
   const shown = filter === "all" ? m.apps : m.apps.filter((a) => health.get(a.name) === filter);
@@ -249,7 +249,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
     return (
       <div className="page ad-page">
         <AppHead name={name} />
-        <p className="hint">{m.error ? "앱을 불러오지 못했습니다: " + m.error : "불러오는 중"}</p>
+        {m.error ? <LoadError title="앱을 불러오지 못했습니다." error={m.error} /> : <Skeleton box />}
       </div>
     );
   }
@@ -375,8 +375,10 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
                       {ago(last.createdAt, m.now)} 시작, {isFinalDeploymentStatus(last.status) ? dur(elapsedSec(last, m.now)) + " 걸림" : "진행 중"}
                     </dd>
                   </dl>
+                ) : m.deployments ? (
+                  <p className="hint">아직 배포가 없습니다. 기본 브랜치 다시 배포를 누르면 여기에 나옵니다.</p>
                 ) : (
-                  <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+                  <Skeleton />
                 )}
               </div>
             </Card>
@@ -430,9 +432,11 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
   } else if (d && tab === "deploys") {
     panel = (
       <Card title="배포 이력" side={deps.length > 0 && <span className="hint">{deps.length}건</span>}>
-        {deps.length === 0 ? (
+        {!m.deployments ? (
+          <Skeleton />
+        ) : deps.length === 0 ? (
           <div className="empty-state">
-            <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+            <p className="hint">아직 배포가 없습니다. 기본 브랜치 다시 배포를 누르거나 브랜치에 push하면 여기에 쌓입니다.</p>
           </div>
         ) : (
           <Table

@@ -228,6 +228,15 @@ a.metric[aria-current="true"] span { color: var(--heading); }
 .durlab { display: flex; gap: 2px; font-size: 12px; color: var(--muted); }
 .durlab div { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .empty-state { padding: var(--sp-xl) var(--sp-lg); display: grid; gap: var(--sp-sm); justify-items: start; }
+/* loading placeholder (Skeleton): still grey lines that show only after 150ms */
+.sk { display: grid; gap: var(--sp-sm); animation: sb-fade var(--dur-fast) var(--ease-out) 150ms both; }
+.box > .sk { padding: var(--sp-md); }
+.sk i { display: block; height: 14px; border-radius: var(--r-chip); background: var(--fill); }
+.sk i:last-child:not(:first-of-type) { width: 60%; }
+/* a failed load (LoadError): the sentence, the cause in small print, a retry */
+.loaderr { display: grid; gap: var(--sp-2xs); justify-items: start; font-size: 14px; color: var(--heading); }
+.loaderr small { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.loaderr .btn { margin-top: var(--sp-xs); }
 
 /* HopCharlie migration order: six steps in one strip */
 .steps6, .steps9 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--card-line); border-radius: var(--r-card); overflow: hidden; }

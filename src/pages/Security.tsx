@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSecurity } from "../api/hooks";
 import type { SecurityCategory, SecurityReport, SecuritySeverity } from "../api/types";
 import { envName } from "../components/shared";
-import { Chip, PageHead, Table, td, type ChipKind } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, td, type ChipKind } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { CATEGORIES, CATEGORY_LABEL, PROVIDER_LABEL, securityMatrix, SOURCE_LABEL, type CellState } from "../data/securityMatrix";
 import { SIM_SECURITY } from "../sim/security";
@@ -29,7 +29,7 @@ function LiveSecurity() {
     return (
       <div className="page">
         <PageHead title="보안" />
-        <p className="hint">불러오지 못했습니다: {errorText(r.error)}</p>
+        <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={errorText(r.error)} retry={r.reload} />
       </div>
     );
   }
@@ -37,7 +37,7 @@ function LiveSecurity() {
     return (
       <div className="page">
         <PageHead title="보안" />
-        <p className="hint">불러오는 중</p>
+        <Skeleton box rows={4} />
       </div>
     );
   }

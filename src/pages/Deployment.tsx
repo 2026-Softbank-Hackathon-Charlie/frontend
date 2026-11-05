@@ -4,7 +4,7 @@ import { isFinalDeploymentStatus } from "../api/sse";
 import type { Deployment, DeploymentEvent, DeploymentStatus } from "../api/types";
 import { DEPLOY_LABEL, DeployChip, EnvChip, ExtLink, elapsedSec, ms, short, TRIGGER_LABEL } from "../components/deploy";
 import { envName } from "../components/shared";
-import { LogBox, PageHead, ProgItem, Table, td } from "../components/ui";
+import { LoadError, LogBox, PageHead, ProgItem, Skeleton, Table, td } from "../components/ui";
 import { instancesOf, useLiveDeployment, useSimDeployment, type DeploymentModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { dur, mmss, type StepState } from "../sim/format";
@@ -66,7 +66,13 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
     return (
       <div className="page">
         <PageHead title={m.notFound ? "배포를 찾을 수 없습니다" : "배포"} crumb={<a href="#apps">앱</a>} />
-        <p className="hint">{m.notFound ? "지워진 앱의 배포이거나 주소가 틀렸습니다." : m.error ? "불러오지 못했습니다: " + m.error : "불러오는 중"}</p>
+        {m.notFound ? (
+          <p className="hint">지워진 앱의 배포이거나 주소가 틀렸습니다.</p>
+        ) : m.error ? (
+          <LoadError title="배포를 불러오지 못했습니다." error={m.error} />
+        ) : (
+          <Skeleton box />
+        )}
       </div>
     );
   }

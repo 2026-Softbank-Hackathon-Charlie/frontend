@@ -8,7 +8,7 @@ import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
 import { useSim } from "../sim/store";
-import { Chip, Table, td, type ChipKind } from "./ui";
+import { Chip, LoadError, Skeleton, Table, td, type ChipKind } from "./ui";
 
 /** Display name for a platform environment name (eks → AWS EKS). */
 export function envName(name: string, envs?: Environment[]): string {
@@ -83,8 +83,8 @@ function dbCount(e: Environment): string {
 
 function LiveEnvGrid() {
   const envs = useEnvironments(10_000);
-  if (envs.error && !envs.data) return <p className="hint">환경을 불러오지 못했습니다: {errorText(envs.error)}</p>;
-  if (!envs.data) return <p className="hint">불러오는 중</p>;
+  if (envs.error && !envs.data) return <LoadError title="클러스터 상태를 불러오지 못했습니다." error={errorText(envs.error)} retry={envs.reload} />;
+  if (!envs.data) return <Skeleton box />;
   return (
     <div className="envcards">
       {envs.data.map((e) => (
@@ -143,8 +143,8 @@ function SimRoutes({ withCount }: { withCount?: boolean }) {
 }
 function LiveRoutes({ withCount }: { withCount?: boolean }) {
   const m = useMatrix();
-  if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
-  if (!m.data) return <p className="hint">불러오는 중</p>;
+  if (m.error && !m.data) return <LoadError title="경로별 결과를 불러오지 못했습니다." error={errorText(m.error)} retry={m.reload} />;
+  if (!m.data) return <Skeleton box rows={6} />;
   return <RoutesView routes={m.data.routes} withCount={withCount} />;
 }
 
@@ -200,8 +200,8 @@ function LiveMatrix({ active }: { active: Run[] }) {
     seen.current = ids;
     reload();
   }, [ids, reload]);
-  if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
-  if (!m.data) return <p className="hint">불러오는 중</p>;
+  if (m.error && !m.data) return <LoadError title="경로별 결과를 불러오지 못했습니다." error={errorText(m.error)} retry={reload} />;
+  if (!m.data) return <Skeleton />;
   const now = active.map((r): MatrixRoute => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status }));
   // a cell takes the first route that matches it, so a run in progress wins over the route's last result
   return <MatrixView routes={[...now, ...m.data.routes]} />;

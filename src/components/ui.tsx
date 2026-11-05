@@ -15,6 +15,37 @@ export function Chip({ kind = "", dot, children }: { kind?: ChipKind; dot?: bool
   );
 }
 
+/**
+ * Placeholder while data loads: `rows` grey lines where a table or list will be, inside a card outline with `box`.
+ * It appears only after 150ms (CSS), so a fast answer does not flash it; screen readers hear "불러오는 중".
+ */
+export function Skeleton({ rows = 3, box }: { rows?: number; box?: boolean }) {
+  const lines = (
+    <div className="sk">
+      <span className="sr-only">불러오는 중</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <i key={i} aria-hidden="true" />
+      ))}
+    </div>
+  );
+  return box ? <div className="box">{lines}</div> : lines;
+}
+
+/** A load that failed: what did not load (`title`, one sentence), the cause in small print, and a retry when the data can be read again. */
+export function LoadError({ title, error, retry }: { title: string; error: ReactNode; retry?: () => void }) {
+  return (
+    <div className="loaderr">
+      <p>{title}</p>
+      <small>{error}</small>
+      {retry && (
+        <button type="button" className="btn ghost sm" onClick={retry}>
+          다시 불러오기
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Square status indicator. Purely decorative: the adjacent text always carries the state. */
 export function Ind({ st }: { st: StepState }) {
   return (

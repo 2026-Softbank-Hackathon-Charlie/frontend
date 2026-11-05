@@ -124,7 +124,7 @@ export function BlockedTable({ events }: { events: AgentEvent[] }) {
         <Table head={["AI 권한으로 시도한 명령", "막은 장치", ""]} rows={blk.map((b) => [td(b.command, "m"), td(b.by), td(<Chip kind="bad">차단</Chip>)])} />
       ) : (
         <div className="bb">
-          <p className="hint">아직 없습니다.</p>
+          <p className="hint">막힌 명령이 없습니다. AI가 권한 밖의 명령을 시도하면 플랫폼이 막고 여기에 남깁니다.</p>
         </div>
       )}
     </div>
