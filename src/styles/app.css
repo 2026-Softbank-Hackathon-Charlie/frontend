@@ -15,6 +15,10 @@ button, input, select { font: inherit; color: inherit; }
 
 .linkbtn { background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; color: var(--fg); }
 
+.icon { display: inline-block; flex: none; vertical-align: -0.125em; }
+.icon-label { display: inline-flex; align-items: center; gap: var(--sp-xs); min-width: 0; }
+.icon-label > span { min-width: 0; }
+
 /* Shell: grouped side menu on a grey rail, slim top bar with the section path and the mode notice. */
 .layout { display: flex; min-height: 100vh; min-height: 100dvh; }
 .side { flex: 0 0 220px; box-sizing: border-box; background: var(--side-bg); border-right: 1px solid var(--line-soft); padding: var(--sp-lg) var(--sp-sm) var(--sp-xl) max(var(--sp-sm), env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: var(--sp-lg); }

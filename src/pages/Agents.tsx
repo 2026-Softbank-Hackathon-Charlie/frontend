@@ -60,7 +60,7 @@ function AgentsView({
   const tokens = sessions.reduce((a, s) => [a[0] + s.totals.inputTokens, a[1] + s.totals.outputTokens], [0, 0]);
   return (
     <div className="page">
-      <PageHead title="AI 활동" sub={SUB} />
+      <PageHead icon="bot" title="AI 활동" sub={SUB} />
       {error ? (
         <LoadError title="AI 세션을 불러오지 못했습니다." error={error} retry={retry} />
       ) : loading ? (

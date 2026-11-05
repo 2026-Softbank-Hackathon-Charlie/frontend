@@ -1,4 +1,5 @@
 import { Chip, LogBox, PageHead, Table, td, type Cell } from "../components/ui";
+import { Icon } from "../components/Icon";
 import { ENV, ENV_ORDER, FINDINGS, SAMPLE, type EnvKey } from "../sim/data";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
@@ -13,6 +14,7 @@ export function Onboard() {
   return (
     <div className="page">
       <PageHead
+        icon="download"
         title="기존 앱 가져오기"
         sub="플랫폼 밖(EC2, RDS, S3)에서 돌고 있는 앱을 AI가 점검하고 고쳐서, 클러스터에 배포할 수 있는 형태로 바꿉니다. AI 범위 결정(3장 7번) 전 시안입니다."
       />
@@ -93,6 +95,7 @@ function Step1() {
       </div>
       <div className="actrow">
         <button type="button" className="btn primary" onClick={() => dispatch({ type: "onb-start" })}>
+          <Icon name="bot" size={16} />
           점검 시작
         </button>
         <button
@@ -148,6 +151,7 @@ function Step2() {
       </div>
       <div className="actrow">
         <button type="button" className="btn primary" disabled={!o.done[2]} onClick={() => dispatch({ type: "onb-sbx" })}>
+          <Icon name="play" size={16} />
           샌드박스 테스트 시작
         </button>
         {!o.done[2] && <span className="hint">AI 점검이 끝나면 시작할 수 있습니다.</span>}
@@ -271,6 +275,7 @@ function Step3() {
       </div>
       <div className="actrow">
         <button type="button" className="btn primary" disabled={!o.done[3]} onClick={() => dispatch({ type: "onb-pr" })}>
+          <Icon name="git-pull-request" size={16} />
           PR 확인
         </button>
         {!o.done[3] && <span className="hint">샌드박스 테스트가 끝나면 PR을 확인할 수 있습니다.</span>}
@@ -317,6 +322,7 @@ function Step4() {
               <>
                 <div className="actrow">
                   <button type="button" className="btn primary" onClick={() => dispatch({ type: "onb-approve" })}>
+                    <Icon name="check" size={16} />
                     GitHub에서 승인됨으로 표시 (시연용)
                   </button>
                 </div>
@@ -345,6 +351,7 @@ function Step4() {
             </p>
             <div className="actrow">
               <a className="btn primary" href="#migrate-app">
+                <Icon name="arrow-right-left" size={16} />
                 이전하러 가기
               </a>
               <a className="btn ghost" href={"#app-" + SAMPLE.id}>

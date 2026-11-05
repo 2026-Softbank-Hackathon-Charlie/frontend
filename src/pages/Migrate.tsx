@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { AgentEvent, AgentSession, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { blockedOf, KIND_LABEL, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { EmptyShop } from "../components/shared";
+import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
 import { useLive } from "../data/live";
@@ -40,14 +41,17 @@ function MigrateListView({ v }: { v: MigrationView }) {
   return (
     <div className="page">
       <PageHead
+        icon="arrow-right-left"
         title="이전"
         sub="가동 중인 앱을 데이터와 함께 다른 클러스터로 옮깁니다. AI가 계획하고 샌드박스에서 리허설한 뒤, 운영자가 승인하면 엔진이 실행합니다."
         acts={
           <>
             <a className="btn primary" href="#migrate-app">
+              <Icon name="arrow-right-left" size={16} />
               이전하기
             </a>
             <a className="btn ghost" href="#routes">
+              <Icon name="route" size={16} />
               경로별 결과
             </a>
           </>
@@ -217,7 +221,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (!v.ready) {
     return (
       <div className="page">
-        <PageHead title={title} />
+        <PageHead icon="arrow-right-left" title={title} />
         {live ? <LiveEmpty notice={v.notice} /> : <EmptyShop />}
       </div>
     );
@@ -226,7 +230,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     return (
       <div className="page">
-        <PageHead title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." />
+        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." />
         <Notice text={v.notice} />
         <div className="split">
           <div className="box">
@@ -275,6 +279,7 @@ function MigrateView({ v }: { v: MigrationView }) {
         </div>
         <div className="actrow">
           <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+            <Icon name={live ? "clipboard-check" : "bot"} size={16} />
             {live ? "Plan 작성" : "AI 계획 시작"}
           </button>
           <span className="hint">
@@ -290,7 +295,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const where = v.stage === "run" && v.run ? ", " + (v.run.rollbackOf ? "롤백 " : "") + v.run.runId : v.plan ? ", Plan " + v.plan.ref : "";
   return (
     <div className="page">
-      <PageHead title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} />
+      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} />
       <Wizard v={v} />
       <Notice text={v.notice} />
       {v.stage === "run" && v.run ? <RunView v={v} r={v.run} /> : <AiView v={v} />}
@@ -434,9 +439,11 @@ function ApproveBox({ v }: { v: MigrationView }) {
         </dl>
         <div className="mg-decide">
           <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.approve}>
+            <Icon name="check" />
             승인하고 시작
           </button>
           <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reject}>
+            <Icon name="x" size={16} />
             반려
           </button>
         </div>
@@ -554,9 +561,11 @@ function StartAgainBox({ v }: { v: MigrationView }) {
         </dl>
         <div className="mg-decide">
           <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.approve}>
+            <Icon name="play" />
             다시 시작
           </button>
           <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reset}>
+            <Icon name="clipboard-check" size={16} />
             새 Plan 작성
           </button>
         </div>
@@ -1114,26 +1123,31 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
         <div className="mg-acts">
           {r.status === "awaiting_switch" && (
             <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.doSwitch}>
+              <Icon name="arrow-right-left" />
               전환
             </button>
           )}
           {canAbort && (
             <button type="button" className="btn ghost lg" disabled={v.busy} onClick={v.abort}>
+              <Icon name="x" />
               중단
             </button>
           )}
           {canResume && (
             <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.resume}>
+              <Icon name="play" />
               이어서 실행
             </button>
           )}
           {r.status === "succeeded" && !r.observe?.rollbackRunId && (
             <button type="button" className="btn ghost lg" disabled={v.busy} onClick={v.rollback}>
+              <Icon name="rotate-ccw" />
               롤백
             </button>
           )}
           {ended && (
             <button type="button" className="btn ghost lg" onClick={v.reset}>
+              <Icon name="route" />
               다른 경로로 이전
             </button>
           )}

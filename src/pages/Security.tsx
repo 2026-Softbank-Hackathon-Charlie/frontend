@@ -28,7 +28,7 @@ function LiveSecurity() {
   if (r.error && !r.data) {
     return (
       <div className="page">
-        <PageHead title="보안" />
+        <PageHead icon="shield-check" title="보안" />
         <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={errorText(r.error)} retry={r.reload} />
       </div>
     );
@@ -36,7 +36,7 @@ function LiveSecurity() {
   if (!r.data) {
     return (
       <div className="page">
-        <PageHead title="보안" />
+        <PageHead icon="shield-check" title="보안" />
         <Skeleton box rows={4} />
       </div>
     );
@@ -83,7 +83,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
   const findings = report.findings.filter((f) => (!sev || f.severity === sev) && (!cell || (f.environment === cell.env && f.category === cell.cat)));
   return (
     <div className="page">
-      <PageHead title="보안" sub="클라우드 보안 서비스와 플랫폼 점검이 찾은 항목을 환경별로 모읍니다. 심각한 것부터 보여 줍니다." />
+      <PageHead icon="shield-check" title="보안" sub="클라우드 보안 서비스와 플랫폼 점검이 찾은 항목을 환경별로 모읍니다. 심각한 것부터 보여 줍니다." />
       {demo && <p className="hint">시연 데이터입니다. API에 연결하면 GET /v1/security 결과를 보여 줍니다.</p>}
 
       <section className="sec">

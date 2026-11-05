@@ -13,6 +13,7 @@ import type { RevealResult, SecretsModel } from "../data/secrets";
 import { navigate } from "../router";
 import { MAX_SECRETS, MAX_SECRET_VALUE, secretNameError, secretValueError } from "../sim/secrets";
 import { ago, short } from "./deploy";
+import { Icon } from "./Icon";
 import { Chip, LoadError, Skeleton, Table, td, type Cell } from "./ui";
 
 /** How long a shown or loaded value stays. */
@@ -69,6 +70,7 @@ export function AppSecrets({ s, m, busy, setRedeploying }: Props) {
   const retry = (
     <div className="actrow">
       <button type="button" className="btn ghost" onClick={s.reload}>
+        <Icon name="refresh-cw" size={16} />
         다시 불러오기
       </button>
     </div>
@@ -111,10 +113,12 @@ export function AppSecrets({ s, m, busy, setRedeploying }: Props) {
             <div className="actrow">
               {selected && (
                 <button ref={openers.instance} type="button" className="btn ghost" aria-expanded={adding === "instance"} onClick={() => toggle("instance")}>
+                  <Icon name="plus" size={16} />
                   덮어쓰기 추가
                 </button>
               )}
               <button ref={openers.app} type="button" className="btn primary" aria-expanded={adding === "app"} onClick={() => toggle("app")}>
+                <Icon name="plus" size={16} />
                 시크릿 추가
               </button>
             </div>
@@ -492,7 +496,7 @@ function SecretScope(p: ScopeProps) {
   return (
     <section className="box" aria-label={p.label} ref={root}>
       <div className="bh">
-        <h2>{p.title}</h2>
+        <h2 className="icon-label"><Icon name="key-round" /><span>{p.title}</span></h2>
         <span className="hint">{p.note}</span>
       </div>
       {rows.length === 0 ? (
@@ -542,6 +546,7 @@ function SecretScope(p: ScopeProps) {
           <p className="hint">저장을 눌러야 서버에 보냅니다. {whatObj} 한 번에 바꿉니다.</p>
           <div className="actrow">
             <button type="button" className="btn primary" disabled={saving} onClick={save}>
+              <Icon name="check" size={16} />
               {saving ? "저장하는 중" : "저장"}
             </button>
             <button type="button" className="btn ghost" disabled={saving} onClick={cancel}>
@@ -573,6 +578,7 @@ function SecretScope(p: ScopeProps) {
             })}
             {p.targets.length > 1 && (
               <button type="button" className="btn primary" disabled={p.busy || waiting.length === p.targets.length} onClick={() => redeploy(p.targets)}>
+                <Icon name="refresh-cw" size={16} />
                 모든 인스턴스 재배포
               </button>
             )}
@@ -737,6 +743,7 @@ function SecretForm(p: FormProps) {
               }}
             />
             <button type="button" className="btn ghost" aria-label="입력한 값 보기" aria-pressed={visible} disabled={p.disabled} onClick={() => setVisible((v) => !v)}>
+              <Icon name={visible ? "eye-off" : "eye"} size={16} />
               보기
             </button>
           </div>
@@ -747,6 +754,7 @@ function SecretForm(p: FormProps) {
       </div>
       <div className="actrow">
         <button type="button" className="btn" disabled={p.disabled} onClick={submit}>
+          <Icon name="plus" size={16} />
           변경에 넣기
         </button>
         {p.load && (
