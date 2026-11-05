@@ -1,7 +1,7 @@
 import { Chip, LogBox, PageHead, Table, td, type Cell } from "../components/ui";
 import { Icon } from "../components/Icon";
 import { ENV, ENV_ORDER, FINDINGS, SAMPLE, type EnvKey } from "../sim/data";
-import { useLive } from "../data/live";
+import { chooseMode, useLive } from "../data/live";
 import { navigate } from "../router";
 import { useSim } from "../sim/store";
 
@@ -11,6 +11,22 @@ export function Onboard() {
   const { S } = useSim();
   const o = S.onb;
   const live = useLive();
+  if (live) return (
+    <div className="page">
+      <PageHead icon="download" title="기존 앱 가져오기" sub="플랫폼 밖에서 실행 중인 앱을 클러스터로 가져오는 흐름입니다." />
+      <ol className="wiz" aria-label="가져오기 단계">
+        {LABELS.map((label, i) => <li key={label}><span className="n">{i + 1}</span><span>{label}</span></li>)}
+      </ol>
+      <section className="box">
+        <h2>실제 가져오기 연동 준비 중</h2>
+        <p>클라우드 자산 점검·기존 데이터 가져오기는 아직 실제 API에 연결되지 않았습니다. 자격증명을 입력받거나 시연 결과를 실제 실행처럼 표시하지 않습니다.</p>
+        <div className="acts">
+          <a className="btn ghost" href="#apps">앱 목록으로</a>
+          <button type="button" className="btn" onClick={() => chooseMode("demo")}>데모에서 가져오기 흐름 보기</button>
+        </div>
+      </section>
+    </div>
+  );
   return (
     <div className="page">
       <PageHead
@@ -18,7 +34,7 @@ export function Onboard() {
         title="기존 앱 가져오기"
         sub="플랫폼 밖(EC2, RDS, S3)에서 돌고 있는 앱을 AI가 점검하고 고쳐서, 클러스터에 배포할 수 있는 형태로 바꿉니다. AI 범위 결정(3장 7번) 전 시안입니다."
       />
-      {live && <p className="hint">이 화면은 일반 모드에서도 아직 시연용 데이터로 동작합니다.</p>}
+      <p className="hint">데모의 가상 앱·자격정보로 가져오기 흐름을 보여줍니다. 실제 자격증명을 입력하지 마세요.</p>
       <ol className="wiz" aria-label="가져오기 단계">
         {LABELS.map((l, i) => {
           const n = i + 1;

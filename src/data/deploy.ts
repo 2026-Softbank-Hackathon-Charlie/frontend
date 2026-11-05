@@ -218,7 +218,7 @@ export function useSimApps(): AppsModel {
 
 export function useSimApp(name: string): AppModel {
   const { S, dispatch } = useSim();
-  const app = S.deploy.apps.find((a) => a.name === name);
+  const app = simApps(S).find((a) => a.name === name);
   return {
     live: false,
     app,
@@ -229,6 +229,7 @@ export function useSimApp(name: string): AppModel {
     now: simNow(S),
     redeploy: async (branch) => {
       if (!app) return { error: "앱을 찾을 수 없습니다" };
+      if (!app.deploy) return { error: DEPLOY_ERRORS.app_not_registered };
       dispatch({ type: "app-redeploy", name, branch });
       return { deploymentId: S.deploy.deployments[0].id };
     },
@@ -253,6 +254,7 @@ export function useSimApp(name: string): AppModel {
       return "";
     },
     remove: async () => {
+      if (app && !app.deploy) return DEPLOY_ERRORS.app_not_registered;
       dispatch({ type: "app-delete", name });
       return "";
     },

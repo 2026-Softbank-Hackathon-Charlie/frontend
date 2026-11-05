@@ -108,11 +108,9 @@ function LiveAppDetail({ id, tab }: { id: string; tab: AppTab }) {
 }
 function SimAppDetail({ id, tab }: { id: string; tab: AppTab }) {
   const { S } = useSim();
-  // The migration app keeps its own demo view, without tabs; registered apps use the contract one.
-  return S.apps[id] ? <ServiceDetail id={id} /> : <SimRegisteredDetail id={id} tab={tab} />;
-}
-function SimRegisteredDetail({ id, tab }: { id: string; tab: AppTab }) {
-  return <AppDetailView m={useSimApp(id)} s={useSimSecrets(id)} name={id} tab={tab} />;
+  const m = useSimApp(id);
+  const s = useSimSecrets(m.app?.deploy ? id : "");
+  return <AppDetailView m={m} s={s} name={id} tab={tab} fileDetails={S.apps[id] ? <FileAppDemoInfo id={id} /> : undefined} />;
 }
 
 /** The app page's head: the name with where the app comes from, one line about it, and the actions. */
@@ -235,7 +233,7 @@ type Busy = "" | "deploy" | "redeploy" | "delete" | "add" | "remove";
 
 const triggerText = (x: Deployment) => TRIGGER_LABEL[x.trigger] + (x.trigger === "push" ? " (" + x.triggeredBy + ")" : "");
 
-function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name: string; tab: AppTab }) {
+function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: SecretsModel; name: string; tab: AppTab; fileDetails?: ReactNode }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<Busy>("");
   const [msg, setMsg] = useState("");
@@ -542,7 +540,10 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
           </div>
         </>
       ) : (
-        migration
+        <>
+          {migration}
+          {fileDetails}
+        </>
       )}
     </div>
   );
@@ -810,29 +811,15 @@ function Instances({
   );
 }
 
-/** The simulation's migration app (SAMPLE, moimroom): where it runs, its resources and its history. Short enough to need no tabs. */
-function ServiceDetail({ id }: { id: string }) {
+/** Extra evidence the file-app simulation has, below the same API-backed app detail view. */
+function FileAppDemoInfo({ id }: { id: string }) {
   const { S } = useSim();
   const a = S.apps[id];
   const n = SAMPLE.services.length * SAMPLE.replicas;
   return (
-    <div className="page appd-page">
-      <AppHead
-        name={id}
-        source="파일 앱"
-        line={
-          <>
-            <span className="m">{a.repo}</span>, {ENV[a.loc].name}에서 실행 중
-          </>
-        }
-        acts={
-          <a className="btn primary" href="#migrate-app">
-            <Icon name="arrow-right-left" size={16} />
-            이전
-          </a>
-        }
-      />
-      <EnvStrip title="실행 위치">
+    <>
+      <p className="hint">아래 실행 위치·리소스·변경 이력은 시연 데이터입니다. 파일 앱은 일반 모드와 같이 이전 설정을 사용하며 GitHub 배포·시크릿 탭을 제공하지 않습니다.</p>
+      <EnvStrip title="시연 실행 위치">
         <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok">정상</Chip>}>
           <span className="m">{"Pod " + n + "/" + n}</span>
           <span className="hint">트래픽 100%</span>
@@ -856,6 +843,6 @@ function ServiceDetail({ id }: { id: string }) {
       <Card title="변경 이력">
         <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "num")])} />
       </Card>
-    </div>
+    </>
   );
 }

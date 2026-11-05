@@ -1,9 +1,12 @@
-import { useEnvironments, useTraffic } from "../api/hooks";
-import type { DatabaseCluster } from "../api/types";
+import { useState } from "react";
+import { useEnvironments, useTraffic, type Resource } from "../api/hooks";
+import type { DatabaseCluster, Environment, TrafficState } from "../api/types";
 import { Chip, type ChipKind, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
+import { targetReadShare } from "../sim/mig";
+import { useSim } from "../sim/store";
 
 export function Envs() {
   return useLive() ? <LiveEnvs /> : <SimEnvs />;
@@ -12,10 +15,18 @@ export function Envs() {
 function LiveEnvs() {
   const envs = useEnvironments(10_000);
   const traffic = useTraffic(5_000, "1m");
+  return <EnvsView envs={envs} traffic={traffic} />;
+}
+
+type ReadResult<T> = Pick<Resource<T>, "data" | "error" | "reload">;
+
+/** Both modes render the platform contract. Only the source of observations differs. */
+function EnvsView({ envs, traffic, demo = false }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; demo?: boolean }) {
   const t = traffic.data;
   return (
     <div className="page">
-      <PageHead icon="server" title="환경" sub="플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다." />
+      <PageHead icon="server" title="환경" sub={demo ? "클러스터와 트래픽 게이트웨이 상태입니다." : "플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다."} />
+      {demo && <p className="hint">시연용 데이터입니다. 정상·부분 조회·연결 실패·백업 실패는 상태 표시를 설명하는 가상 사례이며 실제 클러스터 점검 결과가 아닙니다.</p>}
       <section className="sec">
         <h2>대상 클러스터</h2>
         {envs.error && !envs.data ? (
@@ -129,64 +140,40 @@ function DbBackups({ dbs }: { dbs?: DatabaseCluster[] }) {
 }
 
 function SimEnvs() {
-  return (
-    <div className="page">
-      <PageHead
-        icon="server"
-        title="환경"
-        sub="환경마다 독립된 Kubernetes 클러스터를 둡니다. 환경 차이는 Helm values(환경 프로필)로만 흡수하고, 같은 chart로 모든 클러스터에 배포합니다."
-        acts={
-          <>
-            <span className="hint" id="env-register-why">
-              시연에서는 쓸 수 없습니다. 클러스터는 Terraform으로 만든 뒤 등록합니다.
-            </span>
-            <button type="button" className="btn ghost" disabled aria-describedby="env-register-why">
-              환경 등록
-            </button>
-          </>
-        }
-      />
-      <section className="sec">
-        <h2>대상 클러스터</h2>
-        <div className="box">
-          <Table
-            head={["환경", "위치", "Kubernetes", "노드", "파일 저장소", "StorageClass", "프로필", "상태"]}
-            rows={ENV_ORDER.map((k) => {
-              const e = ENV[k];
-              return [
-                td(<b>{e.name}</b>),
-                td(e.region),
-                td(e.k8s, "m"),
-                td(e.nodes + "대"),
-                td(e.storage),
-                td(e.sc, "m"),
-                td("values-" + k + ".yaml", "m"),
-                td(<Chip kind="ok">정상</Chip>),
-              ];
-            })}
-          />
-        </div>
-      </section>
-      <section className="sec">
-        <h2>관리 영역과 연결</h2>
-        <div className="box">
-          <Table
-            head={["구성 요소", "위치", "역할"]}
-            rows={[
-              [td(<b>관리 호스트</b>), td("AWS"), td("플랫폼 API, 워크플로, Argo CD. 대상 클러스터와 분리")],
-              [td(<b>Tailscale</b>), td("3개 클러스터 + 관리 호스트"), td("공인 IP 없이 사설망 연결, DB 복제와 rclone 경로")],
-              [td(<b>Cloudflare</b>), td("외부"), td("도메인, HTTPS, Tunnel. DNS로 트래픽을 전환하지 않음")],
-              [td(<b>트래픽 게이트웨이</b>), td("클러스터 밖 중립 위치"), td("환경별 비율, 전환 때 쓰기 보류, 연결 drain")],
-              [td(<b>Amazon ECR</b>), td("AWS"), td("모든 클러스터가 같은 이미지를 받음")],
-            ]}
-          />
-        </div>
-      </section>
-      <div className="box fillbox">
-        <div className="bb">
-          <p>새 클러스터는 Terraform으로 만든 뒤 여기에 등록합니다. 모든 클러스터에는 같은 CloudNativePG와 Tailscale을 설치합니다.</p>
-        </div>
-      </div>
-    </div>
-  );
+  const { S } = useSim();
+  const [observedAt] = useState(Date.now);
+  const at = (hoursAgo: number) => new Date(observedAt - hoursAgo * 3_600_000).toISOString();
+  const m = S.mig;
+  const writeBackend = ENV[m.run?.engine.trafficOnTarget ? m.tgt : m.src].id;
+  const weight = m.run ? targetReadShare(m.run) : 0;
+  const readWeights = !weight
+    ? { [ENV[m.src].id]: 100 }
+    : weight === 100 ? { [ENV[m.tgt].id]: 100 } : { [ENV[m.src].id]: 100 - weight, [ENV[m.tgt].id]: weight };
+  const environments: Environment[] = ENV_ORDER.map((key) => {
+    const e = ENV[key];
+    const status: Environment["status"] = { reachable: key !== "onprem", checkedAt: at(0) };
+    if (key !== "onprem") {
+      status.kubernetesVersion = e.k8s;
+      status.nodes = { ready: e.nodes, total: e.nodes, architectures: ["amd64"] };
+    }
+    if (key === "aws") status.databases = [
+      { namespace: "demo-main", name: "demo-main-db", instances: 1, readyInstances: 1, replica: false,
+        backup: { objectStore: "demo-main-db", walArchiving: true, lastSuccessfulBackup: at(2), firstRecoverabilityPoint: at(48) } },
+      { namespace: "demo-report", name: "demo-report-db", instances: 1, readyInstances: 1, replica: false,
+        backup: { objectStore: "demo-report-db", walArchiving: true, lastSuccessfulBackup: at(3), lastFailedBackup: at(1), firstRecoverabilityPoint: at(48) } },
+    ];
+    if (key === "gcp") status.error = "시연: CNPG 조회 권한이 없어 DB 상태를 읽지 못했습니다.";
+    if (key === "onprem") status.error = "시연: Kubernetes API 연결 시간 초과";
+    return { name: e.id, provider: key === "aws" ? "aws" : key === "gcp" ? "gcp" : "onprem", displayName: e.name, region: e.region, kubeContext: e.id,
+      gatewayBackend: e.id, live: e.id === writeBackend, status };
+  });
+  const traffic: TrafficState = {
+    writeBackend, readWeights, writesHeld: m.run?.engine.writesHeld ?? false, heldWrites: Math.max(0, m.held), maxHold: "30s",
+    inFlight: { reads: 0, writes: 0 }, updatedAt: at(0),
+    backends: ENV_ORDER.map((key) => ({ name: ENV[key].id, url: "https://" + ENV[key].id + ".example.invalid", healthy: key !== "onprem", lastCheck: at(0) })),
+    stats: Object.fromEntries(ENV_ORDER.map((key) => [ENV[key].id, { windowSeconds: 60, requests: key === "aws" ? 1200 : 0, errors: 0, errorRate: 0, rps: key === "aws" ? 20 : 0,
+      p50Millis: key === "aws" ? 38 : 0, p95Millis: key === "aws" ? 118 : 0, p99Millis: key === "aws" ? 160 : 0 }])),
+    totals: Object.fromEntries(ENV_ORDER.map((key) => [ENV[key].id, { requests: key === "aws" ? 1200 : 0, errors: 0 }])),
+  };
+  return <EnvsView demo envs={{ data: environments, error: undefined, reload: () => {} }} traffic={{ data: traffic, error: undefined, reload: () => {} }} />;
 }

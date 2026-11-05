@@ -17,7 +17,7 @@ import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
 import { appRoute, navCurrent, navigate, useRoute } from "./router";
 import { activeDeployments } from "./sim/deploy";
-import { SIM_SECURITY } from "./sim/security";
+import { DEMO_SECURITY_FINDINGS, DEMO_SECURITY_VULNERABILITIES } from "./sim/securityWorkspace";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
 
@@ -35,7 +35,7 @@ function Page({ r }: { r: string }) {
   if (r === "migrate-app") return <Migrate />;
   if (r === "routes") return <Routes />;
   if (r === "agents") return <Agents />;
-  if (r === "security") return <Security />;
+  if (r === "security" || r.startsWith("security/")) return <Security route={r} />;
   if (r === "envs") return <Envs />;
   if (r === "device") return <DevicePage />;
   if (r === "design-system") return <DesignSystem />;
@@ -78,7 +78,7 @@ function SimSideNav({ r }: { r: string }) {
       r={r}
       apps={busyApps ? { kind: "run", text: "진행 중" } : null}
       migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
-      security={highBadge(SIM_SECURITY.summary.bySeverity.high + SIM_SECURITY.summary.bySeverity.critical)}
+      security={highBadge([...DEMO_SECURITY_FINDINGS, ...DEMO_SECURITY_VULNERABILITIES].filter((f) => f.severity === "high" || f.severity === "critical").length)}
     />
   );
 }

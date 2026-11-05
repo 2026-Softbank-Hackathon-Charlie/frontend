@@ -34,7 +34,7 @@ function renderSecurity(storageKeys: StorageKey[] | undefined, sources: Security
   });
   localStorage.setItem("hopcharlie.mode", "live");
   localStorage.setItem("hopcharlie.session", JSON.stringify(fakeSession()));
-  window.location.hash = "#security";
+  window.location.hash = "#security/findings";
   initAuth();
   render(
     <SimProvider sim={createSim()} intervalMs={0}>

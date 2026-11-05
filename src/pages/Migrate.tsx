@@ -7,7 +7,7 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
-import { approvalBlock, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration } from "../data/migration";
+import { approvalBlock, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -287,31 +287,31 @@ function MigrateView({ v }: { v: MigrationView }) {
             </details>
           </div>
         </div>
-        {live && v.aiRun?.available ? (
+        {!live || v.aiRun?.available ? (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || v.aiRun.running} onClick={v.aiRun.start}>
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || v.aiRun?.running} onClick={live ? v.aiRun?.start : v.makePlan}>
               <Icon name="bot" size={16} />
-              {v.aiRun.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
+              {v.aiRun?.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
             </button>
-            <button type="button" className="btn ghost" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+            <button type="button" className="btn ghost" disabled={!live || v.busy || !v.tgt} onClick={v.makePlan} aria-describedby={!live ? "mig-demo-plan-why" : undefined}>
               <Icon name="clipboard-check" size={16} />
               AI 없이 Plan 작성
             </button>
-            <span className="hint">
-              플랫폼이 AI 실행기를 띄워 두 클러스터를 조회해 계획하고, 샌드박스에서 리허설한 뒤 승인 대기로 올립니다(3~5분). 진행은 이 화면에 실시간으로 나옵니다.
-              <AIRunLine run={v.aiRun.latest} />
+            <span className="hint" id={!live ? "mig-demo-plan-why" : undefined}>
+              {live
+                ? "플랫폼이 AI 실행기를 띄워 두 클러스터를 조회해 계획하고, 샌드박스에서 리허설한 뒤 승인 대기로 올립니다(3~5분). 진행은 이 화면에 실시간으로 나옵니다."
+                : "데모는 AI 계획·리허설 시나리오를 로컬에서 재현합니다. AI 없이 Plan을 작성하는 기능은 지원하지 않습니다. 실제 AI 실행기나 클라우드를 호출하지 않습니다."}
+              <AIRunLine run={v.aiRun?.latest} />
             </span>
           </div>
         ) : (
           <div className="actrow">
             <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
-              <Icon name={live ? "clipboard-check" : "bot"} size={16} />
-              {live ? "Plan 작성" : "AI 계획 시작"}
+              <Icon name="clipboard-check" size={16} />
+              Plan 작성
             </button>
             <span className="hint">
-              {live
-                ? "AI 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. AI로 계획하려면 AI 실행기(hopai run)를 시작하세요. 계획을 시작하면 이 화면에 AI 작업이 실시간으로 나옵니다."
-                : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
+              AI 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. AI로 계획하려면 AI 실행기(hopai run)를 시작하세요. 계획을 시작하면 이 화면에 AI 작업이 실시간으로 나옵니다.
             </span>
           </div>
         )}
@@ -551,13 +551,14 @@ function canaryLabel(p: CanaryPreset): string {
 }
 
 // Canary steps, observe and auto rollback for the start (platform CanaryOptions, ObserveOptions).
-// Live only: the simulation runs the default canary and does not model observe.
+// The simulation shows the same controls, locked to the canary it actually runs; observe is not modelled.
 // `locked` resends a start that did not finish: the platform may already have started it under the same
 // Idempotency-Key and then answers with that run, so changed options would be ignored without a word.
 function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: boolean }) {
-  if (!v.start || !v.plan) return null;
-  const { options: o, set } = v.start;
-  const off = v.busy || locked;
+  if (!v.plan || (v.live && !v.start)) return null;
+  const o = v.start?.options ?? DEFAULT_START;
+  const set = (options: StartOptions) => v.start?.set(options);
+  const off = v.busy || locked || !v.start;
   if (v.plan.summary.gatewayMode !== "http")
     return (
       <>
@@ -569,6 +570,7 @@ function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: 
     <>
       <dt>읽기 카나리</dt>
       <dd>
+        {!v.live && <p className="hint">데모는 빠른 카나리(10% → 50% → 100%)만 실행합니다. 전환 후 관찰과 자동 롤백은 지원하지 않습니다.</p>}
         <label className="check">
           <select aria-label="읽기 카나리" value={o.canary} disabled={off} onChange={(e) => set({ ...o, canary: e.target.value as CanaryPreset })}>
             {CANARY_PRESET_ORDER.map((p) => (
@@ -590,7 +592,7 @@ function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: 
           <input type="checkbox" checked={o.observe} disabled={off} onChange={(e) => set({ ...o, observe: e.target.checked, autoRollback: e.target.checked && o.autoRollback })} /> 전환 뒤에도
           대상을 게이트로 계속 판정
         </label>
-        {o.observe && (
+        {(o.observe || !v.live) && (
           <div className="obsopts">
             <label className="check">
               관찰 시간
@@ -607,7 +609,9 @@ function StartOptionsFields({ v, locked = false }: { v: MigrationView; locked?: 
               <input type="checkbox" checked={o.autoRollback} disabled={off} onChange={(e) => set({ ...o, autoRollback: e.target.checked })} /> 게이트를 어기면 바로 롤백
             </label>
             <p className="hint">
-              {o.autoRollback
+              {!v.live
+                ? "관찰 시간과 자동 롤백은 일반 모드에서 설정할 수 있습니다. 데모에서는 값을 변경하거나 해당 동작을 실행하지 않습니다."
+                : o.autoRollback
                 ? "게이트를 어긴 단계가 나오면 플랫폼이 바로 롤백 run을 시작합니다(행위자 slo-guard). 롤백은 데이터를 원본으로 다시 옮기는 전체 이전입니다."
                 : "게이트를 어긴 단계가 나오면 관찰을 멈추고 위반을 기록합니다. 롤백할지는 운영자가 정합니다."}{" "}
               게이트 기준은 플랫폼 기본값(오류율 {PLATFORM_GATE.maxErrorRate * 100}% 이하, p95 {PLATFORM_GATE.maxP95Millis}ms 이하)이고, 요청이{" "}
