@@ -114,9 +114,9 @@ function SimRegisteredDetail({ id, tab }: { id: string; tab: AppTab }) {
 /** The app page's head: the name with where the app comes from, one line about it, and the actions. */
 function AppHead({ name, source, line, acts }: { name: string; source?: string; line?: ReactNode; acts?: ReactNode }) {
   return (
-    <div className="ad-head">
-      <div className="ad-title">
-        <div className="ad-name">
+    <div className="appd-head">
+      <div className="appd-title">
+        <div className="appd-name">
           <h1>{name}</h1>
           {source && <Chip>{source}</Chip>}
         </div>
@@ -144,16 +144,16 @@ function Card({ title, side, children }: { title: ReactNode; side?: ReactNode; c
 function EnvStrip({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
   return (
-    <section className="ad-envsec" aria-labelledby={id}>
+    <section className="appd-envsec" aria-labelledby={id}>
       <h2 id={id}>{title}</h2>
-      <div className="box ad-envs">{children}</div>
+      <div className="box appd-envs">{children}</div>
     </section>
   );
 }
 function EnvCell({ name, chip, children }: { name: string; chip: ReactNode; children: ReactNode }) {
   return (
-    <div className="ad-env">
-      <div className="ad-envh">
+    <div className="appd-env">
+      <div className="appd-envh">
         <b>{name}</b>
         {chip}
       </div>
@@ -190,7 +190,7 @@ function MoreMenu({ children }: { children: ReactNode }) {
   }, [open]);
   return (
     <div
-      className="ad-more"
+      className="appd-more"
       ref={ref}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
@@ -203,7 +203,7 @@ function MoreMenu({ children }: { children: ReactNode }) {
           <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
         </svg>
       </button>
-      <div id={id} className="ad-menu" hidden={!open} onClick={() => setOpen(false)}>
+      <div id={id} className="appd-menu" hidden={!open} onClick={() => setOpen(false)}>
         {children}
       </div>
     </div>
@@ -212,7 +212,7 @@ function MoreMenu({ children }: { children: ReactNode }) {
 
 function NotFound({ id }: { id: string }) {
   return (
-    <div className="page ad-page">
+    <div className="page appd-page">
       <AppHead name="앱을 찾을 수 없습니다" />
       <div className="box">
         <div className="empty-state">
@@ -244,7 +244,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
   if (!a) {
     if (m.notFound) return <NotFound id={name} />;
     return (
-      <div className="page ad-page">
+      <div className="page appd-page">
         <AppHead name={name} />
         {m.error ? <LoadError title="앱을 불러오지 못했습니다." error={m.error} /> : <Skeleton box />}
       </div>
@@ -349,8 +349,8 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
     const last = deps[0];
     panel = (
       <>
-        <div className="ad-cols">
-          <div className="ad-main">
+        <div className="appd-cols">
+          <div className="appd-main">
             <Card title="최근 배포" side={last && <DeployChip s={last.status} />}>
               <div className="bb">
                 {last ? (
@@ -392,7 +392,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
               </div>
             </Card>
           </div>
-          <div className="ad-side">
+          <div className="appd-side">
             <Card title="배포 설정">
               <div className="bb">
                 <dl className="kv">
@@ -455,7 +455,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
   }
 
   return (
-    <div className="page ad-page">
+    <div className="page appd-page">
       <AppHead name={a.name} source={d ? "GitHub" : "파일 앱"} line={line} acts={acts} />
       {confirming && d && (
         <ConfirmDelete label="앱 삭제 확인" kind="앱" name={a.name} busy={!!busy} deleting={busy === "delete"} onConfirm={remove} onCancel={() => setConfirming(false)}>
@@ -500,7 +500,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
               </EnvCell>
             ))}
           </EnvStrip>
-          <div className="ad-tabs">
+          <div className="appd-tabs">
             <Tabs
               label="앱 정보"
               current={tab}
@@ -512,14 +512,14 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
                   label: (
                     <>
                       인스턴스{" "}
-                      <span className="ad-cnt">
+                      <span className="appd-cnt">
                         {m.instances.length}/{MAX_INSTANCES}
                       </span>
                     </>
                   ),
                 },
                 { id: "secrets", label: "시크릿" },
-                { id: "deploys", label: <>배포 이력 {m.deployments && <span className="ad-cnt">{deps.length}</span>}</> },
+                { id: "deploys", label: <>배포 이력 {m.deployments && <span className="appd-cnt">{deps.length}</span>}</> },
               ]}
             />
             {panel}
@@ -643,10 +643,10 @@ function Instances({
   }
 
   return (
-    <div className="ad-stack">
+    <div className="appd-stack">
       <section className="box">
         <div className="bh">
-          <div className="ad-titles">
+          <div className="appd-titles">
             <h2>브랜치별 인스턴스</h2>
             <span className="hint">
               기본 브랜치 외에는 운영자가 추가한 브랜치만 배포합니다. 브랜치마다 주소, 네임스페이스, DB, 버킷이 따로 생기고, 기본 인스턴스를 포함해 {MAX_INSTANCES}개까지 둘 수 있습니다.
@@ -735,12 +735,12 @@ function Instances({
           ])}
         />
         {waiting.length > 0 && (
-          <p className="hint ad-part">
+          <p className="hint appd-part">
             {waiting.map((i) => i.name).join(", ")}: {REDEPLOY_WAIT}.
           </p>
         )}
         {listed && adding && (
-          <div className="ad-part">
+          <div className="appd-part">
             {full && <p>인스턴스가 {MAX_INSTANCES}개라 브랜치를 더 추가할 수 없습니다. 다른 브랜치를 배포하려면 추가한 인스턴스를 하나 삭제하세요.</p>}
             <div className="form">
               <div className="field">
@@ -809,7 +809,7 @@ function ServiceDetail({ id }: { id: string }) {
   const a = S.apps[id];
   const n = SAMPLE.services.length * SAMPLE.replicas;
   return (
-    <div className="page ad-page">
+    <div className="page appd-page">
       <AppHead
         name={id}
         source="파일 앱"
