@@ -113,7 +113,7 @@ describe("HopCharlie console (simulation)", () => {
     // on-prem has no threat detection: not checked, which is not the same as clean
     expect(screen.getAllByText("점검 안 함").length).toBeGreaterThan(0);
     expect(screen.getAllByText("이상 없음").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("row")).toHaveLength(1 + 3 + 1 + 6 + 1 + 6); // matrix, findings, sources (with headers)
+    expect(screen.getAllByRole("row")).toHaveLength(1 + 3 + 1 + 6 + 1 + 2 + 1 + 8); // matrix, findings, storage keys, sources (with headers)
 
     const k3s = screen.getAllByRole("row").find((r) => within(r).queryByText("온프레미스 k3s") && within(r).queryAllByRole("button").length)!;
     const workload = within(k3s).getByRole("button", { name: /높음 1건/ });

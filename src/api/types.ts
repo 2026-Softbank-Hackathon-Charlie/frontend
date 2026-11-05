@@ -83,6 +83,9 @@ export type SecuritySource = S["SecuritySource"];
 export type SeverityCounts = S["SeverityCounts"];
 export type SecuritySummary = S["SecuritySummary"];
 export type SecurityReport = S["SecurityReport"];
+export type StorageKey = S["StorageKey"];
+export type StorageKeyUse = S["StorageKeyUse"];
+export type StorageKeyState = S["StorageKeyState"];
 
 export type AgentSessionKind = S["AgentSessionKind"];
 export type AgentSessionStatus = S["AgentSessionStatus"];

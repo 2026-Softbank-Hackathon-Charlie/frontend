@@ -36,6 +36,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   cloudflare: "Cloudflare",
   "platform-audit": "감사 로그",
   "platform-config": "플랫폼 설정",
+  "storage-keys": "앱 저장소 키",
 };
 
 /**

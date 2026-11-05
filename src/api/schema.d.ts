@@ -315,8 +315,14 @@ export interface paths {
      * seconds; `refresh=true` collects again, at most once every 10 seconds
      * (a refresh within that window gets the latest result).
      *
+     * `storageKeys` lists the bucket keys the platform made for app
+     * instances, with when the provider made each and what it may do
+     * (ADR 0027). Every environment with a storage driver is the source
+     * `storage-keys`.
+     *
      * The filters apply to `findings`, to the counts in `sources` and to
-     * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+     * `summary`; `environment` also applies to `storageKeys`. Error codes:
+     * invalid_request (400), security_not_configured (503).
      */
     get: operations["getSecurity"];
   };
@@ -1671,6 +1677,88 @@ export interface components {
       sources: components["schemas"]["SecuritySource"][];
       /** @description Most severe first. */
       findings: components["schemas"]["SecurityFinding"][];
+      /**
+       * @description The bucket keys of app instances (ADR 0016), by environment (in
+       * the order of `sources`) and then instance; for each instance, the
+       * key in use first, then the old one, then keys the platform has no
+       * record of. Empty when no instance
+       * has a bucket or the server has no storage drivers.
+       */
+      storageKeys: components["schemas"]["StorageKey"][];
+    };
+    /**
+     * @description - current: the key the instance's pods are given.
+     * - old: the key a new key replaced; pods that did not restart may still use it. It is deleted after a healthy deployment restarted them (ADR 0016).
+     * - unrecorded: a key of the instance's user the platform has no record of, e.g. made by hand. The driver deletes it before it makes the next new key.
+     *
+     * @enum {string}
+     */
+    StorageKeyUse: "current" | "old" | "unrecorded";
+    /**
+     * @description - ok: the provider has the key.
+     * - missing: the platform's record names a key the provider does not have (deleted outside the platform). The next deployment makes a new key.
+     * - unread: the key could not be read back from the provider; `message` says why.
+     *
+     * @enum {string}
+     */
+    StorageKeyState: "ok" | "missing" | "unread";
+    /** @description One key of an app instance's bucket in one environment (ADR 0027). */
+    StorageKey: {
+      /** @example moimroom */
+      app: string;
+      /** @example moimroom */
+      instance: string;
+      /** @example eks */
+      environment: string;
+      /**
+       * @description the storage driver that made the key: aws, gcs or minio
+       * @example aws
+       */
+      driver: string;
+      /**
+       * @description the only bucket the key may use
+       * @example hopcharlie-eks-moimroom
+       */
+      bucket: string;
+      /**
+       * @description the last four characters of the key id only
+       * @example ...WXYZ
+       */
+      keyId: string;
+      use: components["schemas"]["StorageKeyUse"];
+      state: components["schemas"]["StorageKeyState"];
+      /**
+       * Format: date-time
+       * @description When the provider made the key: the IAM access key's CreateDate
+       * (aws) or the HMAC key's timeCreated (gcs). Absent when the
+       * provider does not record it (minio) or the key was not read.
+       */
+      createdAt?: string;
+      scope?: components["schemas"]["StorageKeyScope"];
+      /** @description why the state is not ok, or what to do about the key */
+      message?: string;
+    };
+    /**
+     * @description What the key may do on `bucket`: the grant the driver writes on every
+     * deployment (aws: the user's inline policy `hopcharlie-bucket`; minio:
+     * the user's canned policy; gcs: the service account's roles on the
+     * bucket). It is the platform's grant, not read back from the provider.
+     * Absent when the key's driver could not be used (the environment has no
+     * usable storage driver, or its driver now is not the one that made the
+     * key).
+     */
+    StorageKeyScope: {
+      /**
+       * @description S3 actions (aws, minio) or GCS roles (gcs).
+       * @example [
+       *   "s3:ListBucket",
+       *   "s3:GetObject",
+       *   "s3:PutObject"
+       * ]
+       */
+      actions: string[];
+      /** @description aws: the permissions boundary every app user is made with, which caps any policy the user has */
+      boundary?: string;
     };
     /** @enum {string} */
     AgentSessionKind: "plan" | "rehearsal" | "diagnose" | "explain" | "other";
@@ -3356,8 +3444,14 @@ export interface operations {
    * seconds; `refresh=true` collects again, at most once every 10 seconds
    * (a refresh within that window gets the latest result).
    *
+   * `storageKeys` lists the bucket keys the platform made for app
+   * instances, with when the provider made each and what it may do
+   * (ADR 0027). Every environment with a storage driver is the source
+   * `storage-keys`.
+   *
    * The filters apply to `findings`, to the counts in `sources` and to
-   * `summary`. Error codes: invalid_request (400), security_not_configured (503).
+   * `summary`; `environment` also applies to `storageKeys`. Error codes:
+   * invalid_request (400), security_not_configured (503).
    */
   getSecurity: {
     parameters: {
