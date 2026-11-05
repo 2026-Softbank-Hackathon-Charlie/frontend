@@ -58,6 +58,7 @@ describe("HopCharlie console (simulation)", () => {
     await user.click(await screen.findByRole("button", { name: "가져오기 완료 상태로 건너뛰기" }));
     expect(await screen.findByRole("heading", { level: 1, name: "moimroom 이전" })).toBeInTheDocument();
 
+    const first = screen.getByTitle("이주 지도");
     await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
     await user.click(screen.getByRole("button", { name: "AI 계획 시작" }));
     ticks(sim, AI_END);
@@ -69,19 +70,27 @@ describe("HopCharlie console (simulation)", () => {
     const checks = screen.getByRole("tabpanel", { name: /시작 전 검사/ });
     expect(within(checks).getByText("대상 최대 접속 100 (실행 중인 대상), 필요 22 (원본 접속 18 × 1.2)")).toBeInTheDocument();
     ticks(sim, SWITCH_AT);
-    expect(screen.getAllByText("전환 승인 대기").length).toBeGreaterThan(0);
-    // The canary ends at 100%: every read is on the target before the switch.
-    expect(screen.getByRole("img", { name: /읽기: AWS EKS 0%, 온프레미스 k3s 100%/ })).toBeInTheDocument();
+    expect(sim.state.mig.run?.status).toBe("awaiting_switch");
 
-    await user.click(screen.getByRole("button", { name: "전환" }));
+    // The switch is the map's button: the frame sends it back as a command (the frame's page itself is
+    // checked in a browser, jsdom does not load it).
+    const frame = screen.getByTitle("이주 지도") as HTMLIFrameElement;
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data: { type: "hc-cmd", key: "switch" }, origin: window.location.origin, source: frame.contentWindow }));
+    });
     ticks(sim, 68);
     expect(screen.getByText("이전 리포트")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /쓰기: AWS EKS 0%, 온프레미스 k3s 100%/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "롤백" })).toBeEnabled();
+    expect(sim.state.mig.run?.status).toBe("succeeded");
+    // the same map element stayed on the page from the setup to the end
+    expect(frame).toBe(first);
 
-    await user.click(screen.getAllByRole("link", { name: "경로별 결과" })[0]);
-    expect(screen.getByRole("heading", { level: 1, name: "경로별 결과" })).toBeInTheDocument();
-    expect(screen.getByText(/6개 중 1개 경로/)).toBeInTheDocument();
+    await user.click(screen.getAllByRole("link", { name: "이전 결과" })[0]);
+    expect(screen.getByRole("heading", { level: 1, name: "이전 결과" })).toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "이전 실행 이력" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent(/moimroom\s*AWS EKS\s*→\s*온프레미스 k3s\s*성공/);
+    expect(items[0]).toHaveTextContent(/실패 요청\s*0건/);
   });
 
   it("lists the AI sessions on the AI activity page", async () => {

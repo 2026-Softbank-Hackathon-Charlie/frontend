@@ -2,6 +2,10 @@
    Type sizes: 12, 13, 14, 16, 18, 24, 32px. Weights: 400, 500, 700. */
 * { box-sizing: border-box; }
 html { overflow-x: clip; }
+/* Scrollbars hidden everywhere (scrolling by wheel, touch and keys stays): a scrollbar appearing as content grows
+   narrows the page and shifts it sideways. */
+html, html * { scrollbar-width: none; }
+html::-webkit-scrollbar, html *::-webkit-scrollbar { display: none; }
 body { margin: 0; overflow-x: clip; background: var(--canvas); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; font-synthesis: none; word-break: keep-all; overflow-wrap: break-word; }
 h1, h2, h3 { color: var(--heading); margin: 0; text-wrap: balance; }
 p { margin: 0; }

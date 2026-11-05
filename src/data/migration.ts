@@ -99,6 +99,8 @@ export interface MigrationView {
   fix?: { file: string; minus: string; plus: string };
   run?: Run;
   events: RunEvent[];
+  /** Live run stream health; ended streams close normally. */
+  stream?: { connected: boolean; error?: string };
   /** k6 counters, simulation only */
   counters?: { ok: number; held: number; heldDone: number };
   /** the platform's residency and capacity checks of the latest start or rollback of this plan */
@@ -372,6 +374,7 @@ export function useLiveMigration(): MigrationView {
     selectSession: setSelected,
     run,
     events: watch.events,
+    stream: { connected: watch.connected, error: watch.error ? errorText(watch.error) : undefined },
     preflight: preflight.data,
     start: { options: startOptions, set: (options) => setPicked({ planRef, options }) },
     busy,

@@ -246,7 +246,7 @@ function MatrixView({ routes }: { routes: MatrixRoute[] }) {
         </table>
       </div>
       <a className="more hint" href="#routes">
-        6개 경로 자세히
+        이전 결과 전체 보기
       </a>
     </>
   );

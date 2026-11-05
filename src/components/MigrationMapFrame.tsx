@@ -1,0 +1,98 @@
+// The migration map (public/migration-map-live.html, the handoff's migration-map.html without its simulator) in a
+// same-origin iframe, fed the console's migration state as a snapshot at every stage. In demo mode the state is the
+// console's simulation, in live mode the platform: plans, AI sessions, the run over SSE and the gateway.
+// The map's buttons come back as {type:"hc-cmd"} and run the same actions as the rest of the page.
+import { useEffect, useRef, useState } from "react";
+import { useEnvironments, useTraffic } from "../api/hooks";
+import type { Environment, TrafficState } from "../api/types";
+import type { MigrationView } from "../data/migration";
+import { buildMapSnapshot, type MapAction, type MapSnapshot } from "../data/mapSnapshot";
+
+export const MAP_SRC = import.meta.env.BASE_URL + "migration-map-live.html";
+
+export interface MapFrameProps {
+  v: MigrationView;
+  /** the run's headline and explanation */
+  hero?: [string, string];
+}
+
+export function MigrationMapFrame(p: MapFrameProps) {
+  return p.v.live ? <LiveFrame {...p} /> : <MapFrame {...p} />;
+}
+
+function LiveFrame(p: MapFrameProps) {
+  const traffic = useTraffic(2000, "30s");
+  const envs = useEnvironments(30000);
+  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} />;
+}
+
+const RUN: Record<MapAction, (v: MigrationView) => void> = {
+  approve: (v) => v.approve(),
+  switch: (v) => v.doSwitch(),
+  abort: (v) => v.abort(),
+  resume: (v) => v.resume(),
+  rollback: (v) => v.rollback(),
+  reset: (v) => v.reset(),
+};
+
+export function MapFrame({ v, hero, traffic, envs }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[] }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const pending = useRef(false);
+  const [height, setHeight] = useState(1240);
+  const [ready, setReady] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const snap = buildMapSnapshot(v, { traffic, envs, now, hero });
+  const json = JSON.stringify(snap);
+
+  // durations of the phase at work move with the clock
+  const working = snap.phases.some((x) => x.st === "cur" || x.st === "wait");
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [working]);
+
+  // the latest view and snapshot, for commands that arrive between renders
+  const latest = useRef<{ v: MigrationView; snap: MapSnapshot }>({ v, snap });
+  latest.current = { v, snap };
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || !frame.current || e.source !== frame.current.contentWindow) return;
+      const d = e.data as { type?: string; h?: number; key?: MapAction } | null;
+      if (d?.type === "hc-ready") setReady((n) => n + 1);
+      else if (d?.type === "hc-height" && typeof d.h === "number" && Number.isFinite(d.h) && d.h > 0 && d.h <= 20000) setHeight(d.h);
+      else if (d?.type === "hc-cmd" && d.key) {
+        // only a command the current state offers, once: a stale frame cannot start what is no longer allowed
+        const { v: cur, snap: s } = latest.current;
+        if (!cur.busy && !pending.current && s.actions.some((a) => a.key === d.key)) {
+          // held until the state the command produced reaches this page (a new snapshot), so a double
+          // click in the frame between the command and React's next render runs the command once
+          pending.current = true;
+          RUN[d.key](cur);
+        }
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  useEffect(() => {
+    pending.current = false;
+  }, [json]);
+
+  useEffect(() => {
+    if (ready) frame.current?.contentWindow?.postMessage({ type: "hc-snapshot", snap: JSON.parse(json) }, window.location.origin);
+  }, [json, ready]);
+
+  return (
+    <iframe
+      ref={frame}
+      className="mapframe"
+      src={MAP_SRC}
+      title="이주 지도"
+      scrolling="no"
+      style={{ display: "block", width: "100%", height, border: 0, background: "transparent" }}
+    />
+  );
+}
