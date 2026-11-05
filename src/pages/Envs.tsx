@@ -1,5 +1,6 @@
 import { useEnvironments, useTraffic } from "../api/hooks";
-import { Chip, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
+import type { DatabaseCluster } from "../api/types";
+import { Chip, type ChipKind, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
@@ -24,13 +25,14 @@ function LiveEnvs() {
         ) : (
           <div className="box">
             <Table
-              head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "게이트웨이 백엔드", "상태"]}
+              head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태"]}
               rows={envs.data.map((e) => [
                 td(<b>{e.displayName}</b>),
                 td(e.region ?? "-"),
                 td(e.status.kubernetesVersion ?? "-", "m"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
                 td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
+                td(<DbBackups dbs={e.status.databases} />),
                 td(e.gatewayBackend, "m"),
                 td(<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>),
               ])}
@@ -73,6 +75,41 @@ function LiveEnvs() {
         )}
       </section>
     </div>
+  );
+}
+
+const when = (s: string) =>
+  new Date(s).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** What the console says about one database's backups (platform ADR 0025), or null when it has none. */
+export function backupStatus(d: DatabaseCluster): { chip: ChipKind; label: string; detail: string } | null {
+  const b = d.backup;
+  if (!b) return null;
+  const last = b.lastSuccessfulBackup;
+  const failedLater = !!b.lastFailedBackup && (!last || b.lastFailedBackup > last);
+  const label = !b.walArchiving ? "WAL 보관 실패" : failedLater ? "마지막 백업 실패" : "백업 중";
+  const detail = ["마지막 백업 " + (last ? when(last) : "없음"), b.firstRecoverabilityPoint ? when(b.firstRecoverabilityPoint) + "부터 복구 가능" : ""]
+    .filter(Boolean)
+    .join(", ");
+  return { chip: !b.walArchiving ? "bad" : failedLater ? "warn" : "ok", label, detail };
+}
+
+/** Databases with backups: archiving, the last backup and how far back a restore reaches. */
+function DbBackups({ dbs }: { dbs?: DatabaseCluster[] }) {
+  const rows = (dbs ?? []).flatMap((d) => {
+    const st = backupStatus(d);
+    return st ? [{ d, st }] : [];
+  });
+  if (rows.length === 0) return <>-</>;
+  return (
+    <>
+      {rows.map(({ d, st }) => (
+        <div key={d.namespace + "/" + d.name}>
+          {d.name} <Chip kind={st.chip}>{st.label}</Chip>
+          <div className="hint">{st.detail}</div>
+        </div>
+      ))}
+    </>
   );
 }
 
