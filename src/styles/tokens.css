@@ -7,6 +7,15 @@
  * The DS publishes no status, muted or fill colors and no shadows; the extra
  * tokens below are console extensions kept in the same quiet, flat register.
  */
+/* SUIT (sun-typeface, OFL), variable 100-900 in one file, pinned to v2.0.5. Declared here rather than with the
+   upstream CSS so text shows in the fallback font while it loads (font-display: swap). index.html preloads the file. */
+@font-face {
+  font-family: "SUIT Variable";
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2-variations"), url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@v2.0.5/fonts/variable/woff2/SUIT-Variable.woff2") format("woff2");
+}
+
 :root {
   --canvas: #ffffff;
   --fg: #333333;
@@ -42,7 +51,7 @@
   --r-card: 8px;
   --r-chip: 4px;
 
-  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
+  --font-body: "SUIT Variable", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --r-none: 0;
