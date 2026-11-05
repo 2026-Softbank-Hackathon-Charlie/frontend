@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import {
   ApiError,
+  listAIRuns,
   getApp,
   getDeployment,
   getMatrix,
@@ -23,6 +24,7 @@ import {
 } from "./client";
 import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
 import type {
+  AIRun,
   AgentEvent,
   AgentSession,
   App,
@@ -119,6 +121,11 @@ export function useAudit(limit?: number): Resource<AuditEntry[]> {
 }
 
 /** Every app: the PLATFORM_APPS_FILE ones (what plans are drafted for) in configuration order, then the other registered ones by name. */
+/** The AI runner's runs for an app, newest first. A falsy `app` loads nothing; a 503 means the server has no runner. */
+export function useAIRuns(app: string | null | undefined, pollMs = 0): Resource<AIRun[]> {
+  return usePolled(app ? "ai-runs:" + app : null, pollMs, async (signal) => (await listAIRuns(app!, { signal })).runs);
+}
+
 export function useApps(pollMs = 0): Resource<App[]> {
   return usePolled("apps", pollMs, async (signal) => (await listApps({ signal })).apps);
 }

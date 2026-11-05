@@ -1,6 +1,6 @@
 import "../styles/migrate.css";
 import { Fragment, useState, type ReactNode } from "react";
-import type { AgentEvent, AgentSession, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
+import type { AgentEvent, AgentSession, AIRun, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
@@ -287,17 +287,34 @@ function MigrateView({ v }: { v: MigrationView }) {
             </details>
           </div>
         </div>
-        <div className="actrow">
-          <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
-            <Icon name={live ? "clipboard-check" : "bot"} size={16} />
-            {live ? "Plan 작성" : "AI 계획 시작"}
-          </button>
-          <span className="hint">
-            {live
-              ? "AI 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. AI로 계획하려면 AI 실행기(hopai run)를 시작하세요. 계획을 시작하면 이 화면에 AI 작업이 실시간으로 나옵니다."
-              : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
-          </span>
-        </div>
+        {live && v.aiRun?.available ? (
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || v.aiRun.running} onClick={v.aiRun.start}>
+              <Icon name="bot" size={16} />
+              {v.aiRun.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
+            </button>
+            <button type="button" className="btn ghost" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+              <Icon name="clipboard-check" size={16} />
+              AI 없이 Plan 작성
+            </button>
+            <span className="hint">
+              플랫폼이 AI 실행기를 띄워 두 클러스터를 조회해 계획하고, 샌드박스에서 리허설한 뒤 승인 대기로 올립니다(3~5분). 진행은 이 화면에 실시간으로 나옵니다.
+              <AIRunLine run={v.aiRun.latest} />
+            </span>
+          </div>
+        ) : (
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+              <Icon name={live ? "clipboard-check" : "bot"} size={16} />
+              {live ? "Plan 작성" : "AI 계획 시작"}
+            </button>
+            <span className="hint">
+              {live
+                ? "AI 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. AI로 계획하려면 AI 실행기(hopai run)를 시작하세요. 계획을 시작하면 이 화면에 AI 작업이 실시간으로 나옵니다."
+                : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
+            </span>
+          </div>
+        )}
       </>,
       <MigrationMapFrame v={v} />,
       null,
@@ -405,6 +422,20 @@ function PlanFacts({ v }: { v: MigrationView }) {
   );
 }
 
+const AI_RUN_STATUS = { running: "실행 중", succeeded: "끝남", failed: "실패" } as const;
+
+// The latest AI runner Job for the app, on one line.
+function AIRunLine({ run }: { run?: AIRun }) {
+  if (!run) return null;
+  return (
+    <>
+      {" "}
+      최근 실행: {run.source} → {run.target}, {AI_RUN_STATUS[run.status]} ({run.requestedBy}, {new Date(run.createdAt).toLocaleTimeString()})
+      {run.status === "failed" ? ". 실패 이유는 아래 AI 세션 기록에 있습니다." : ""}
+    </>
+  );
+}
+
 // An AI plan that has not passed its rehearsal: the platform refuses to approve it (platform #24), so
 // the card offers no approve button, only the reason and a reject.
 function BlockedApproveBox({ v, reason }: { v: MigrationView; reason: string }) {
@@ -422,8 +453,19 @@ function BlockedApproveBox({ v, reason }: { v: MigrationView; reason: string }) 
           Plan {v.plan.ref} (revision {v.plan.revision})은 AI가 제출했지만 리허설을 통과하지 않아 승인할 수 없습니다.
         </b>
         <p className="hint">플랫폼이 이유를 이렇게 남겼습니다: {reason}</p>
-        <p className="hint">AI 실행기(hopai run)로 다시 계획하고 리허설하면, 통과한 새 Plan이 승인 대기로 올라옵니다. 이 Plan은 반려하세요.</p>
+        <p className="hint">
+          {v.aiRun?.available
+            ? "AI로 다시 계획하고 리허설하면, 통과한 새 Plan이 승인 대기로 올라옵니다. 이 Plan은 반려하세요."
+            : "AI 실행기(hopai run)로 다시 계획하고 리허설하면, 통과한 새 Plan이 승인 대기로 올라옵니다. 이 Plan은 반려하세요."}
+          <AIRunLine run={v.aiRun?.latest} />
+        </p>
         <div className="mg-decide">
+          {v.aiRun?.available && (
+            <button type="button" className="btn primary lg" disabled={v.busy || v.aiRun.running} onClick={v.aiRun.start}>
+              <Icon name="bot" />
+              {v.aiRun.running ? "AI 실행 중" : "AI로 다시 계획·리허설"}
+            </button>
+          )}
           <button type="button" className="btn ghost" disabled={v.busy} onClick={v.reject}>
             <Icon name="x" size={16} />
             반려

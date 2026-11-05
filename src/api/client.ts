@@ -5,6 +5,9 @@
 // the fetch AbortError instead, so callers can tell "cancelled" from "failed".
 import type {
   AbortRequest,
+  AIRun,
+  AIRunList,
+  AIRunRequest,
   AgentEvent,
   AgentEventList,
   AgentSession,
@@ -300,6 +303,14 @@ export const listApps = (o?: RequestOptions) => request<AppList>("GET", "/v1/app
 /** A plan built from the server's configuration. It is not stored: submit it, as is or edited, with submitPlan. */
 export const draftPlan = (req: PlanDraftRequest, o?: RequestOptions) =>
   request<EnginePlan>("POST", "/v1/plans/draft", { ...o, body: req });
+/**
+ * Start the AI runner (hopai) on the platform for one app and route: AI plan, sandbox rehearsal, diagnosis.
+ * Operator only; 409 ai_run_active while one runs for the app, 503 ai_runner_not_configured without it.
+ */
+export const startAIRun = (req: AIRunRequest, o?: RequestOptions) => request<AIRun>("POST", "/v1/ai-runs", { ...o, body: req });
+/** The AI runner's runs, newest first; `app` narrows to one app. */
+export const listAIRuns = (app?: string, o?: RequestOptions) =>
+  request<AIRunList>("GET", "/v1/ai-runs" + (app ? "?app=" + encodeURIComponent(app) : ""), o);
 /**
  * Upload a file the plan refers to as `attachment:<name>`, at most 1 MiB, sent
  * as raw bytes. Only while the plan is pending_approval; the same name again

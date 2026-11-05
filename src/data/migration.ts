@@ -12,12 +12,13 @@ import {
   rejectPlan,
   resumeMigration,
   rollbackMigration,
+  startAIRun,
   startMigration,
   submitPlan,
   switchMigration,
 } from "../api/client";
-import { isAfter, useAgentSession, useAgentSessions, useApps, useRun, useRuns } from "../api/hooks";
-import type { AgentEvent, AgentSession, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
+import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApps, useRun, useRuns } from "../api/hooks";
+import type { AgentEvent, AgentSession, AIRun, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
@@ -111,6 +112,8 @@ export interface MigrationView {
   start?: { options: StartOptions; set(o: StartOptions): void };
   busy: boolean;
   notice: string;
+  /** the AI runner on the platform (POST /v1/ai-runs); absent in the simulation */
+  aiRun?: AIRunView;
   makePlan(): void;
   approve(): void;
   reject(): void;
@@ -305,6 +308,14 @@ function envLabel(name: string): string {
   return k ? ENV[k].name : name;
 }
 
+/** The AI runner the platform starts as a Job: whether the server has one, its latest run for the app, and start. */
+export interface AIRunView {
+  available: boolean;
+  latest?: AIRun;
+  running: boolean;
+  start(): void;
+}
+
 export function useLiveMigration(): MigrationView {
   const enabled = true;
   const apps = useApps();
@@ -323,6 +334,7 @@ export function useLiveMigration(): MigrationView {
   const [selected, setSelected] = useState<string | null>(null);
 
   const app = (apps.data ?? []).find((a) => a.name === appName) ?? apps.data?.[0];
+  const aiRuns = useAIRuns(app?.name, 5000);
   const envs = app?.environments.map((e) => e.env) ?? [];
 
   // Pick up work already in progress: an active run, else the newest plan waiting for approval.
@@ -426,6 +438,19 @@ export function useLiveMigration(): MigrationView {
     start: { options: startOptions, set: (options) => setPicked({ planRef, options }) },
     busy,
     notice: notice || (apps.error ? errorText(apps.error) : ""),
+    aiRun: {
+      // only once the server answered the list: without the runner it answers 503, an older platform 404
+      available: aiRuns.data !== undefined,
+      latest: aiRuns.data?.[0],
+      running: aiRuns.data?.[0]?.status === "running",
+      start: () =>
+        act(async () => {
+          if (!app) return;
+          setAppName(app.name);
+          await startAIRun({ app: app.name, source: src, target });
+          aiRuns.reload();
+        }),
+    },
     makePlan: () =>
       act(async () => {
         if (!app) return;
