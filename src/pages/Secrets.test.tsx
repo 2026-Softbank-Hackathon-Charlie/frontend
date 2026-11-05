@@ -569,7 +569,8 @@ describe("app secrets (platform API)", () => {
     setup("#app-moimroom/secrets");
     let fail = true;
     const calls = live((_c, u) => (u.pathname === "/v1/apps/moimroom/secrets" && fail ? json(409, { error: { code: "app_not_registered", message: "moimroom is only in PLATFORM_APPS_FILE" } }) : undefined));
-    expect(await screen.findByText("시크릿을 불러오지 못했습니다: 파일에만 있는 앱이라 시크릿을 쓸 수 없습니다")).toBeInTheDocument();
+    expect(await screen.findByText("시크릿을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("파일에만 있는 앱이라 시크릿을 쓸 수 없습니다")).toBeInTheDocument();
     fail = false;
     act(() => screen.getByRole("button", { name: "다시 불러오기" }).click());
     const appWide = await screen.findByRole("region", { name: "앱 공통 시크릿" });

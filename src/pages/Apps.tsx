@@ -4,7 +4,7 @@ import type { AppInstance, AppSpecValidation, Deployment } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
 import { AppSecrets, SecretsSummary } from "../components/secrets";
 import { envName } from "../components/shared";
-import { Chip, PageHead, Table, Tabs, td } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
@@ -59,8 +59,8 @@ function SimAppsBody({ filter }: { filter: AppFilter }) {
 }
 
 function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
-  if (m.error) return <p className="hint">앱을 불러오지 못했습니다: {m.error}</p>;
-  if (!m.apps) return <p className="hint">불러오는 중</p>;
+  if (m.error) return <LoadError title="앱 목록을 불러오지 못했습니다." error={m.error} />;
+  if (!m.apps) return <Skeleton box />;
   const health = new Map(m.apps.map((a) => [a.name, appHealth(a)]));
   const count = (f: AppFilter) => (f === "all" ? m.apps!.length : m.apps!.filter((a) => health.get(a.name) === f).length);
   const shown = filter === "all" ? m.apps : m.apps.filter((a) => health.get(a.name) === filter);
@@ -68,7 +68,7 @@ function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
     <>
       <nav className="metrics tiles" aria-label="상태로 앱 거르기">
         {TILES.map(([f, label, note]) => (
-          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " warn" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-current={f === filter ? "true" : undefined}>
+          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " bad" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-current={f === filter ? "true" : undefined}>
             <span>{label}</span>
             <strong>{count(f)}</strong>
             <small>{note}</small>
@@ -116,9 +116,6 @@ function AppHead({ name, source, line, acts }: { name: string; source?: string; 
   return (
     <div className="ad-head">
       <div className="ad-title">
-        <div className="crumb">
-          <a href="#apps">앱</a>
-        </div>
         <div className="ad-name">
           <h1>{name}</h1>
           {source && <Chip>{source}</Chip>}
@@ -249,7 +246,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
     return (
       <div className="page ad-page">
         <AppHead name={name} />
-        <p className="hint">{m.error ? "앱을 불러오지 못했습니다: " + m.error : "불러오는 중"}</p>
+        {m.error ? <LoadError title="앱을 불러오지 못했습니다." error={m.error} /> : <Skeleton box />}
       </div>
     );
   }
@@ -375,8 +372,10 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
                       {ago(last.createdAt, m.now)} 시작, {isFinalDeploymentStatus(last.status) ? dur(elapsedSec(last, m.now)) + " 걸림" : "진행 중"}
                     </dd>
                   </dl>
+                ) : m.deployments ? (
+                  <p className="hint">아직 배포가 없습니다. 기본 브랜치 다시 배포를 누르면 여기에 나옵니다.</p>
                 ) : (
-                  <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+                  <Skeleton />
                 )}
               </div>
             </Card>
@@ -430,9 +429,11 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
   } else if (d && tab === "deploys") {
     panel = (
       <Card title="배포 이력" side={deps.length > 0 && <span className="hint">{deps.length}건</span>}>
-        {deps.length === 0 ? (
+        {!m.deployments ? (
+          <Skeleton />
+        ) : deps.length === 0 ? (
           <div className="empty-state">
-            <p className="hint">{m.deployments ? "아직 배포가 없습니다." : "불러오는 중"}</p>
+            <p className="hint">아직 배포가 없습니다. 기본 브랜치 다시 배포를 누르거나 브랜치에 push하면 여기에 쌓입니다.</p>
           </div>
         ) : (
           <Table
@@ -445,7 +446,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
               td(x.ref + " " + short(x.commit), "m"),
               td(x.environments.map((e) => envName(e.env)).join(", ")),
               td(ago(x.createdAt, m.now), "nw"),
-              td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "nw"),
+              td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "num"),
             ])}
           />
         )}
@@ -488,7 +489,7 @@ function AppDetailView({ m, s, name, tab }: { m: AppModel; s: SecretsModel; name
         <>
           <EnvStrip title={def + " 환경별 상태"}>
             {d.status.map((s) => (
-              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]} dot>{ENV_STATUS[s.status][1]}</Chip>}>
+              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}>
                 <span className="hint">{[s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "Argo CD 상태 없음"}</span>
                 {(s.commit || s.updatedAt) && (
                   <span className="hint">
@@ -824,12 +825,12 @@ function ServiceDetail({ id }: { id: string }) {
         }
       />
       <EnvStrip title="실행 위치">
-        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok" dot>정상</Chip>}>
+        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok">정상</Chip>}>
           <span className="m">{"Pod " + n + "/" + n}</span>
           <span className="hint">트래픽 100%</span>
         </EnvCell>
         {a.prev && (
-          <EnvCell name={ENV[a.prev].name} chip={<Chip dot>축소됨, 읽기 전용</Chip>}>
+          <EnvCell name={ENV[a.prev].name} chip={<Chip>축소됨, 읽기 전용</Chip>}>
             <span className="hint">트래픽 0%</span>
           </EnvCell>
         )}
@@ -845,7 +846,7 @@ function ServiceDetail({ id }: { id: string }) {
         <Table head={["종류", "이름", "내용"]} rows={a.res.map((r) => [td(r[0]), td(r[1], "m"), td(r[2])])} />
       </Card>
       <Card title="변경 이력">
-        <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "nw")])} />
+        <Table head={["커밋", "내용", "시각", "소요"]} rows={a.deploys.map((r) => [td(r[0], "m"), td(r[1]), td(r[2], "nw"), td(r[3], "num")])} />
       </Card>
     </div>
   );

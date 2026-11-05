@@ -20,7 +20,7 @@ export const DEPLOY_LABEL: Record<DeploymentStatus, string> = {
   superseded: "대체됨",
 };
 const DEPLOY_CHIP: Record<DeploymentStatus, [ChipKind, string]> = {
-  queued: ["run", "대기 중"],
+  queued: ["", "대기 중"],
   building: ["run", "빌드 중"],
   committing: ["run", "커밋 중"],
   syncing: ["run", "동기화 중"],
@@ -392,14 +392,16 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
   return (
     <div className="box">
       <Table head={head} rows={rows} />
-      {/* each chip carries its state as hidden text and a title, so the legend is for the eye only */}
-      <div className="legend envlegend" aria-hidden="true">
-        {LEGEND.map(([tag, text]) => (
-          <span key={text}>
-            <span className={tagClass(tag)}>EKS</span> {text}
-          </span>
-        ))}
-      </div>
+      {/* each chip carries its state as hidden text and a title, so the legend is for the eye only; the overview's short list goes without */}
+      {full && (
+        <div className="legend envlegend" aria-hidden="true">
+          {LEGEND.map(([tag, text]) => (
+            <span key={text}>
+              <span className={tagClass(tag)}>EKS</span> {text}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

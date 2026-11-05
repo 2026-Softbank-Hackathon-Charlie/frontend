@@ -13,7 +13,7 @@ import type { RevealResult, SecretsModel } from "../data/secrets";
 import { navigate } from "../router";
 import { MAX_SECRETS, MAX_SECRET_VALUE, secretNameError, secretValueError } from "../sim/secrets";
 import { ago, short } from "./deploy";
-import { Chip, Table, td, type Cell } from "./ui";
+import { Chip, LoadError, Skeleton, Table, td, type Cell } from "./ui";
 
 /** How long a shown or loaded value stays. */
 const REVEAL_MS = 60_000;
@@ -30,7 +30,7 @@ interface Props {
 /** The app overview's secrets card: how many there are, and the app-wide names. Names only, never a value. */
 export function SecretsSummary({ s }: { s: SecretsModel }) {
   if (s.notConfigured) return <p className="hint">서버에 시크릿 키가 설정되어 있지 않습니다.</p>;
-  if (!s.data) return <p className="hint">{s.error ? "시크릿을 불러오지 못했습니다: " + s.error : "불러오는 중"}</p>;
+  if (!s.data) return s.error ? <LoadError title="시크릿을 불러오지 못했습니다." error={s.error} /> : <Skeleton rows={2} />;
   const overrides = s.data.instances.reduce((n, x) => n + x.secrets.length, 0);
   return (
     <>
@@ -85,14 +85,7 @@ export function AppSecrets({ s, m, busy, setRedeploying }: Props) {
       </div>
     );
   } else if (!s.data) {
-    body = s.error ? (
-      <>
-        <p className="hint">시크릿을 불러오지 못했습니다: {s.error}</p>
-        {retry}
-      </>
-    ) : (
-      <p className="hint">불러오는 중</p>
-    );
+    body = s.error ? <LoadError title="시크릿을 불러오지 못했습니다." error={s.error} retry={s.reload} /> : <Skeleton box />;
   } else {
     const app = s.data.app;
     const own = s.data.instances.find((x) => x.instance === selected?.name)?.secrets ?? [];

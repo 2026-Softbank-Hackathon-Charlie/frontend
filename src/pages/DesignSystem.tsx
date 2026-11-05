@@ -11,9 +11,10 @@ const COLORS: [string, string, string, string, boolean?][] = [
   ["fg", "#333333", "본문 글자, 기본 버튼 채움, 새 환경 트래픽", "canvas 위 12.6:1"],
   ["heading", "#323232", "제목, 상자 머리글, 지표 숫자", "canvas 위 12.8:1"],
   ["muted", "#646468", "설명, 힌트, 표 머리글, 로그 시각", "canvas 위 5.9:1, fill 위 5.4:1"],
-  ["hairline", "#c1c1c2", "상자와 표의 경계선, 입력칸 테두리", "canvas 위 1.8:1. 입력칸 테두리로는 3:1에 못 미침", true],
+  ["hairline", "#c1c1c2", "표 머리 아래 선, 화면 머리 아래 선", "canvas 위 1.8:1. 장식용 경계라 대비 기준 밖", true],
+  ["field-line", "#8a8a8f", "입력칸과 선택칸 테두리", "canvas 위 3.4:1"],
   ["fill", "#f4f4f5", "배너, 로그, 코드, 안내 상자 배경", ""],
-  ["old", "#9b9ba0", "원본 환경 트래픽 막대", "흰 글자 2.8:1. 막대 안 글자는 범례로 보완", true],
+  ["old", "#6e6e73", "원본 환경 트래픽 막대", "흰 글자 5.1:1"],
   ["ok", "#1d6b45", "완료, 통과, 정상 (글자와 표시)", "ok-bg 위 5.7:1, canvas 위 6.5:1"],
   ["ok-bg", "#e8f3ed", "완료 칩과 완료 안내 상자 배경", ""],
   ["bad", "#a3271c", "실패, 차단 (글자와 표시)", "bad-bg 위 6.3:1"],
@@ -34,25 +35,29 @@ const COLORS: [string, string, string, string, boolean?][] = [
 /** [style, sample, spec] */
 const TYPE: [string, ReactNode, string][] = [
   ["페이지 제목", <span style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.35, color: "var(--heading)" }}>moimroom 이전</span>, "32px / 1.35 / 700"],
-  ["타이머", <span className="m" style={{ fontSize: 30, fontWeight: 500 }}>02:34</span>, "Mono 30px / 500, 숫자 고정폭"],
-  ["지표 숫자", <strong style={{ fontSize: 20, fontWeight: 700, color: "var(--heading)", fontVariantNumeric: "tabular-nums" }}>3,072</strong>, "20px / 700, 숫자 고정폭"],
+  ["타이머", <span className="m" style={{ fontSize: 32, fontWeight: 500 }}>02:34</span>, "Mono 32px / 500, 숫자 고정폭"],
+  ["지표 숫자, 상태 카드 제목", <strong style={{ fontSize: 24, fontWeight: 700, color: "var(--heading)", fontVariantNumeric: "tabular-nums" }}>3,072</strong>, "24px / 700, 숫자 고정폭"],
   ["섹션 제목, 브랜드", <span style={{ fontSize: 18, fontWeight: 700, color: "var(--heading)" }}>경로별 결과</span>, "18px / 700"],
-  ["본문", <span style={{ fontSize: 16 }}>가동 중인 앱을 데이터와 함께 다른 클러스터로 옮깁니다.</span>, "16px / 1.5 / 400"],
-  ["상자 머리글", <b style={{ fontSize: 15, color: "var(--heading)" }}>이전 경과</b>, "15px / 700"],
+  ["본문, 입력칸", <span style={{ fontSize: 16 }}>가동 중인 앱을 데이터와 함께 다른 클러스터로 옮깁니다.</span>, "16px / 1.5 / 400"],
+  ["상자 머리글", <b style={{ fontSize: 16, color: "var(--heading)" }}>이전 경과</b>, "16px / 700"],
   ["메뉴, 버튼, 표", <span style={{ fontSize: 14 }}>이전하기</span>, "14px / 400"],
   ["힌트, 설명", <span className="hint">대상이 쓰기를 받기 전입니다.</span>, "13px / muted"],
-  ["코드, 로그", <span className="m" style={{ fontSize: 12.5 }}>kubectl get secrets -n moimroom</span>, "Mono 12.5px / 1.6"],
-  ["라벨", <span style={{ fontSize: 12, letterSpacing: "0.03em", color: "var(--muted)" }}>성공한 쓰기 (k6)</span>, "12px / 자간 0.03em / muted"],
+  ["코드, 로그", <span className="m" style={{ fontSize: 12 }}>kubectl get secrets -n moimroom</span>, "Mono 12px / 1.6"],
+  ["라벨", <span style={{ fontSize: 12, color: "var(--muted)" }}>성공한 쓰기 (k6)</span>, "12px / muted, 자간 0"],
 ];
 
 const SPACE: [string, number, string][] = [
-  ["sp-xs", 8, "칩 사이, 버튼 묶음 간격"],
-  ["sp-sm", 10, "행 안 요소 간격"],
-  ["sp-md", 16, "상자 안쪽 여백, 화면 좌우 여백"],
-  ["sp-lg", 20, "메뉴 항목 사이"],
+  ["sp-2xs", 4, "한 요소 안 (칩의 점과 글자, 아이콘과 글자)"],
+  ["sp-xs", 8, "칩 사이, 버튼 묶음 간격, 라벨과 입력칸"],
+  ["sp-sm", 12, "표 칸 여백, 행 안 요소 간격"],
+  ["sp-md", 16, "상자 안쪽 여백, 화면 좌우 여백 (좁은 화면)"],
+  ["sp-lg", 20, "메뉴 묶음 사이, 입력칸 사이"],
+  ["sp-xl", 24, "화면 안 구역 사이"],
+  ["sp-2xl", 32, "화면 좌우 여백"],
+  ["sp-3xl", 48, "화면 아래 여백"],
 ];
 const RADIUS: [string, string, string][] = [
-  ["r-none", "0", "지표 칸, 단계 표시"],
+  ["r-none", "0", "예약"],
   ["r-chip", "4px", "칩 (버튼과 구분되게 각지고 테두리 없음)"],
   ["r-control", "6px", "버튼, 입력칸, 코드 블록, 메뉴 항목"],
   ["r-card", "8px", "상자, 표 상자, 상태 카드"],
@@ -60,10 +65,10 @@ const RADIUS: [string, string, string][] = [
   ["r-pill", "50px", "예약"],
 ];
 const MOTION: [string, string, string][] = [
-  ["ease", "cubic-bezier(0.4, 0, 0.2, 1)", "등장, 진행 막대, 트래픽 비율"],
-  ["dur-fast", "0.2s", "버튼 눌림"],
-  ["dur-base", "0.3s", "상태 색 바뀜, 로그 줄 등장"],
-  ["dur-slow", "0.4s", "화면 등장, 링크 흐려짐"],
+  ["ease", "cubic-bezier(0.4, 0, 0.2, 1)", "상태 상자 등장, 진행 막대, 트래픽 비율"],
+  ["dur-fast", "0.2s", "버튼 흐려짐, 화면 전환 페이드"],
+  ["dur-base", "0.3s", "상태 색 바뀜, 새 로그 줄 등장"],
+  ["dur-slow", "0.4s", "링크 흐려짐, 상태 상자 등장"],
   ["hover-fade", "0.6 / 0.7", "글자 링크 / 채운 버튼에 마우스를 올렸을 때 불투명도"],
 ];
 
@@ -103,10 +108,10 @@ export function DesignSystem() {
         <div className="box fillbox">
           <div className="bb">
             <ul className="ds-list">
-              <li>흰 바탕, 가는 경계선, 그림자 없음. 상자는 8px, 버튼과 입력칸은 6px, 칩은 4px 모서리를 씁니다.</li>
+              <li>흰 바탕, 가는 경계선, 그림자 없음. 상자는 8px, 버튼과 입력칸은 6px, 칩은 4px 모서리를 씁니다. 버튼과 입력칸은 높이 36px(터치 화면 44px)로 맞춥니다.</li>
               <li>색은 상태에만 씁니다. 완료와 통과는 ok, 실패와 차단은 bad, 기계가 일하는 중은 run, 사람이 할 일은 warn, 대기와 예정은 중립 회색입니다. 상태는 항상 글자로도 적습니다.</li>
               <li>요약을 먼저, 자세한 내용은 아래에. 진행 단계, 지표, 트래픽, 상세 목록, 기록 순서로 놓습니다.</li>
-              <li>숫자는 고정폭(tabular-nums)으로, 명령과 경로는 Mono로 적습니다.</li>
+              <li>숫자는 고정폭 숫자(tabular-nums)로 적고, 표에서는 오른쪽에 맞춥니다. Mono는 ID, 커밋, 명령, 경로, 시각에만 쓰고, 한글 단위가 붙은 값(2분 34초, 0건)은 본문 글꼴로 적습니다.</li>
               <li>문장은 짧은 평서문. 버튼은 하는 일을 그대로 씁니다 ("승인하고 실행", "삭제 승인").</li>
             </ul>
           </div>
@@ -149,13 +154,13 @@ export function DesignSystem() {
         </div>
       </Section>
 
-      <Section id="type" title="글꼴" sub="본문 SUIT 가변 폰트 (400, 500, 600, 700, jsDelivr에서 v2.0.5 고정), 코드와 숫자 IBM Plex Mono (400, 500, Google Fonts).">
+      <Section id="type" title="글꼴" sub="본문 SUIT 가변 폰트 (400, 500, 700, jsDelivr에서 v2.0.5 고정), 코드와 ID IBM Plex Mono (400, 500, Google Fonts). 크기는 12, 13, 14, 16, 18, 24, 32px 일곱 단계만 씁니다.">
         <div className="box">
-          <Table head={["용도", "예시", "규격"]} rows={TYPE.map(([n, s, spec]) => [td(n, "nw"), td(s), td(spec, "m nw")])} />
+          <Table head={["용도", "예시", "규격"]} rows={TYPE.map(([n, s, spec]) => [td(n, "nw"), td(s), td(spec, "nw")])} />
         </div>
       </Section>
 
-      <Section id="space" title="간격과 모서리">
+      <Section id="space" title="간격과 모서리" sub="간격은 4px 단위 토큰만 씁니다. 1~2px 선 맞춤은 예외입니다.">
         <div className="split">
           <div className="box">
             <Table
@@ -260,7 +265,7 @@ export function DesignSystem() {
           <Specimen name="타이머" note=".timer / .bar">
             <div className="timer">
               <span className="big">01:48</span>
-              <div className="bar"><i style={{ width: "60%" }} /></div>
+              <div className="bar"><i style={{ transform: "scaleX(0.6)" }} /></div>
             </div>
             <p className="hint">목표 03:00 이내. 막대는 목표 시간 대비 비율입니다.</p>
           </Specimen>
@@ -270,8 +275,8 @@ export function DesignSystem() {
               <Table
                 head={["경로", "결과", "전체", "실패 요청"]}
                 rows={[
-                  [td("EKS → GKE", "nw"), td(<Chip kind="ok">성공</Chip>), td("2분 34초", "m"), td("0건", "m")],
-                  [td("EKS → k3s", "nw"), td(<Chip>미실행</Chip>), td("-", "m"), td("-", "m")],
+                  [td("EKS → GKE", "nw"), td(<Chip kind="ok">성공</Chip>), td("2분 34초", "num"), td("0건", "num")],
+                  [td("EKS → k3s", "nw"), td(<Chip>미실행</Chip>), td("-", "num"), td("-", "num")],
                 ]}
               />
             </div>

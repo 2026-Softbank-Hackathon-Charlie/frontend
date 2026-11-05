@@ -1,5 +1,5 @@
 import { useEnvironments, useTraffic } from "../api/hooks";
-import { Chip, PageHead, Table, td } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
@@ -18,17 +18,19 @@ function LiveEnvs() {
       <section className="sec">
         <h2>대상 클러스터</h2>
         {envs.error && !envs.data ? (
-          <p className="hint">불러오지 못했습니다: {errorText(envs.error)}</p>
+          <LoadError title="클러스터 상태를 불러오지 못했습니다." error={errorText(envs.error)} retry={envs.reload} />
+        ) : !envs.data ? (
+          <Skeleton box />
         ) : (
           <div className="box">
             <Table
               head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "게이트웨이 백엔드", "상태"]}
-              rows={(envs.data ?? []).map((e) => [
+              rows={envs.data.map((e) => [
                 td(<b>{e.displayName}</b>),
                 td(e.region ?? "-"),
                 td(e.status.kubernetesVersion ?? "-", "m"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
-                td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-", "m"),
+                td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
                 td(e.gatewayBackend, "m"),
                 td(<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>),
               ])}
@@ -39,9 +41,9 @@ function LiveEnvs() {
       <section className="sec">
         <h2>트래픽 게이트웨이</h2>
         {traffic.error && !t ? (
-          <p className="hint">불러오지 못했습니다: {errorText(traffic.error)}</p>
+          <LoadError title="트래픽 게이트웨이 상태를 불러오지 못했습니다." error={errorText(traffic.error)} retry={traffic.reload} />
         ) : !t ? (
-          <p className="hint">불러오는 중</p>
+          <Skeleton box />
         ) : (
           <div className="box">
             <div className="bb">
@@ -61,9 +63,9 @@ function LiveEnvs() {
                 return [
                   td(b.name, "m"),
                   td(<Chip kind={b.healthy ? "ok" : "bad"}>{b.healthy ? "정상" : "비정상"}</Chip>),
-                  td(st ? fmt(st.requests) : "-", "m"),
-                  td(st ? (st.errorRate * 100).toFixed(2) + "%" : "-", "m"),
-                  td(st ? st.p95Millis + "ms" : "-", "m"),
+                  td(st ? fmt(st.requests) : "-", "num"),
+                  td(st ? (st.errorRate * 100).toFixed(2) + "%" : "-", "num"),
+                  td(st ? st.p95Millis + "ms" : "-", "num"),
                 ];
               })}
             />
@@ -81,9 +83,14 @@ function SimEnvs() {
         title="환경"
         sub="환경마다 독립된 Kubernetes 클러스터를 둡니다. 환경 차이는 Helm values(환경 프로필)로만 흡수하고, 같은 chart로 모든 클러스터에 배포합니다."
         acts={
-          <button type="button" className="btn ghost" disabled>
-            환경 등록
-          </button>
+          <>
+            <span className="hint" id="env-register-why">
+              시연에서는 쓸 수 없습니다. 클러스터는 Terraform으로 만든 뒤 등록합니다.
+            </span>
+            <button type="button" className="btn ghost" disabled aria-describedby="env-register-why">
+              환경 등록
+            </button>
+          </>
         }
       />
       <section className="sec">

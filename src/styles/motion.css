@@ -1,24 +1,26 @@
-/* SoftBank-style motion: quiet fades, standard easing, nudging chevrons. */
+/* SoftBank-style motion: quiet fades, standard easing, nudging chevrons. Motion tells a change of state; a page does not perform when it opens. */
 
-/* Hover: fade, never shift layout. Text links fade to .6, filled controls to .7. */
+/* Hover: fade, never shift layout. Text links fade to .6, filled controls to .7. Only where a pointer can hover, so a tap leaves nothing faded. */
 a, .linkbtn { transition: opacity var(--dur-slow) var(--ease-out); }
-a:hover, .linkbtn:hover { opacity: var(--hover-fade); }
 .btn { transition: opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
-.btn:hover:not(:disabled) { opacity: var(--hover-fade-solid); }
-.btn:active:not(:disabled) { opacity: 1; transition-duration: 0s; }
-.btn:disabled:hover { opacity: 1; }
+@media (hover: hover) {
+  a:hover, .linkbtn:hover { opacity: var(--hover-fade); }
+  .btn:hover:not(:disabled) { opacity: var(--hover-fade-solid); }
+  /* Side nav: hover fills in instead of fading. */
+  .side a:not(.brand):hover { opacity: 1; }
+  .more:hover::after { animation: sb-arrow-r var(--dur-slow) ease-in-out 0s 2 alternate; }
+}
+/* Press: the button gives under the finger. */
+.btn:active:not(:disabled) { opacity: 1; transform: translateY(1px); transition-duration: 0s; }
 
-/* Side nav: hover and the current item fill in instead of fading. */
 .side a:not(.brand) { transition: background-color var(--dur-fast) var(--ease-out); }
-.side a:not(.brand):hover { opacity: 1; }
 
 /* CTA chevron (softbank.jp arrow-r). */
-.more { display: inline-flex; align-items: center; gap: 7px; }
+.more { display: inline-flex; align-items: center; gap: var(--sp-xs); }
 .more::after {
   content: ""; width: 6px; height: 6px; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor;
   transform: rotate(45deg); flex: none;
 }
-.more:hover::after { animation: sb-arrow-r var(--dur-slow) ease-in-out 0s 2 alternate; }
 @keyframes sb-arrow-r {
   0% { transform: translate3d(0, 0, 0) rotate(45deg); }
   100% { transform: translate3d(30%, 0, 0) rotate(45deg); }
@@ -30,19 +32,15 @@ a:hover, .linkbtn:hover { opacity: var(--hover-fade); }
   30% { opacity: 0.5; }
   100% { opacity: 1; transform: none; }
 }
-.page > * { animation: sb-in var(--dur-slow) var(--ease) both; }
-.page > :nth-child(2) { animation-delay: 40ms; }
-.page > :nth-child(3) { animation-delay: 80ms; }
-.page > :nth-child(4) { animation-delay: 120ms; }
-.page > :nth-child(5) { animation-delay: 160ms; }
-.page > :nth-child(n + 6) { animation-delay: 200ms; }
+@keyframes sb-fade { from { opacity: 0; } to { opacity: 1; } }
+/* A new page: one short fade, no staggered rise. */
+.page { animation: sb-fade var(--dur-fast) var(--ease-out) both; }
 
 /* Panels that appear as a run progresses (results, confirmations). */
 .okbox, .badbox, .fillbox { animation: sb-in var(--dur-slow) var(--ease) both; }
 
-/* New log lines and table rows fade in where they land. */
-@keyframes sb-fade { from { opacity: 0; } to { opacity: 1; } }
-.log > div, .tbl tbody tr, .rows li { animation: sb-fade var(--dur-base) var(--ease-out) both; }
+/* New log lines fade in where they land. */
+.log > div { animation: sb-fade var(--dur-base) var(--ease-out) both; }
 
 /* State changes: colors cross-fade, completed steps settle in. */
 .chip { transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
@@ -51,11 +49,11 @@ a:hover, .linkbtn:hover { opacity: var(--hover-fade); }
 .wiz li, .wiz .n, .phases div { transition: color var(--dur-base) var(--ease-out), background-color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out); }
 
 /* Progress and traffic move on the standard curve. */
-.bar i { transition: width var(--dur-slow) var(--ease); }
+.bar i, .mg-mini i { transition: transform var(--dur-slow) var(--ease); }
 .seg { transition: flex-basis 0.6s var(--ease); }
 
 /* Running indicator: softbank.jp's arc spinner (fill/unfill + slow rotation). */
-.ind.run { border: 0; border-radius: 0; animation: none; }
+.ind.run { border: 0; }
 .ind.run svg { display: block; width: 16px; height: 16px; animation: sb-spin-rotate 1568ms linear infinite; }
 .ind.run .track { fill: none; stroke: var(--hairline); stroke-width: 2; }
 .ind.run .arc { fill: none; stroke: var(--fg); stroke-width: 2; stroke-linecap: round; animation: sb-spin-arc 1333ms var(--ease) infinite both; }

@@ -5,7 +5,7 @@ import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, Run, RunResult, SecurityReport } from "../api/types";
 import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
 import { EnvGrid, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
-import { Chip, PageHead, type ChipKind } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, type ChipKind } from "../components/ui";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { ENV, SAMPLE } from "../sim/data";
@@ -55,9 +55,6 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
           </div>
           <div className="bb">
             <RouteMatrix active={runs?.filter(isActive)} />
-            <a className="more hint" href="#routes">
-              6개 경로 자세히
-            </a>
           </div>
         </section>
         <section className="box">
@@ -74,7 +71,13 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
             전체 보기
           </a>
         </div>
-        {apps.error ? <p className="hint">앱을 불러오지 못했습니다: {apps.error}</p> : <AppsList apps={apps.apps ?? []} now={apps.now} busy={apps.busy} full={false} />}
+        {apps.error ? (
+          <LoadError title="앱 목록을 불러오지 못했습니다." error={apps.error} />
+        ) : apps.apps ? (
+          <AppsList apps={apps.apps} now={apps.now} busy={apps.busy} full={false} />
+        ) : (
+          <Skeleton box />
+        )}
       </section>
     </div>
   );
@@ -132,9 +135,7 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
         <ul className="ov-now">
           {sorted.map((it) => (
             <li key={it.href + it.title}>
-              <Chip kind={it.kind} dot>
-                {it.chip}
-              </Chip>
+              <Chip kind={it.kind}>{it.chip}</Chip>
               <div className="txt">
                 <b>{it.title}</b>
                 {it.sub && <span>{it.sub}</span>}
@@ -147,7 +148,7 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
         </ul>
       ) : (
         // with a source missing, "nothing to check" could be wrong: the failure line below says why instead
-        failed.length === 0 && <p className="hint ov-none">{loading ? "불러오는 중" : "지금 확인할 것이 없습니다."}</p>
+        failed.length === 0 && (loading ? <Skeleton rows={2} /> : <p className="hint ov-none">지금 확인할 것이 없습니다.</p>)
       )}
       {failed.length > 0 && <p className="hint ov-none">{failed.join(", ")}을 불러오지 못해 빠진 항목이 있을 수 있습니다.</p>}
     </section>
@@ -274,10 +275,17 @@ function SimActivity() {
 
 function LiveActivity() {
   const audit = useAudit(6);
-  if (audit.error && !audit.data) return <p className="hint ov-none">감사 로그를 불러오지 못했습니다: {errorText(audit.error)}</p>;
+  if (audit.error && !audit.data)
+    return (
+      <div className="ov-none">
+        <LoadError title="감사 로그를 불러오지 못했습니다." error={errorText(audit.error)} retry={audit.reload} />
+      </div>
+    );
+  if (!audit.data) return <Skeleton />;
+  if (audit.data.length === 0) return <p className="hint ov-none">아직 기록이 없습니다. 배포나 이전을 시작하면 여기에 남습니다.</p>;
   return (
     <ul className="rows ov-act">
-      {(audit.data ?? []).map((a) => (
+      {audit.data.map((a) => (
         <li key={a.id}>
           <span className="when">{new Date(a.time).toLocaleString("ko-KR")}</span>
           <span className="grow">

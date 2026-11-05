@@ -6,8 +6,6 @@ import { useLiveNewApp, useSimNewApp, type NewAppModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { navigate } from "../router";
 
-const crumb = <a href="#apps">앱</a>;
-
 export function NewApp() {
   return useLive() ? <LiveNewApp /> : <SimNewApp />;
 }
@@ -41,6 +39,17 @@ function NewAppForm({ m }: { m: NewAppModel }) {
   const mine = refused?.key === key ? refused : undefined;
   const check = mine?.validation ? { ...m.check, data: mine.validation, error: undefined, loading: false } : m.check;
   const can = !!repo && !!check.data?.valid && !check.loading && chosen.length > 0 && !busy;
+  // why the start button is off, when the form itself can tell
+  const why =
+    !repo || busy
+      ? ""
+      : chosen.length === 0
+        ? "배포할 환경을 하나 이상 고르면 배포를 시작할 수 있습니다."
+        : check.loading
+          ? "레포의 platform.yaml을 확인하고 있습니다."
+          : !check.data?.valid
+            ? "레포 확인을 통과하면 배포를 시작할 수 있습니다."
+            : "";
 
   async function submit() {
     if (!repo) return;
@@ -54,7 +63,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
 
   return (
     <div className="page">
-      <PageHead title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." crumb={crumb} />
+      <PageHead title="새 앱 배포" sub="GitHub 레포를 연결하면 push할 때마다 빌드하고, 고른 환경에 동시에 배포합니다." />
       <div className="box">
         <div className="bb">
           <div className="form">
@@ -121,7 +130,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
         <button type="button" className="btn primary" disabled={!can} onClick={submit}>
           {busy ? "등록하는 중" : "배포 시작"}
         </button>
-        <span className="hint">예상 2~4분, 목표 5분 이내</span>
+        <span className="hint">{why || "예상 2~4분, 목표 5분 이내"}</span>
       </div>
     </div>
   );

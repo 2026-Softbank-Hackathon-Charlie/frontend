@@ -194,6 +194,7 @@ export function DevicePage() {
                   <button type="button" className="btn ghost" disabled={busy} onClick={() => void review(false)}>
                     거절
                   </button>
+                  {!role && <span className="hint">역할을 고르면 승인할 수 있습니다.</span>}
                 </div>
               </>
             ) : (

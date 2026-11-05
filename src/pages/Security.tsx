@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSecurity } from "../api/hooks";
 import type { SecurityCategory, SecurityReport, SecuritySeverity } from "../api/types";
 import { envName } from "../components/shared";
-import { Chip, PageHead, Table, td, type ChipKind } from "../components/ui";
+import { Chip, LoadError, PageHead, Skeleton, Table, td, type ChipKind } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { CATEGORIES, CATEGORY_LABEL, PROVIDER_LABEL, securityMatrix, SOURCE_LABEL, type CellState } from "../data/securityMatrix";
 import { SIM_SECURITY } from "../sim/security";
@@ -29,7 +29,7 @@ function LiveSecurity() {
     return (
       <div className="page">
         <PageHead title="보안" />
-        <p className="hint">불러오지 못했습니다: {errorText(r.error)}</p>
+        <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={errorText(r.error)} retry={r.reload} />
       </div>
     );
   }
@@ -37,7 +37,7 @@ function LiveSecurity() {
     return (
       <div className="page">
         <PageHead title="보안" />
-        <p className="hint">불러오는 중</p>
+        <Skeleton box rows={4} />
       </div>
     );
   }
@@ -103,7 +103,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
                   <b>{envName(r.environment)}</b>
                   <small className="block">
                     {r.providers.map((p) => PROVIDER_LABEL[p]).join(", ")}
-                    {r.sources.length ? " · " + r.sources.map((x) => sourceName(x.name)).join(", ") : ""}
+                    {r.sources.length ? " (" + r.sources.map((x) => sourceName(x.name)).join(", ") + ")" : ""}
                   </small>
                 </>,
               ),
@@ -120,7 +120,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
           <h2>찾은 항목</h2>
           {cell && (
             <span className="hint">
-              {envName(cell.env)} · {CATEGORY_LABEL[cell.cat]}만 보는 중{" "}
+              {envName(cell.env)}의 {CATEGORY_LABEL[cell.cat]}만 보는 중{" "}
               <button type="button" className="linkbtn" onClick={() => setCell(null)}>
                 전체 보기
               </button>
@@ -175,7 +175,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
               ),
               td(envName(x.environment)),
               td(<Chip kind={SRC_STATUS[x.status][1]}>{SRC_STATUS[x.status][0]}</Chip>),
-              td(x.findings + "개", "m"),
+              td(x.findings + "개", "num"),
             ])}
           />
         </div>

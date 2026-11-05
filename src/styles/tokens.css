@@ -33,7 +33,10 @@
   /* console extensions */
   --muted: #646468;
   --fill: #f4f4f5;
-  --old: #9b9ba0;
+  /* white text on it is 5.1:1 */
+  --old: #6e6e73;
+  /* input and select borders: 3.4:1 on the canvas, where the hairline (1.8:1) is too faint for a control */
+  --field-line: #8a8a8f;
   --ok: #1d6b45;
   --ok-bg: #e8f3ed;
   --bad: #a3271c;
@@ -62,17 +65,29 @@
   --r-chip: 4px;
 
   --font-body: "SUIT Variable", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* Plex Mono has no Hangul: Korean inside a log line falls to SUIT, not to the system's monospace (GulimChe on Windows) */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, "SUIT Variable", monospace;
 
   --r-none: 0;
   --r-control: 6px;
   --r-badge: 10px;
   --r-pill: 50px;
 
+  /* Spacing on a 4px grid (20 is the SoftBank value). Padding, margin and gap use only these; 1 to 2px hairline offsets stay as they are. */
+  --sp-2xs: 4px;
   --sp-xs: 8px;
-  --sp-sm: 10px;
+  --sp-sm: 12px;
   --sp-md: 16px;
   --sp-lg: 20px;
+  --sp-xl: 24px;
+  --sp-2xl: 32px;
+  --sp-3xl: 48px;
+
+  /* buttons, inputs and selects share one height; a touch screen gets the 44px target */
+  --h-ctl: 36px;
+}
+@media (pointer: coarse) {
+  :root { --h-ctl: 44px; }
 }
 
 /*

@@ -8,7 +8,7 @@ import { dur, fmt } from "../sim/format";
 import { matrixRoutes, statusText } from "../sim/mig";
 import { appsIn, migActive } from "../sim/state";
 import { useSim } from "../sim/store";
-import { Chip, Table, td, type ChipKind } from "./ui";
+import { Chip, LoadError, Skeleton, Table, td, type ChipKind } from "./ui";
 
 /** Display name for a platform environment name (eks → AWS EKS). */
 export function envName(name: string, envs?: Environment[]): string {
@@ -60,11 +60,7 @@ function SimEnvGrid() {
           <EnvCard
             key={k}
             name={e.name}
-            chip={
-              <Chip kind="ok" dot>
-                정상
-              </Chip>
-            }
+            chip={<Chip kind="ok">정상</Chip>}
             loc={e.region + ", 노드 " + e.nodes + "대, Kubernetes " + e.k8s}
             figs={[
               ["앱", appsIn(S, k)],
@@ -87,19 +83,15 @@ function dbCount(e: Environment): string {
 
 function LiveEnvGrid() {
   const envs = useEnvironments(10_000);
-  if (envs.error && !envs.data) return <p className="hint">환경을 불러오지 못했습니다: {errorText(envs.error)}</p>;
-  if (!envs.data) return <p className="hint">불러오는 중</p>;
+  if (envs.error && !envs.data) return <LoadError title="클러스터 상태를 불러오지 못했습니다." error={errorText(envs.error)} retry={envs.reload} />;
+  if (!envs.data) return <Skeleton box />;
   return (
     <div className="envcards">
       {envs.data.map((e) => (
         <EnvCard
           key={e.name}
           name={e.displayName}
-          chip={
-            <Chip kind={e.status.reachable ? "ok" : "bad"} dot>
-              {e.status.reachable ? "정상" : "연결 안 됨"}
-            </Chip>
-          }
+          chip={<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>}
           loc={[e.region ?? "위치 정보 없음", e.status.kubernetesVersion ? "Kubernetes " + e.status.kubernetesVersion : ""].filter(Boolean).join(", ")}
           figs={[
             ["노드", e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total : "-"],
@@ -151,8 +143,8 @@ function SimRoutes({ withCount }: { withCount?: boolean }) {
 }
 function LiveRoutes({ withCount }: { withCount?: boolean }) {
   const m = useMatrix();
-  if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
-  if (!m.data) return <p className="hint">불러오는 중</p>;
+  if (m.error && !m.data) return <LoadError title="경로별 결과를 불러오지 못했습니다." error={errorText(m.error)} retry={m.reload} />;
+  if (!m.data) return <Skeleton box rows={6} />;
   return <RoutesView routes={m.data.routes} withCount={withCount} />;
 }
 
@@ -164,11 +156,11 @@ function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: 
     return [
       td(envShort(r.source) + " → " + envShort(r.target), "nw"),
       td(r.status ? <Chip kind={RESULT_KIND[r.status] ?? ""}>{statusText(r.status)}</Chip> : <Chip>미실행</Chip>),
-      td(ended && x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "m"),
-      td(ended && x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "m"),
-      td(ended && x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "m"),
-      td(ended && x ? (x.missingRows ?? "-") + " / " + (x.missingWrites ?? "-") + " / " + (x.missingFiles ?? "-") : "-", "m"),
-      td(ended && x?.requests !== undefined ? fmt(x.requests) : "-", "m"),
+      td(ended && x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "num"),
+      td(ended && x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "num"),
+      td(ended && x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "num"),
+      td(ended && x ? (x.missingRows ?? "-") + " / " + (x.missingWrites ?? "-") + " / " + (x.missingFiles ?? "-") : "-", "num"),
+      td(ended && x?.requests !== undefined ? fmt(x.requests) : "-", "num"),
       td(r.runId ?? "-", "m"),
     ];
   });
@@ -208,39 +200,54 @@ function LiveMatrix({ active }: { active: Run[] }) {
     seen.current = ids;
     reload();
   }, [ids, reload]);
-  if (m.error && !m.data) return <p className="hint">경로별 결과를 불러오지 못했습니다: {errorText(m.error)}</p>;
-  if (!m.data) return <p className="hint">불러오는 중</p>;
+  if (m.error && !m.data) return <LoadError title="경로별 결과를 불러오지 못했습니다." error={errorText(m.error)} retry={reload} />;
+  if (!m.data) return <Skeleton />;
   const now = active.map((r): MatrixRoute => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status }));
   // a cell takes the first route that matches it, so a run in progress wins over the route's last result
   return <MatrixView routes={[...now, ...m.data.routes]} />;
 }
 
 function MatrixView({ routes }: { routes: MatrixRoute[] }) {
+  // no route has a result or a run yet: one line instead of six empty cells
+  if (!routes.some((r) => r.status))
+    return (
+      <div className="ov-empty">
+        <p className="hint">아직 이전한 경로가 없습니다. 이전을 마치면 경로마다 결과가 여기에 쌓입니다.</p>
+        <a className="more" href="#migrate-app">
+          이전하기
+        </a>
+      </div>
+    );
   // environments match by key: the platform names on-prem "onprem", the simulation "k3s"
   const at = (s: EnvKey, t: EnvKey) => routes.find((r) => envKeyOf(r.source) === s && envKeyOf(r.target) === t);
   return (
-    <div className="scroll">
-      <table className="rmx">
-        <thead>
-          <tr>
-            <td />
-            {ENV_ORDER.map((t) => (
-              <th key={t} scope="col">
-                {ENV[t].short}로
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {ENV_ORDER.map((s) => (
-            <tr key={s}>
-              <th scope="row">{ENV[s].short}에서</th>
-              {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
+    <>
+      <div className="scroll">
+        <table className="rmx">
+          <thead>
+            <tr>
+              <td />
+              {ENV_ORDER.map((t) => (
+                <th key={t} scope="col">
+                  {ENV[t].short}로
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {ENV_ORDER.map((s) => (
+              <tr key={s}>
+                <th scope="row">{ENV[s].short}에서</th>
+                {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a className="more hint" href="#routes">
+        6개 경로 자세히
+      </a>
+    </>
   );
 }
 
@@ -253,7 +260,7 @@ function routeCell(s: EnvKey, t: EnvKey, r: MatrixRoute | undefined): ReactNode 
   return (
     <a className={RESULT_KIND[r.status] || "neu"} href={active ? "#migrate-app" : "#routes"} aria-label={ENV[s].short + "에서 " + ENV[t].short + "로 " + RUN_SHORT[r.status] + (time && ", " + time)}>
       <b>{RUN_SHORT[r.status]}</b>
-      {time && <span className="m">{time}</span>}
+      {time && <span className="num">{time}</span>}
     </a>
   );
 }

@@ -4,7 +4,7 @@ import { isFinalDeploymentStatus } from "../api/sse";
 import type { Deployment, DeploymentEvent, DeploymentStatus } from "../api/types";
 import { DEPLOY_LABEL, DeployChip, EnvChip, ExtLink, elapsedSec, ms, short, TRIGGER_LABEL } from "../components/deploy";
 import { envName } from "../components/shared";
-import { LogBox, PageHead, ProgItem, Table, td } from "../components/ui";
+import { LoadError, LogBox, PageHead, ProgItem, Skeleton, Table, td } from "../components/ui";
 import { instancesOf, useLiveDeployment, useSimDeployment, type DeploymentModel } from "../data/deploy";
 import { useLive } from "../data/live";
 import { dur, mmss, type StepState } from "../sim/format";
@@ -65,8 +65,14 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   if (!d) {
     return (
       <div className="page">
-        <PageHead title={m.notFound ? "배포를 찾을 수 없습니다" : "배포"} crumb={<a href="#apps">앱</a>} />
-        <p className="hint">{m.notFound ? "지워진 앱의 배포이거나 주소가 틀렸습니다." : m.error ? "불러오지 못했습니다: " + m.error : "불러오는 중"}</p>
+        <PageHead title={m.notFound ? "배포를 찾을 수 없습니다" : "배포"} />
+        {m.notFound ? (
+          <p className="hint">지워진 앱의 배포이거나 주소가 틀렸습니다.</p>
+        ) : m.error ? (
+          <LoadError title="배포를 불러오지 못했습니다." error={m.error} />
+        ) : (
+          <Skeleton box />
+        )}
       </div>
     );
   }
@@ -230,8 +236,16 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
               <span className="big" aria-label={(final ? "최종 경과 시간 " : "경과 시간 ") + dur(elapsed)}>
                 {mmss(elapsed)}
               </span>
-              <div className="bar">
-                <i style={{ width: Math.min(100, (elapsed / GOAL_SEC) * 100) + "%" }} />
+              <div
+                className="bar"
+                role="progressbar"
+                aria-label="목표 시간 대비 경과"
+                aria-valuemin={0}
+                aria-valuemax={GOAL_SEC}
+                aria-valuenow={Math.round(Math.min(elapsed, GOAL_SEC))}
+                aria-valuetext={mmss(elapsed) + " / " + mmss(GOAL_SEC)}
+              >
+                <i style={{ transform: "scaleX(" + Math.min(1, elapsed / GOAL_SEC) + ")" }} />
               </div>
               <small className="hint">{final ? "배포를 만든 때부터 " + DEPLOY_LABEL[d.status] + "까지" : "배포를 만든 때부터"}</small>
             </div>

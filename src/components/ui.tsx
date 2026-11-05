@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
 
@@ -12,6 +12,54 @@ export function Chip({ kind = "", dot, children }: { kind?: ChipKind; dot?: bool
       {dot && <span className="dot" aria-hidden="true" />}
       {children}
     </span>
+  );
+}
+
+/**
+ * Placeholder while data loads: `rows` grey lines where a table or list will be, inside a card outline with `box`.
+ * It appears only after 150ms (CSS), so a fast answer does not flash it; screen readers hear "불러오는 중".
+ */
+export function Skeleton({ rows = 3, box }: { rows?: number; box?: boolean }) {
+  const lines = (
+    <div className="sk">
+      <span className="sr-only">불러오는 중</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <i key={i} aria-hidden="true" />
+      ))}
+    </div>
+  );
+  return box ? <div className="box">{lines}</div> : lines;
+}
+
+/** A load that failed: what did not load (`title`, one sentence), the cause in small print, and a retry when the data can be read again. */
+export function LoadError({ title, error, retry }: { title: string; error: ReactNode; retry?: () => void }) {
+  // A retry waits for its answer: another error, or the data (and this goes away). The same error again leaves
+  // `error` as it was, so the button also comes back after a few seconds.
+  const [asked, setAsked] = useState<{ error: ReactNode } | null>(null);
+  if (asked && asked.error !== error) setAsked(null);
+  useEffect(() => {
+    if (!asked) return;
+    const t = setTimeout(() => setAsked(null), 5000);
+    return () => clearTimeout(t);
+  }, [asked]);
+  return (
+    <div className="loaderr">
+      <p>{title}</p>
+      <small>{error}</small>
+      {retry && (
+        <button
+          type="button"
+          className="btn ghost sm"
+          disabled={!!asked}
+          onClick={() => {
+            setAsked({ error });
+            retry();
+          }}
+        >
+          {asked ? "다시 불러오는 중" : "다시 불러오기"}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -62,16 +110,24 @@ export interface Cell {
   v: ReactNode;
   cls?: string;
 }
+/** `cls` "num": a number (count, duration, rate), in fixed-width digits and right-aligned; "m": an ID, commit or host in mono. */
 export const td = (v: ReactNode, cls?: string): Cell => ({ v, cls });
 
+const isNum = (c: Cell | undefined) => !!c?.cls?.split(" ").includes("num");
+
 export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
+  // a column of numbers aligns its head with them; the last column without a head (actions) hugs the right
+  const num = head.map((_, i) => rows.length > 0 && rows.every((r) => isNum(r[i])));
+  const act = (i: number) => i === head.length - 1 && head[i] === "";
   return (
     <div className="scroll">
       <table className="tbl">
         <thead>
           <tr>
             {head.map((h, i) => (
-              <th key={i}>{h}</th>
+              <th key={i} className={num[i] ? "num" : act(i) ? "act" : undefined}>
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
@@ -79,7 +135,7 @@ export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
           {rows.map((r, i) => (
             <tr key={i}>
               {r.map((c, j) => (
-                <td key={j} className={c.cls}>
+                <td key={j} className={act(j) ? (c.cls ? c.cls + " act" : "act") : c.cls}>
                   {c.v}
                 </td>
               ))}
