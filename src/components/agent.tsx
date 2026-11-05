@@ -42,7 +42,7 @@ export function eventText(e: AgentEvent): string {
     case "tool_result":
       return (e.tool ?? "도구") + " 결과" + (e.status ? " (" + e.status + ")" : "") + ": " + short(e.output);
     case "blocked":
-      return "차단됨: " + short((e.input as { command?: string } | undefined)?.command ?? e.tool) + " — " + short(e.output);
+      return "차단됨: " + short((e.input as { command?: string } | undefined)?.command ?? e.tool) + " (" + short(e.output) + ")";
     case "decision":
       return "결정: " + short(e.output);
     case "error":

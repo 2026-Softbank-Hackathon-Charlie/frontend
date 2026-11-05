@@ -103,7 +103,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
                   <b>{envName(r.environment)}</b>
                   <small className="block">
                     {r.providers.map((p) => PROVIDER_LABEL[p]).join(", ")}
-                    {r.sources.length ? " · " + r.sources.map((x) => sourceName(x.name)).join(", ") : ""}
+                    {r.sources.length ? " (" + r.sources.map((x) => sourceName(x.name)).join(", ") + ")" : ""}
                   </small>
                 </>,
               ),
@@ -120,7 +120,7 @@ function SecurityView({ report, demo }: { report: SecurityReport; demo?: boolean
           <h2>찾은 항목</h2>
           {cell && (
             <span className="hint">
-              {envName(cell.env)} · {CATEGORY_LABEL[cell.cat]}만 보는 중{" "}
+              {envName(cell.env)}의 {CATEGORY_LABEL[cell.cat]}만 보는 중{" "}
               <button type="button" className="linkbtn" onClick={() => setCell(null)}>
                 전체 보기
               </button>

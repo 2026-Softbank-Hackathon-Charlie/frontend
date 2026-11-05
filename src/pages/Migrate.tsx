@@ -206,7 +206,9 @@ const PROG: [string, string, string, string][] = [
   [
     "실행",
     "동기화, 읽기 카나리, 전환, 검증 순서로 진행합니다.",
-    "동기화(사전 확인, 대상 준비, 초기 복사, 변경분) → 읽기 카나리(기본 " + CANARY.weights.join("%, ") + "%, 승인할 때 7단계 점진 카나리 선택 가능) → 전환 승인 → 쓰기 보류, 승격, 전환 → 검증",
+    "동기화(사전 확인, 대상 준비, 초기 복사, 변경분)를 마치면 읽기 카나리로 읽기 일부를 대상에 보내 봅니다(기본 " +
+      CANARY.weights.join("%, ") +
+      "%, 승인할 때 7단계 점진 카나리 선택 가능). 그다음 전환 승인을 기다리고, 승인하면 쓰기 보류, 승격, 전환을 거쳐 검증합니다.",
     "3분 이내",
   ],
 ];
@@ -1173,7 +1175,7 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
             </span>
           </Num>
           <Num label="실패 요청" value={fmt(failed ?? 0) + "건"} note={"요청 " + fmt(r.result.requests ?? 0) + "건 중"} ok={failed === undefined ? undefined : failed === 0} />
-          <Num label="복제 지연" value={lag === undefined ? "-" : fmt(lag) + " B"} note={v.srcLabel + " → " + v.tgtLabel} />
+          <Num label="복제 지연" value={lag === undefined ? "-" : fmt(lag) + "\u00a0B"} note={v.srcLabel + " → " + v.tgtLabel} />
           {v.counters && <Num label="성공한 쓰기 (k6)" value={fmt(v.counters.ok)} note={r.engine.writesHeld ? "보류 중인 쓰기 " + fmt(v.counters.held) + "건" : "부하 생성기 기준"} />}
         </div>
       )}

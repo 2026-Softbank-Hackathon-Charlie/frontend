@@ -210,6 +210,17 @@ function Console({ r }: { r: string }) {
   const live = useLive();
   return (
     <div className="layout">
+      {/* a way past the side menu; the hash is the route, so it moves focus instead of following #main */}
+      <a
+        className="skip"
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
+        본문으로 건너뛰기
+      </a>
       {live ? <LiveSideNav r={r} /> : <SimSideNav r={r} />}
       <div className="col">
         <header className="top">
@@ -222,7 +233,7 @@ function Console({ r }: { r: string }) {
             <Account r={r} />
           </div>
         </header>
-        <main id="main">
+        <main id="main" tabIndex={-1}>
           {/* keyed by route so the enter animation replays on navigation only, not on every tick; app list filters and app tabs keep the page */}
           <Page key={r.startsWith("apps") ? "apps" : r.split("/")[0]} r={r} />
         </main>
