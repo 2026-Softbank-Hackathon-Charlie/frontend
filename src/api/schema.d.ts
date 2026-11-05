@@ -1449,11 +1449,11 @@ export interface components {
       replica: boolean;
       backup?: components["schemas"]["DatabaseBackup"];
     };
-    /** @description Backups of a CNPG Cluster whose WAL archiver is an enabled Barman Cloud plugin (ADR 0025); absent on a Cluster without one. The times come from the plugin's ObjectStore and are absent when the platform cannot read it. */
+    /** @description Backups of a CNPG Cluster whose WAL archiver is an enabled Barman Cloud plugin (ADR 0025); absent on a Cluster without one. The times come from the plugin's ObjectStore; when the platform cannot read it they are absent and EnvironmentStatus.error says why. */
     DatabaseBackup: {
       /** @description the plugin's ObjectStore in the Cluster's namespace */
       objectStore: string;
-      /** @description the Cluster's ContinuousArchiving condition is True: WAL is reaching the object store */
+      /** @description false when the Cluster's ContinuousArchiving condition is False: WAL is not reaching the object store. A Cluster that has not reported the condition yet counts as archiving */
       walArchiving: boolean;
       /** Format: date-time */
       lastSuccessfulBackup?: string;
