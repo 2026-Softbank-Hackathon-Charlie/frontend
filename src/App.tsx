@@ -50,7 +50,7 @@ const NAV_LABEL: Record<string, string> = {
   overview: "개요",
   apps: "앱",
   migrate: "이전",
-  routes: "경로별 결과",
+  routes: "이전 결과",
   agents: "AI 활동",
   security: "보안",
   envs: "환경",

@@ -1,7 +1,8 @@
 import "../styles/migrate.css";
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import type { AgentEvent, AgentSession, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { blockedOf, KIND_LABEL, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
+import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
@@ -52,7 +53,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
             </a>
             <a className="btn ghost" href="#routes">
               <Icon name="route" size={16} />
-              경로별 결과
+              이전 결과
             </a>
           </>
         }
@@ -227,9 +228,15 @@ function MigrateView({ v }: { v: MigrationView }) {
     );
   }
 
+  // The map keeps one element (key "map") under the same page from the setup to the end of the run, so the
+  // iframe is not reloaded when the plan starts: the flow carries on in the same map.
+  const page = (top: ReactNode, map: ReactNode, bottom: ReactNode) => (
+    <div className="page">{[<Fragment key="top">{top}</Fragment>, <Fragment key="map">{map}</Fragment>, <Fragment key="bottom">{bottom}</Fragment>]}</div>
+  );
+
   if (v.stage === "setup") {
-    return (
-      <div className="page">
+    return page(
+      <>
         <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." />
         <Notice text={v.notice} />
         <div className="split">
@@ -288,18 +295,23 @@ function MigrateView({ v }: { v: MigrationView }) {
               : "AI는 계획과 수정안만 만듭니다. 운영 클러스터를 바꾸는 권한은 엔진에만 있습니다."}
           </span>
         </div>
-      </div>
+      </>,
+      <MigrationMapFrame v={v} />,
+      null,
     );
   }
 
   const where = v.stage === "run" && v.run ? ", " + (v.run.rollbackOf ? "롤백 " : "") + v.run.runId : v.plan ? ", Plan " + v.plan.ref : "";
-  return (
-    <div className="page">
+  const r = v.stage === "run" ? v.run : undefined;
+  const hero = r ? heroText(v, r, r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt)) : undefined;
+  return page(
+    <>
       <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} />
       <Wizard v={v} />
       <Notice text={v.notice} />
-      {v.stage === "run" && v.run ? <RunView v={v} r={v.run} /> : <AiView v={v} />}
-    </div>
+    </>,
+    <MigrationMapFrame v={v} hero={hero} />,
+    r ? <RunView v={v} r={r} /> : <AiView v={v} />,
   );
 }
 
@@ -878,14 +890,6 @@ function stepStates(r: Run, events: RunEvent[], active: boolean): Record<string,
   return out;
 }
 
-function lastLag(v: MigrationView): number | undefined {
-  for (let i = v.events.length - 1; i >= 0; i--) {
-    const x = v.events[i].data?.lagBytes;
-    if (typeof x === "number") return x;
-  }
-  return undefined;
-}
-
 /** Seconds in a Go duration such as "30s" or "1m30s". */
 function goSec(d: string): number | undefined {
   const parts = [...d.matchAll(/(\d+(?:\.\d+)?)(ms|h|m|s)/g)];
@@ -932,7 +936,6 @@ interface Group {
 }
 
 const GROUP_OF: Record<RunPhase, number> = { sync: 0, canary: 1, awaiting_switch: 2, cutover: 2, verify: 3, observe: 3, done: 4 };
-const GROUP_NOW: Partial<Record<GroupSt, string>> = { run: "진행 중", wait: "승인 대기", bad: "멈춤" };
 
 /**
  * Where a run that did not succeed stopped. The platform ends every run in phase "done" (runs.finish), right after
@@ -1004,29 +1007,15 @@ function spansOf(r: Run, m: Marks): { label: string; sec: number; i: number }[] 
 function RunView({ v, r }: { v: MigrationView; r: Run }) {
   const ended = !["running", "awaiting_switch"].includes(r.status);
   const marks = marksOf(r, v.events);
-  const groups = groupsOf(r, v.events, marks);
+  // the map above holds the actions, the progress and the traffic; these are the run's records
   return (
     <>
-      <RunHero v={v} r={r} groups={groups} ended={ended} />
       {/* a start or rollback refused by a pre-start check: why comes first */}
       {v.preflight?.blocked && <PreflightBox p={v.preflight} />}
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
       {ended && <PhaseTimes r={r} m={marks} />}
-      <PhaseGroups groups={groups} />
-      <div className="mg-pair">
-        <div className="box">
-          <div className="bh">
-            <b>트래픽</b>
-            <span className="hint">게이트웨이 기준</span>
-          </div>
-          <div className="bb">
-            <TrafficBar label="읽기" src={v.srcLabel} tgt={v.tgtLabel} tgtShare={targetReadShare(r)} />
-            <TrafficBar label="쓰기" src={v.srcLabel} tgt={v.tgtLabel} tgtShare={r.engine.trafficOnTarget ? 100 : 0} held={r.engine.writesHeld} />
-          </div>
-        </div>
-        <CanaryBox r={r} />
-      </div>
+      <CanaryBox r={r} />
       <RunRecords key={r.runId} v={v} r={r} />
     </>
   );
@@ -1092,148 +1081,7 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
   }
 }
 
-// The run's state and its next action, with the progress over the four groups and the numbers that matter while it runs.
-function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Group[]; ended: boolean }) {
-  const el = r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt);
-  const lag = lastLag(v);
-  const failed = r.result.failedRequests;
-  const canAbort = (r.status === "running" || r.status === "awaiting_switch") && !r.engine.promoteRequested;
-  const canResume = r.status === "failed" || r.status === "aborted" || r.status === "interrupted";
-  const [title, say] = heroText(v, r, el);
-  const violated = r.status === "succeeded" && r.observe?.passed === false;
-  const tone = r.status === "awaiting_switch" ? " tone-warn" : r.status === "succeeded" && !violated ? " tone-ok" : ended ? " tone-bad" : "";
-  const motion = r.status === "running" ? " is-run" : r.status === "awaiting_switch" ? " is-wait" : "";
-  return (
-    <section className={"box mg-hero" + tone + motion} aria-labelledby="mg-now">
-      <div className="mg-top">
-        <div className="mg-say">
-          {violated ? (
-            <Chip kind="bad">전환 후 관찰 위반</Chip>
-          ) : (
-            <Chip kind={STATUS_KIND[r.status]} dot={!ended}>
-              {statusText(r.status, r.phase)}
-            </Chip>
-          )}
-          {/* announced when the state changes; the numbers below change every second and are not */}
-          <div role="status">
-            <h2 id="mg-now">{title}</h2>
-          </div>
-          <p>{say}</p>
-        </div>
-        <div className="mg-acts">
-          {r.status === "awaiting_switch" && (
-            <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.doSwitch}>
-              <Icon name="arrow-right-left" />
-              전환
-            </button>
-          )}
-          {canAbort && (
-            <button type="button" className="btn ghost lg" disabled={v.busy} onClick={v.abort}>
-              <Icon name="x" />
-              중단
-            </button>
-          )}
-          {canResume && (
-            <button type="button" className="btn primary lg" disabled={v.busy} onClick={v.resume}>
-              <Icon name="play" />
-              이어서 실행
-            </button>
-          )}
-          {r.status === "succeeded" && !r.observe?.rollbackRunId && (
-            <button type="button" className="btn ghost lg" disabled={v.busy} onClick={v.rollback}>
-              <Icon name="rotate-ccw" />
-              롤백
-            </button>
-          )}
-          {ended && (
-            <button type="button" className="btn ghost lg" onClick={v.reset}>
-              <Icon name="route" />
-              다른 경로로 이전
-            </button>
-          )}
-        </div>
-      </div>
-      {/* an ended run's parts are in the time bar and the phase groups below */}
-      {!ended && (
-        <ol className="mg-track" aria-label="진행 단계">
-          {groups.map((g) => (
-            <li key={g.label} className={g.st} aria-current={GROUP_NOW[g.st] ? "step" : undefined}>
-              <i />
-              <span>
-                {g.label}
-                {GROUP_NOW[g.st] && <small>{GROUP_NOW[g.st]}</small>}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {!ended && (
-        <div className="mg-stats">
-          <Num
-            label="경과"
-            value={
-              <>
-                {mmss(el)} <small>/ {mmss(TARGET_SEC)}</small>
-              </>
-            }
-          >
-            <span
-              className={"mg-mini" + (el > TARGET_SEC ? " over" : "")}
-              role="progressbar"
-              aria-label="목표 시간 대비 경과"
-              aria-valuemin={0}
-              aria-valuemax={TARGET_SEC}
-              aria-valuenow={Math.round(Math.min(el, TARGET_SEC))}
-              aria-valuetext={mmss(el) + " / " + mmss(TARGET_SEC)}
-            >
-              <i style={{ transform: "scaleX(" + Math.min(1, el / TARGET_SEC) + ")" }} />
-            </span>
-          </Num>
-          <Num label="실패 요청" value={fmt(failed ?? 0) + "건"} note={"요청 " + fmt(r.result.requests ?? 0) + "건 중"} ok={failed === undefined ? undefined : failed === 0} />
-          <Num label="복제 지연" value={lag === undefined ? "-" : fmt(lag) + "\u00a0B"} note={v.srcLabel + " → " + v.tgtLabel} />
-          {v.counters && <Num label="성공한 쓰기 (k6)" value={fmt(v.counters.ok)} note={r.engine.writesHeld ? "보류 중인 쓰기 " + fmt(v.counters.held) + "건" : "부하 생성기 기준"} />}
-        </div>
-      )}
-    </section>
-  );
-}
 
-function PhaseGroups({ groups }: { groups: Group[] }) {
-  return (
-    <div className="box mg-phases">
-      <div className="bh">
-        <b>진행 단계</b>
-        <span className="hint">엔진 9단계와 읽기 카나리</span>
-      </div>
-      <div className="mg-grps">
-        {groups.map((g) => (
-          <div key={g.label} className={"mg-grp " + g.st}>
-            <i className="mg-bar4" />
-            <div className="mg-grph">
-              <b>{g.label}</b>
-              {g.st === "wait" ? (
-                <Chip kind="warn">승인 대기</Chip>
-              ) : g.st === "todo" ? (
-                <span className="hint">대기</span>
-              ) : (
-                g.range && <span className="m hint">{g.range}</span>
-              )}
-            </div>
-            <ul className="mg-steps">
-              {g.items.map((it) => (
-                <li key={it.label} className={it.st} title={it.detail}>
-                  <Mark st={it.st} />
-                  {it.label}
-                  {it.now && <span className="hint">{it.now}</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // One bar of the ended run's parts; the wait for the switch approval (a person) is amber.
 function PhaseTimes({ r, m }: { r: Run; m: Marks }) {
@@ -1308,26 +1156,6 @@ function RunSessions({ v }: { v: MigrationView }) {
       <SessionTable sessions={v.sessions} onPick={pick} picked={shown?.id} />
       {shown && <SessionFeed s={shown} events={v.sessionEvents(shown.id)} />}
     </>
-  );
-}
-
-function TrafficBar({ label, src, tgt, tgtShare, held }: { label: string; src: string; tgt: string; tgtShare: number; held?: boolean }) {
-  const old = 100 - tgtShare;
-  return (
-    <div className="trafficrow">
-      <span className="tl">
-        {label}
-        {held && <Chip kind="neu">보류 중</Chip>}
-      </span>
-      <div className="traffic" role="img" aria-label={`${label}: ${src} ${old}%, ${tgt} ${tgtShare}%`}>
-        <div className={"seg old" + (old === 0 ? " gone" : "")} style={{ flexBasis: old + "%" }}>
-          {src} {old}%
-        </div>
-        <div className={"seg new" + (tgtShare === 0 ? " gone" : "")} style={{ flexBasis: tgtShare + "%" }}>
-          {tgt} {tgtShare}%
-        </div>
-      </div>
-    </div>
   );
 }
 
