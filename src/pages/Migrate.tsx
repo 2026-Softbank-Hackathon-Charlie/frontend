@@ -1139,17 +1139,20 @@ function RunHero({ v, r, groups, ended }: { v: MigrationView; r: Run; groups: Gr
           )}
         </div>
       </div>
-      <ol className="mg-track" aria-label="진행 단계">
-        {groups.map((g) => (
-          <li key={g.label} className={g.st} aria-current={GROUP_NOW[g.st] ? "step" : undefined}>
-            <i />
-            <span>
-              {g.label}
-              {GROUP_NOW[g.st] && <small>{GROUP_NOW[g.st]}</small>}
-            </span>
-          </li>
-        ))}
-      </ol>
+      {/* an ended run's parts are in the time bar and the phase groups below */}
+      {!ended && (
+        <ol className="mg-track" aria-label="진행 단계">
+          {groups.map((g) => (
+            <li key={g.label} className={g.st} aria-current={GROUP_NOW[g.st] ? "step" : undefined}>
+              <i />
+              <span>
+                {g.label}
+                {GROUP_NOW[g.st] && <small>{GROUP_NOW[g.st]}</small>}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
       {!ended && (
         <div className="mg-stats">
           <Num

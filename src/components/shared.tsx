@@ -208,31 +208,46 @@ function LiveMatrix({ active }: { active: Run[] }) {
 }
 
 function MatrixView({ routes }: { routes: MatrixRoute[] }) {
+  // no route has a result or a run yet: one line instead of six empty cells
+  if (!routes.some((r) => r.status))
+    return (
+      <div className="ov-empty">
+        <p className="hint">아직 이전한 경로가 없습니다. 이전을 마치면 경로마다 결과가 여기에 쌓입니다.</p>
+        <a className="more" href="#migrate-app">
+          이전하기
+        </a>
+      </div>
+    );
   // environments match by key: the platform names on-prem "onprem", the simulation "k3s"
   const at = (s: EnvKey, t: EnvKey) => routes.find((r) => envKeyOf(r.source) === s && envKeyOf(r.target) === t);
   return (
-    <div className="scroll">
-      <table className="rmx">
-        <thead>
-          <tr>
-            <td />
-            {ENV_ORDER.map((t) => (
-              <th key={t} scope="col">
-                {ENV[t].short}로
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {ENV_ORDER.map((s) => (
-            <tr key={s}>
-              <th scope="row">{ENV[s].short}에서</th>
-              {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
+    <>
+      <div className="scroll">
+        <table className="rmx">
+          <thead>
+            <tr>
+              <td />
+              {ENV_ORDER.map((t) => (
+                <th key={t} scope="col">
+                  {ENV[t].short}로
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {ENV_ORDER.map((s) => (
+              <tr key={s}>
+                <th scope="row">{ENV[s].short}에서</th>
+                {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a className="more hint" href="#routes">
+        6개 경로 자세히
+      </a>
+    </>
   );
 }
 

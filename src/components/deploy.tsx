@@ -392,14 +392,16 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
   return (
     <div className="box">
       <Table head={head} rows={rows} />
-      {/* each chip carries its state as hidden text and a title, so the legend is for the eye only */}
-      <div className="legend envlegend" aria-hidden="true">
-        {LEGEND.map(([tag, text]) => (
-          <span key={text}>
-            <span className={tagClass(tag)}>EKS</span> {text}
-          </span>
-        ))}
-      </div>
+      {/* each chip carries its state as hidden text and a title, so the legend is for the eye only; the overview's short list goes without */}
+      {full && (
+        <div className="legend envlegend" aria-hidden="true">
+          {LEGEND.map(([tag, text]) => (
+            <span key={text}>
+              <span className={tagClass(tag)}>EKS</span> {text}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -55,9 +55,6 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
           </div>
           <div className="bb">
             <RouteMatrix active={runs?.filter(isActive)} />
-            <a className="more hint" href="#routes">
-              6개 경로 자세히
-            </a>
           </div>
         </section>
         <section className="box">
