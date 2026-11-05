@@ -22,6 +22,26 @@
   --bad: #a3271c;
   --bad-bg: #f9ebe9;
 
+  /* console extensions, 2026-11-05 redesign: one hue per state, each a dark text on a light tint (all pass 4.5:1) */
+  --run: #1f5aa6;
+  --run-bg: #e8eff9;
+  --warn: #7a4a00;
+  --warn-bg: #fbf0dc;
+  --warn-line: #e6c98f;
+  --warn-tint: #fffbf3;
+  --warn-bar: #d99a2b;
+  --ok-line: #b7d8c4;
+  --ok-tint: #f5fbf7;
+  --bad-line: #e5b9b3;
+  --bad-tint: #fdf6f5;
+  --neu: #5f5f64;
+  --neu-bg: #f1f1f2;
+  --card-line: #dcdcde;
+  --line-soft: #ececee;
+  --side-bg: #f7f7f8;
+  --r-card: 8px;
+  --r-chip: 4px;
+
   --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", Meiryo, "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 

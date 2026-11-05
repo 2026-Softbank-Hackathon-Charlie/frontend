@@ -92,7 +92,7 @@ function LiveEnvGrid() {
   );
 }
 
-const RESULT_KIND: Record<string, ChipKind> = { succeeded: "ok", running: "run", awaiting_switch: "run", halted: "bad", failed: "bad", interrupted: "bad" };
+const RESULT_KIND: Record<string, ChipKind> = { succeeded: "ok", running: "run", awaiting_switch: "warn", halted: "bad", failed: "bad", interrupted: "bad" };
 
 function useSimRoutes(): MatrixRoute[] {
   const { S } = useSim();

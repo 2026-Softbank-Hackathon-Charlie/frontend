@@ -11,7 +11,7 @@ import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, PHASE_LABEL,
 
 const STATUS_KIND: Record<RunStatus, ChipKind> = {
   running: "run",
-  awaiting_switch: "run",
+  awaiting_switch: "warn",
   succeeded: "ok",
   rolled_back: "",
   halted: "bad",

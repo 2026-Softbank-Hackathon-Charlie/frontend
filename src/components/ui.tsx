@@ -2,10 +2,17 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { StepState } from "../sim/format";
 import type { LogLine } from "../sim/state";
 
-export type ChipKind = "" | "ok" | "bad" | "run";
+/** "" and "neu" are the same neutral grey; "warn" waits on a person (approval, switch). */
+export type ChipKind = "" | "neu" | "ok" | "bad" | "run" | "warn";
 
-export function Chip({ kind = "", children }: { kind?: ChipKind; children: ReactNode }) {
-  return <span className={"chip" + (kind ? " " + kind : "")}>{children}</span>;
+/** Status label: a flat tint, never outlined, so it does not read as a button. `dot` adds a leading dot for headline states. */
+export function Chip({ kind = "", dot, children }: { kind?: ChipKind; dot?: boolean; children: ReactNode }) {
+  return (
+    <span className={"chip" + (kind ? " " + kind : "")}>
+      {dot && <span className="dot" aria-hidden="true" />}
+      {children}
+    </span>
+  );
 }
 
 /** Square status indicator. Purely decorative: the adjacent text always carries the state. */
@@ -93,6 +100,38 @@ export function PageHead({ title, sub, acts, crumb }: { title: ReactNode; sub?: 
         {sub && <p>{sub}</p>}
       </div>
       {acts && <div className="acts">{acts}</div>}
+    </div>
+  );
+}
+
+export interface TabItem {
+  id: string;
+  label: ReactNode;
+}
+
+/**
+ * A row of tabs. With `hrefOf` each tab is a link (route tabs, so back works and tests can open a tab by hash);
+ * otherwise each is a role="tab" button that calls `onSelect`. The caller renders the panel.
+ */
+export function Tabs({ label, items, current, onSelect, hrefOf }: { label: string; items: TabItem[]; current: string; onSelect?: (id: string) => void; hrefOf?: (id: string) => string }) {
+  if (hrefOf) {
+    return (
+      <nav className="tabs" aria-label={label}>
+        {items.map((t) => (
+          <a key={t.id} className="tab" href={hrefOf(t.id)} aria-current={t.id === current ? "page" : undefined}>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+    );
+  }
+  return (
+    <div className="tabs" role="tablist" aria-label={label}>
+      {items.map((t) => (
+        <button key={t.id} type="button" role="tab" className="tab" aria-selected={t.id === current} onClick={() => onSelect?.(t.id)}>
+          {t.label}
+        </button>
+      ))}
     </div>
   );
 }
