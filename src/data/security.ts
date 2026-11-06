@@ -63,7 +63,7 @@ export interface SecurityDataset {
   storageKeySources: SecuritySource[];
 }
 
-const ENV_LABEL: Record<string, string> = { eks: "AWS EKS", gke: "GCP GKE", k3s: "온프레미스 k3s", "aws-account": "AWS 계정", platform: "플랫폼" };
+const ENV_LABEL: Record<string, string> = { eks: "AWS EKS", gke: "GCP GKE", k3s: "온프레미스 k3s", onprem: "온프레미스", "aws-account": "AWS 계정", "gcp-project": "GCP 프로젝트", "cloudflare-account": "Cloudflare 계정", platform: "플랫폼" };
 export const environmentLabel = (id: string) => ENV_LABEL[id] ?? id;
 
 /** Optional parts of a live dataset. A missing report or an error leaves its capability null with the reason. */
