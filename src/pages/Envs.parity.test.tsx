@@ -1,0 +1,135 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { Environment, TrafficState } from "../api/types";
+import { fakeRun } from "../api/fakes";
+import { useEnvironments, useTraffic } from "../api/hooks";
+import { createSim, SimProvider } from "../sim/store";
+import { Envs } from "./Envs";
+
+const state = vi.hoisted(() => ({
+  live: false,
+  envs: { data: undefined as Environment[] | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
+  traffic: { data: undefined as TrafficState | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
+}));
+vi.mock("../api/hooks", () => ({ useEnvironments: vi.fn(() => state.envs), useTraffic: vi.fn(() => state.traffic) }));
+vi.mock("../data/live", () => ({ useLive: () => state.live, errorText: (error: { message: string }) => error.message }));
+
+const environment: Environment = {
+  name: "eks", provider: "aws", displayName: "API EKS", region: "api-region", kubeContext: "eks", gatewayBackend: "api-backend", live: true,
+  status: { reachable: true, checkedAt: "2026-11-06T00:00:00Z", kubernetesVersion: "1.35", nodes: { ready: 2, total: 3, architectures: ["amd64"] }, databases: [] },
+};
+const traffic: TrafficState = {
+  writeBackend: "api-backend", readWeights: { "api-backend": 100 }, writesHeld: false, heldWrites: 0, maxHold: "30s", inFlight: { reads: 0, writes: 0 },
+  backends: [{ name: "api-backend", url: "https://example.invalid", healthy: true }],
+  stats: { "api-backend": { windowSeconds: 60, requests: 1200, errors: 0, errorRate: 0, rps: 20, p50Millis: 10, p95Millis: 30, p99Millis: 50 } },
+  totals: { "api-backend": { requests: 1200, errors: 0 } }, updatedAt: "2026-11-06T00:00:00Z",
+};
+
+function open(sim = createSim()) {
+  return render(<SimProvider sim={sim} intervalMs={0}><Envs /></SimProvider>);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  state.live = false;
+  state.envs = { data: undefined, error: undefined, loading: true, reload: vi.fn() };
+  state.traffic = { data: undefined, error: undefined, loading: true, reload: vi.fn() };
+});
+
+describe("environment mode parity", () => {
+  it("uses the same cluster and gateway fields in demo and live modes", () => {
+    const demo = open();
+    const demoColumns = screen.getAllByRole("columnheader").map((cell) => cell.textContent);
+    expect(demoColumns).toEqual(["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태", "백엔드", "상태", "요청 (1분)", "오류율", "p95"]);
+    expect(screen.getByRole("heading", { name: "트래픽 게이트웨이" })).toBeInTheDocument();
+    expect(useEnvironments).not.toHaveBeenCalled();
+    expect(useTraffic).not.toHaveBeenCalled();
+    demo.unmount();
+
+    state.live = true;
+    state.envs = { ...state.envs, data: [environment], loading: false };
+    state.traffic = { ...state.traffic, data: traffic, loading: false };
+    open();
+    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(demoColumns);
+    expect(screen.getByText("API EKS")).toBeInTheDocument();
+    expect(useEnvironments).toHaveBeenCalledWith(10_000);
+    expect(useTraffic).toHaveBeenCalledWith(5_000, "1m");
+  });
+
+  it("shows partial, unreachable and backup states as labelled demo observations", () => {
+    open();
+    expect(screen.getByText(/시연용 데이터입니다/)).toBeInTheDocument();
+    expect(screen.getByText(/일부를 읽지 못함/)).toBeInTheDocument();
+    expect(screen.getByText("연결 안 됨")).toBeInTheDocument();
+    expect(screen.getByText("백업 정상")).toBeInTheDocument();
+    expect(screen.getByText("마지막 백업 실패")).toBeInTheDocument();
+    expect(screen.getByText("비정상")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "StorageClass" })).not.toBeInTheDocument();
+  });
+
+  it("keeps real API values separate from demo fixtures", () => {
+    state.live = true;
+    state.envs = { ...state.envs, data: [environment], loading: false };
+    state.traffic = { ...state.traffic, data: traffic, loading: false };
+    open();
+    expect(screen.getByText("api-region")).toBeInTheDocument();
+    expect(screen.getByText("2/3대")).toBeInTheDocument();
+    expect(screen.getByText("30ms")).toBeInTheDocument();
+    expect(screen.queryByText(/시연용 데이터입니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText("AWS EKS")).not.toBeInTheDocument();
+  });
+
+  it("keeps writes on the source until the engine completes cutover", () => {
+    const sim = createSim();
+    sim.state.mig.src = "aws";
+    sim.state.mig.tgt = "gcp";
+    sim.state.mig.switched = true;
+    sim.state.mig.held = 10;
+    sim.state.mig.heldDone = 6;
+    const run = fakeRun();
+    run.engine.writesHeld = true;
+    run.engine.trafficOnTarget = false;
+    run.canary = { options: { weights: [100], stepDuration: "20s" }, steps: [{ weight: 100, startedAt: run.startedAt }] };
+    sim.state.mig.run = run;
+    const view = open(sim);
+    expect(screen.getByText("쓰기 대상").nextElementSibling).toHaveTextContent("eks");
+    expect(screen.getByText("gke 100%")).toBeInTheDocument();
+    expect(screen.getByText("보류 중 (10건, 상한 30s)")).toBeInTheDocument();
+
+    run.engine.trafficOnTarget = true;
+    run.engine.writesHeld = false;
+    sim.state.mig.held = 0;
+    sim.state.mig.heldDone = 16;
+    view.rerender(<SimProvider sim={sim} intervalMs={0}><Envs /></SimProvider>);
+    expect(screen.getByText("쓰기 대상").nextElementSibling).toHaveTextContent("gke");
+    expect(screen.getByText("gke 100%")).toBeInTheDocument();
+    expect(screen.getByText("쓰기 보류").nextElementSibling).toHaveTextContent("없음");
+    expect(useTraffic).not.toHaveBeenCalled();
+  });
+
+  it("shows canary read weights while writes remain on the source", () => {
+    const sim = createSim();
+    sim.state.mig.src = "aws";
+    sim.state.mig.tgt = "gcp";
+    const run = fakeRun();
+    run.canary = { options: { weights: [10, 30, 100], stepDuration: "20s" }, steps: [{ weight: 30, startedAt: run.startedAt }] };
+    sim.state.mig.run = run;
+    open(sim);
+    expect(screen.getByText("쓰기 대상").nextElementSibling).toHaveTextContent("eks");
+    expect(screen.getByText("eks 70%, gke 30%")).toBeInTheDocument();
+    expect(screen.getByText("쓰기 보류").nextElementSibling).toHaveTextContent("없음");
+  });
+
+  it("preserves independent error and retry states for each live resource", () => {
+    state.live = true;
+    state.envs.error = { message: "환경 조회 권한 없음" };
+    state.traffic.error = { message: "게이트웨이 응답 없음" };
+    open();
+    const envError = screen.getByText("클러스터 상태를 불러오지 못했습니다.").closest<HTMLElement>(".loaderr")!;
+    const trafficError = screen.getByText("트래픽 게이트웨이 상태를 불러오지 못했습니다.").closest<HTMLElement>(".loaderr")!;
+    fireEvent.click(within(envError).getByRole("button"));
+    fireEvent.click(within(trafficError).getByRole("button"));
+    expect(state.envs.reload).toHaveBeenCalledOnce();
+    expect(state.traffic.reload).toHaveBeenCalledOnce();
+    expect(screen.queryByText("AWS EKS")).not.toBeInTheDocument();
+  });
+});

@@ -40,4 +40,25 @@ describe("routes", () => {
     expect(parseRoute("")).toBe("overview");
     expect(parseRoute("#nope")).toBe("overview");
   });
+
+  it("opens security tabs and details under the same sidebar entry", () => {
+    for (const tab of ["controls", "vulnerabilities", "findings", "sources"]) {
+      const route = "security/" + tab;
+      expect(parseRoute("#" + route)).toBe(route);
+      expect(navCurrent(route)).toBe("security");
+    }
+    expect(parseRoute("#security/vulnerabilities/log4shell")).toBe("security/vulnerabilities/log4shell");
+    expect(parseRoute("#security/findings/blocked-request")).toBe("security/findings/blocked-request");
+    expect(parseRoute("#security/controls/eks-rbac")).toBe("security/controls/eks-rbac");
+    expect(parseRoute("#security/nope")).toBe("overview");
+    expect(parseRoute("#security/sources/unknown")).toBe("overview");
+  });
+
+  it("keeps the page position while moving between security tabs and details", () => {
+    renderHook(() => useRoute());
+    const scroll = vi.spyOn(window, "scrollTo");
+    act(() => window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL: "http://x/#security", newURL: "http://x/#security/controls" })));
+    expect(scroll).not.toHaveBeenCalled();
+    scroll.mockRestore();
+  });
 });

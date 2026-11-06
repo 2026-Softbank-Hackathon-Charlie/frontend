@@ -25,7 +25,7 @@ const ALIASES: Record<string, string> = { "migrate-shop": "migrate-app" };
 export function parseRoute(hash: string): string {
   const raw = hash.replace(/^#/, "") || "overview";
   const h = ALIASES[raw] ?? raw;
-  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h)) return h;
+  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h) || /^security\/(sources|(controls|vulnerabilities|findings)(\/[A-Za-z0-9_-]+)?)$/.test(h)) return h;
   return "overview";
 }
 
@@ -39,17 +39,17 @@ export function appRoute(r: string): { name: string; tab: AppTab } {
 }
 
 /** The page a route shows: an app's tabs are one page. */
-const pageOf = (r: string) => (r.startsWith("app-") ? r.split("/")[0] : r);
+const pageOf = (r: string) => (r.startsWith("app-") || r.startsWith("security") ? r.split("/")[0] : r);
 /** The route of a whole URL, as a hashchange event names the old and new one. */
 const routeOfUrl = (url: string) => parseRoute(url.includes("#") ? url.slice(url.indexOf("#")) : "");
 
 function subscribe(cb: () => void) {
   const on = (e: HashChangeEvent) => {
     cb();
-    // A new page starts at the top. Another tab of the same app keeps the scroll, so the tabs stay where they were tapped.
+    // A new page starts at the top; tabs of one app or the security section retain their position.
     const from = routeOfUrl(e.oldURL ?? "");
-    const sameApp = !!e.oldURL && !!e.newURL && from.startsWith("app-") && pageOf(from) === pageOf(routeOfUrl(e.newURL));
-    if (!sameApp) window.scrollTo(0, 0);
+    const samePage = !!e.oldURL && !!e.newURL && (from.startsWith("app-") || from.startsWith("security")) && pageOf(from) === pageOf(routeOfUrl(e.newURL));
+    if (!samePage) window.scrollTo(0, 0);
   };
   window.addEventListener("hashchange", on);
   return () => window.removeEventListener("hashchange", on);
@@ -69,5 +69,6 @@ export function navCurrent(r: string): string {
   if (r === "overview") return "overview";
   if (r.startsWith("apps") || r === "new" || r === "onboard" || r.startsWith("app-") || r.startsWith("deploy-")) return "apps";
   if (r.startsWith("migrate")) return "migrate";
+  if (r === "security" || r.startsWith("security/")) return "security";
   return r;
 }

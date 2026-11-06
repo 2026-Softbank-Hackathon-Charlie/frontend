@@ -61,7 +61,7 @@ describe("HopCharlie console (simulation)", () => {
 
     const first = screen.getByTitle("이주 지도");
     await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
-    await user.click(screen.getByRole("button", { name: "AI 계획 시작" }));
+    await user.click(screen.getByRole("button", { name: "AI 계획·리허설 실행" }));
     ticks(sim, AI_END);
     expect(screen.getByText(/revision 2\)을 승인할까요\?/)).toBeInTheDocument();
     expect(screen.getAllByText("kubectl get secrets -n moimroom").length).toBeGreaterThan(0);
@@ -106,24 +106,17 @@ describe("HopCharlie console (simulation)", () => {
     expect(screen.getAllByText(/샌드박스 리허설/).length).toBeGreaterThan(0);
   });
 
-  it("shows security findings by environment and category, and filters by a cell", async () => {
+  it("opens the local security design and keeps scope when moving through its views", async () => {
     const { user } = setup();
     await user.click(screen.getByRole("link", { name: /^보안/ }));
-    expect(screen.getByRole("heading", { name: "환경 × 분류" })).toBeInTheDocument();
-    // on-prem has no threat detection: not checked, which is not the same as clean
-    expect(screen.getAllByText("점검 안 함").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("이상 없음").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("row")).toHaveLength(1 + 3 + 1 + 6 + 1 + 2 + 1 + 8); // matrix, findings, storage keys, sources (with headers)
-
-    const k3s = screen.getAllByRole("row").find((r) => within(r).queryByText("온프레미스 k3s") && within(r).queryAllByRole("button").length)!;
-    const workload = within(k3s).getByRole("button", { name: /높음 1건/ });
-    await user.click(workload);
-    expect(workload).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/워크로드만 보는 중/)).toBeInTheDocument();
-    expect(screen.getByText("privileged 컨테이너")).toBeInTheDocument();
-    expect(screen.queryByText("EKS API 엔드포인트가 공개되어 있음")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "전체 보기" }));
-    expect(screen.getByText("EKS API 엔드포인트가 공개되어 있음")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "환경 × 공통 통제" })).toBeInTheDocument();
+    expect(screen.getByText("데모 보안 데이터")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("보안 환경"), "k3s");
+    await user.click(within(screen.getByRole("navigation", { name: "보안 메뉴" })).getByRole("link", { name: "수집 상태" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "수집 상태" })).toBeInTheDocument();
+    expect(screen.getByLabelText("보안 환경")).toHaveValue("k3s");
+    expect(screen.getByText("수집 실패")).toBeInTheDocument();
+    expect(screen.getByText("미지원")).toBeInTheDocument();
   });
 
   it("disables deploy when no environment is selected", async () => {
