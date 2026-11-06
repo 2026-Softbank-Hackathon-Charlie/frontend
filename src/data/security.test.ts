@@ -1,5 +1,5 @@
 import type { SecurityReport } from "../api/types";
-import { controlCounts, filterControls, filterVulnerabilities, securityData, summarizeVulnerabilities, type ControlEvaluation, type VulnerabilityFinding } from "./security";
+import { controlCounts, environmentLabel, filterControls, filterVulnerabilities, securityData, summarizeVulnerabilities, type ControlEvaluation, type VulnerabilityFinding } from "./security";
 
 const control = (id: string, status: ControlEvaluation["status"], environment: ControlEvaluation["environment"] = "eks", app?: string): ControlEvaluation => ({
   id, title: id, controlId: "TEST.1", domain: "identity", environment, app, status,
@@ -211,5 +211,13 @@ describe("live posture mapping", () => {
     expect(f.basisUrl).toBe("https://docs.aws.amazon.com/x");
     expect(f.controlId).toBe("HC-IDN-03");
     expect(f.severityBasis).toContain("벤더 등급");
+  });
+});
+
+describe("environmentLabel", () => {
+  it("names every environment the live API reports", () => {
+    expect(["eks", "gke", "onprem", "aws-account", "gcp-project", "cloudflare-account", "platform"].map(environmentLabel))
+      .toEqual(["AWS EKS", "GCP GKE", "온프레미스", "AWS 계정", "GCP 프로젝트", "Cloudflare 계정", "플랫폼"]);
+    expect(environmentLabel("new-env")).toBe("new-env");
   });
 });
