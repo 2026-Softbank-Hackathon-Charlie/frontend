@@ -11,7 +11,7 @@ function setup(hash: string) {
   localStorage.setItem("hopcharlie.mode", "demo");
   initAuth();
   const sim = createSim();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   render(
     <SimProvider sim={sim} intervalMs={0}>
       <App />

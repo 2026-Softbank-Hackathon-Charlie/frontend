@@ -38,7 +38,7 @@ function open(route = "#security") {
   window.history.replaceState(null, "", "/" + route);
   chooseMode("demo");
   render(<RoutedSecurity />);
-  return userEvent.setup();
+  return userEvent.setup({ delay: null });
 }
 
 describe("shared security workspace", () => {
@@ -47,7 +47,7 @@ describe("shared security workspace", () => {
     window.history.replaceState(null, "", "/#security/findings");
     startSession(fakeSession());
     render(<RoutedSecurity />);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     expect(await screen.findByRole("link", { name: "실제 높은 등급 신호" })).toBeInTheDocument();
     expect(screen.getByLabelText("보안 앱")).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("발견 항목 심각도"), "high");
@@ -127,7 +127,7 @@ describe("shared security workspace", () => {
     }));
     window.history.replaceState(null, "", "/#security/vulnerabilities");
     startSession(fakeSession());
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<RoutedSecurity />);
     const list = await screen.findByRole("region", { name: "취약점 목록" });
     const ghsaRow = (await within(list).findByRole("link", { name: "GHSA-aaaa-bbbb-cccc" })).closest("tr")!;
