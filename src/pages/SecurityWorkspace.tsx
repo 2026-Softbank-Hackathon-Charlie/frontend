@@ -7,6 +7,7 @@ import {
   type ControlEvaluation, type DeployedState, type RunningImageRow, type SecurityDataset, type SecurityFindingRow, type SecuritySeverity, type VulnerabilityFinding,
 } from "../data/security";
 import type { SecurityControlCoverage } from "../api/types";
+import { epssLabel, kevLabel, priorityReasons, sortByPriority } from "../data/vulnPriority";
 import "../styles/security.css";
 
 type Environment = ControlEvaluation["environment"];
@@ -22,7 +23,7 @@ const SEVERITY: Record<SecuritySeverity, [string, ChipKind]> = {
 const STATUS: Record<ControlEvaluation["status"], [string, ChipKind]> = {
   pass: ["통과", "ok"], fail: ["실패", "bad"], unknown: ["미확인", "warn"], not_applicable: ["해당 없음", ""],
 };
-const SOURCE_STATUS = { ok: ["수집 완료", "ok"], error: ["수집 실패", "bad"], unavailable: ["응답 없음", "warn"], not_configured: ["미연결", "warn"], stale: ["오래된 결과", "warn"], unsupported: ["미지원", ""] } as const;
+const SOURCE_STATUS = { ok: ["수집 완료", "ok"], error: ["수집 실패", "bad"], unavailable: ["응답 없음", "warn"], not_configured: ["미연결", "warn"], stale: ["오래된 결과", "warn"], unsupported: ["미지원", ""], idle: ["조회 대상 없음", ""] } as const;
 const KIND = { configuration: "설정", vulnerability: "취약점", threat: "위협", governance: "거버넌스" } as const;
 const tabHref = (tab: string) => tab === "overview" ? "#security" : "#security/" + tab;
 const detailHref = (tab: string, id: string) => "#security/" + tab + "/" + id;
@@ -30,6 +31,14 @@ const domainLabel = (id: string) => DOMAINS.find((d) => d.id === id)?.label ?? i
 const date = (value: string | null) => value ? new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) + " KST" : "미확인";
 const matches = (search: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
 const unique = (values: string[]) => [...new Set(values)];
+
+const NO_SCAN_TIME = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
+
+function ScanTimes({ collected, scanned }: { collected: string | null; scanned: string | null }) {
+  return <><b className="block sp-collected">수집 {date(collected)}</b>{scanned
+    ? <small className="block">검사 {date(scanned)}</small>
+    : <small className="block sp-no-scan" title={NO_SCAN_TIME}><span>(검사 시각 미확인)</span> <span aria-label={NO_SCAN_TIME} role="img">ⓘ</span></small>}</>;
+}
 
 function groupVulnerabilities(values: VulnerabilityFinding[]): VulnerabilityFinding[][] {
   const groups = new Map<string, VulnerabilityFinding[]>();
@@ -135,13 +144,13 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const vulnerabilities = filterVulnerabilities(data.vulnerabilities ?? [], environment, app);
   const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (app === "all" || f.app === app));
   const sources = data.sources.filter((s) => environment === "all" || s.environment === environment);
-  const missingSources = sources.filter((s) => s.status !== "ok");
+  const missingSources = sources.filter((s) => s.status !== "ok" && s.status !== "idle");
   const counts = controlCounts(controls);
   const summary = summarizeVulnerabilities(vulnerabilities);
   const apps = data.apps;
   const activeControls = controls.filter((c) => matches(controlSearch, c.title, c.controlId) && (controlStatus === "all" || c.status === controlStatus) && (domain === "all" || c.domain === domain));
-  const activeVulnerabilities = vulnerabilities.filter((v) => matches(vulnSearch, v.advisory, v.package, v.installedVersion) && (vulnSeverity === "all" || v.severity === vulnSeverity) && (vulnKev === "all" || (vulnKev === "yes" ? v.kev === true : v.kev === null)));
-  const vulnerabilityGroups = groupVulnerabilities(activeVulnerabilities);
+  const activeVulnerabilities = vulnerabilities.filter((v) => matches(vulnSearch, v.advisory, v.package, v.installedVersion) && (vulnSeverity === "all" || v.severity === vulnSeverity) && (vulnKev === "all" || (vulnKev === "yes" ? v.kev === true : v.kev === null && v.kevState !== "no_cve")));
+  const vulnerabilityGroups = sortByPriority(groupVulnerabilities(activeVulnerabilities));
   const selectedControl = tab === "controls" ? controls.find((c) => c.id === itemId) : undefined;
   const selectedVulnerability = tab === "vulnerabilities" ? vulnerabilities.find((v) => v.id === itemId) : undefined;
   const selectedFinding = tab === "findings" ? findings.find((f) => f.id === itemId) : undefined;
@@ -211,14 +220,14 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       {data.vulnerabilities === null ? <Unavailable kind="취약점" reason={data.unavailable?.vulnerabilities} /> : <>
       <Stats items={[{ label: "고유 advisory", value: summary.advisories, note: "식별자 기준 · 패키지 건수와 구분" }, { label: "영향 이미지", value: summary.images, note: "같은 digest의 환경 간 복제는 1개" }, { label: "실행 workload", value: summary.workloads, note: `실행 확인 기준 · 미확인 ${unknownWorkloads(vulnerabilities)}개 별도` }, { label: "패키지 발생 건", value: summary.occurrences, note: "취약점 · 버전 · 이미지별 발생" }]} />
       <div className="sp-filters"><label className="sp-search">취약점 검색<input aria-label="취약점 검색" placeholder="CVE, 패키지, 설치 버전" value={vulnSearch} onChange={(e) => setVulnSearch(e.target.value)} /></label><label>심각도<select aria-label="취약점 심각도" value={vulnSeverity} onChange={(e) => setVulnSeverity(e.target.value)}><option value="all">전체 심각도</option>{Object.entries(SEVERITY).map(([id, [label]]) => <option key={id} value={id}>{label}</option>)}</select></label><label>악용 근거<select aria-label="악용 근거" value={vulnKev} onChange={(e) => setVulnKev(e.target.value)}><option value="all">전체</option><option value="yes">KEV 등재</option><option value="unknown">KEV 미확인</option></select></label></div>
-      <p className="sp-list-meta">표시 {vulnerabilityGroups.length}개 advisory <span>· 필터 전 선택 범위 {summary.advisories}개</span></p>
+      <p className="sp-list-meta">표시 {vulnerabilityGroups.length}개 advisory <span>· 필터 전 선택 범위 {summary.advisories}개 · 기본 정렬: KEV 등재 → 실행 중 → 심각도 → EPSS</span></p>
       <section aria-label="취약점 목록" className="box sp-table-box">{vulnerabilityGroups.length ? <Table head={["심각도", "취약점 / 패키지", "영향 자산", "악용 근거", "수정 버전"]} rows={vulnerabilityGroups.map((group) => {
         const v = group[0], s = summarizeVulnerabilities(group);
         return [
           td(<><Severity value={v.severity} /><small className="block">{v.cvss === null ? "CVSS 미확인" : `CVSS ${v.cvssVersion} · ${v.cvss.toFixed(1)}`}</small></>),
-          td(<><a className="sp-row-link m" href={detailHref("vulnerabilities", v.id)}>{v.advisory}</a><small className="block">{unique(group.map((x) => `${x.package} ${x.installedVersion}`)).join(", ")}</small></>),
+          td(<><a className="sp-row-link m" href={detailHref("vulnerabilities", v.id)}>{v.advisory}</a><small className="block">{unique(group.map((x) => `${x.package} ${x.installedVersion}`)).join(", ")}</small>{priorityReasons(group).length > 0 && <small className="block sp-reasons">{priorityReasons(group).join(" · ")}</small>}</>),
           td(<><b>이미지 {s.images}개 · 실행 확인 {s.workloads}개</b>{unknownWorkloads(group) > 0 && <small className="block">실행 미확인 {unknownWorkloads(group)}개</small>}<small className="block">{unique(group.flatMap((x) => x.occurrences.map((o) => envLabel(o.environment)))).join(" · ")}</small></>),
-          td(<><Chip kind={v.kev === true ? "warn" : ""}>{v.kev === null ? "KEV 미확인" : v.kev ? "KEV 등재" : "KEV 미등재"}</Chip><small className="block">EPSS {v.epss === null ? "미확인" : `${(v.epss * 100).toFixed(1)}% (예시)`}</small></>),
+          td(<><Chip kind={v.kev === true ? "warn" : ""}>{kevLabel(v)}</Chip>{v.ransomware && <Chip kind="bad">랜섬웨어 사용</Chip>}{v.epssState !== "no_cve" && <small className="block">{epssLabel(v, data.mode === "demo")}</small>}</>),
           td(<>{v.fixedVersion ? <Chip kind="ok">수정 버전 제공</Chip> : <Chip>미확인</Chip>}<small className="block">{unique(group.map((x) => x.fixedVersion ?? "버전 확인 필요")).join(", ")}</small></>),
         ];
       })} /> : <Empty reset={() => { setVulnSearch(""); setVulnSeverity("all"); setVulnKev("all"); }}>현재 필터에 해당하는 취약점이 없습니다.</Empty>}</section>
@@ -238,7 +247,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       <SecurityStorageKeys keys={data.storageKeys?.filter((k) => (environment === "all" || k.environment === environment) && (app === "all" || k.app === app))} sources={data.storageKeySources.filter((s) => environment === "all" || s.environment === environment)} />
     </> : <Section title="수집 상태" sub="결과를 읽었다는 것과 모든 검사를 통과했다는 것은 다릅니다.">
       <div className="sp-source-summary"><b>선택 환경의 출처 {sources.length}개</b><span>수집 완료 {sources.filter((s) => s.status === "ok").length} · 그 외 {missingSources.length}</span><small>앱 필터와 관계없이 환경 수준의 수집 범위를 표시합니다.</small></div>
-      <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block">{envLabel(s.environment)}</small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<><span>수집 {date(s.lastCollected)}</span><small className="block">검사 {date(s.lastScanned)}</small></>, "nw")])} /></div>
+      <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block">{envLabel(s.environment)}</small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<ScanTimes collected={s.lastCollected} scanned={s.lastScanned} />, "nw")])} /></div>
       <div className="sp-method"><b>미확인 상태를 숨기지 않습니다</b><p>스캔 실패나 미지원은 발견 0건이 아닙니다. 결과 조회와 실제 재검사는 별개이며, 이 화면은 스캔 Job이나 정책 변경을 실행하지 않습니다.</p></div>
     </Section>}
     <footer className="sp-footer"><span>HopCharlie · 보안·거버넌스</span><span>{data.mode === "demo" ? "시연 데이터" : "실제 API 조회"} · 읽기 전용 · 스캔 / 정책 변경 없음</span></footer>
@@ -265,8 +274,8 @@ function ControlDetail({ value: c, headingRef, live = false }: { value: ControlE
 }
 
 function VulnerabilityDetail({ values, selected: v, headingRef, live = false }: { values: VulnerabilityFinding[]; selected: VulnerabilityFinding; headingRef: HeadingRef; live?: boolean }) {
-  return <div className="sp-detail"><div className="sp-detail-heading"><div className="chips"><Severity value={v.severity} /><Chip kind={v.kev === true ? "warn" : ""}>{v.kev === true ? "KEV 등재" : v.kev === null ? "KEV 미확인" : "KEV 미등재"}</Chip></div><h2 ref={headingRef} tabIndex={-1}>{v.advisory}</h2><p>{v.title}</p></div>
-    <div className="sp-detail-grid"><DetailBlock title="판정 근거"><dl><dt>원본 CVSS</dt><dd>{v.cvss === null ? "미확인" : `${v.cvss.toFixed(1)} · v${v.cvssVersion}`}</dd><dt>산정 출처</dt><dd>{v.scoreSource}</dd>{v.cvssVector && <><dt>벡터</dt><dd className="m sp-wrap">{v.cvssVector}</dd></>}<dt>EPSS</dt><dd>{v.epss === null ? "미확인" : `${(v.epss * 100).toFixed(1)}% · 설명용 예시`}{v.epssDate && ` (${v.epssDate})`}</dd></dl><EvidenceLink href={v.basisUrl}>취약점 원문 보기</EvidenceLink><p className="hint">CVSS는 기술적 심각도, EPSS는 악용 확률의 추정입니다. 우리 앱의 침해 확률을 뜻하지 않습니다.</p></DetailBlock><DetailBlock title="수정과 영향 판단"><p>{v.detail}</p><p>{v.recommendation}</p><dl>{values.map((item) => <div key={item.id}><dt>{item.package} {item.installedVersion}</dt><dd>수정 버전 {item.fixedVersion ?? "미확인 — 공식 배포판 공지 확인 필요"}</dd></div>)}</dl><p className="hint">{live ? "저장된 스캔 결과와 실행 중 digest의 관계입니다. 악용 가능성은 검증하지 않았습니다." : "모든 이미지·실행 관계는 시연용입니다. 실제 패키지 매칭이나 악용 가능성을 검증한 결과가 아닙니다."}</p></DetailBlock></div>
+  return <div className="sp-detail"><div className="sp-detail-heading"><div className="chips"><Severity value={v.severity} /><Chip kind={v.kev === true ? "warn" : ""}>{kevLabel(v)}</Chip></div><h2 ref={headingRef} tabIndex={-1}>{v.advisory}</h2><p>{v.title}</p></div>
+    <div className="sp-detail-grid"><DetailBlock title="판정 근거"><dl><dt>원본 CVSS</dt><dd>{v.cvss === null ? "미확인" : `${v.cvss.toFixed(1)} · v${v.cvssVersion}`}</dd><dt>산정 출처</dt><dd>{v.scoreSource}</dd>{v.cvssVector && <><dt>벡터</dt><dd className="m sp-wrap">{v.cvssVector}</dd></>}<dt>EPSS</dt><dd>{epssLabel(v, !live)}</dd></dl><EvidenceLink href={v.basisUrl}>취약점 원문 보기</EvidenceLink><p className="hint">CVSS는 기술적 심각도, EPSS는 악용 확률의 추정입니다. 우리 앱의 침해 확률을 뜻하지 않습니다.</p></DetailBlock><DetailBlock title="수정과 영향 판단"><p>{v.detail}</p><p>{v.recommendation}</p><dl>{values.map((item) => <div key={item.id}><dt>{item.package} {item.installedVersion}</dt><dd>수정 버전 {item.fixedVersion ?? "미확인 — 공식 배포판 공지 확인 필요"}</dd></div>)}</dl><p className="hint">{live ? "저장된 스캔 결과와 실행 중 digest의 관계입니다. 악용 가능성은 검증하지 않았습니다." : "모든 이미지·실행 관계는 시연용입니다. 실제 패키지 매칭이나 악용 가능성을 검증한 결과가 아닙니다."}</p></DetailBlock></div>
     <DetailBlock title="영향 자산"><p className="hint">같은 이미지는 한 번 세고, 실행 위치는 환경별로 보존합니다.</p>{values.map((item) => <div className="sp-asset-group" key={item.id}><b className="sp-wrap m">{item.imageDigest}</b><Table head={live ? ["앱", "환경", "Namespace / workload", "실행 관계", "배포 기록"] : ["앱", "환경", "Namespace / workload", "실행 관계"]} rows={item.occurrences.map((o) => [td(o.app), td(envLabel(o.environment)), td(<span className="m">{o.namespace} / {o.workload}</span>), td(<Chip kind={o.running === true ? "run" : ""}>{o.running === true ? "실행 중" : o.running === false ? "현재 실행 안 함" : "미확인"}</Chip>), ...(live ? [td(<><DeployedChip value={o.deployed} />{o.deployed?.reason && <small className="block">{o.deployed.reason}</small>}</>)] : [])])} /></div>)}</DetailBlock>
     <DetailBlock title="조치 이력"><p>{live ? "재검사나 예외 승인 이력은 아직 연결하지 않았습니다." : "미수정 시나리오입니다. 재검사나 예외 승인은 수행하지 않습니다."} 이미지가 목록에서 사라졌다는 이유만으로 ‘해결’로 처리하지 않습니다.</p></DetailBlock></div>;
 }

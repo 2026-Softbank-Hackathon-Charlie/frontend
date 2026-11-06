@@ -97,6 +97,7 @@ export type SecurityRunningImage = S["SecurityRunningImage"];
 export type SecurityDeployedImage = S["SecurityDeployedImage"];
 export type SecurityScannerState = S["SecurityScannerState"];
 export type SecurityVulnerabilityReport = S["SecurityVulnerabilityReport"];
+export type SecurityExploitSource = S["SecurityExploitSource"];
 export type StorageKey = S["StorageKey"];
 export type StorageKeyUse = S["StorageKeyUse"];
 export type StorageKeyState = S["StorageKeyState"];

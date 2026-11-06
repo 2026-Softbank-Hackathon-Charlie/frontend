@@ -30,6 +30,7 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-page .tbl td { vertical-align: middle; font-size: 12px; padding-block: var(--sp-md); }
 .sp-page .tbl b { font-weight: 550; }
 .sp-page .tbl .block { margin-block-start: var(--sp-2xs); color: var(--muted); line-height: 1.6; font-size: 11px; }
+.sp-page .tbl .sp-collected { color: var(--fg); font-size: 12px; font-weight: 600; }
 .sp-row-link { font-weight: 600; color: var(--heading); text-underline-offset: 3px; }
 .sp-matrix-cell { display: block; text-decoration: none; padding: var(--sp-2xs); border-radius: var(--r-control); }
 .sp-matrix-cell:hover { background: var(--fill); text-decoration: none; }
@@ -93,3 +94,7 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 
 .sp-running { margin-top: 24px; }
 .sp-running h3 { margin: 0 0 6px; font-size: 15px; }
+
+.sp-no-scan { color: var(--muted); cursor: help; }
+
+.sp-reasons { color: var(--muted); font-weight: 600; }

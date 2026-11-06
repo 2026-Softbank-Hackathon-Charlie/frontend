@@ -220,4 +220,22 @@ describe("environmentLabel", () => {
       .toEqual(["AWS EKS", "GCP GKE", "onprem", "AWS Cloud", "GCP Cloud", "Cloudflare", "Platform"]);
     expect(environmentLabel("new-env")).toBe("new-env");
   });
+
+  it("maps KEV and EPSS evidence and lists them as sources", () => {
+    const vulnerabilities = {
+      generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" as const }, scans: [], runningImages: [],
+      summary: { advisories: 1, images: 1, affectedContainers: 0, occurrences: 1, notScannedContainers: 0 },
+      vulnerabilities: [{
+        id: "v1", scanId: "s1", digest: "sha256:a", advisory: "CVE-2024-6387", aliases: [], fixedVersions: [], fixState: "unknown" as const,
+        severity: "high" as const, severityBasis: { type: "vendor" as const, issuer: "x", policy: "p1", reason: "y" }, cvss: [], urls: [],
+        package: { name: "openssh", version: "9.6", type: "deb" },
+        exploitation: { cve: "CVE-2024-6387", kev: { state: "listed" as const, dueDate: "2026-11-18", ransomware: true },
+          epss: { state: "scored" as const, probability: 0.042, percentile: 0.92, date: "2026-11-06" } },
+      }],
+      exploitSources: [{ name: "cisa-kev", state: "stale" as const, version: "2026.11.04", collectedAt: "2026-11-06T00:00:00Z", message: "refresh failed" }],
+    };
+    const data = securityData(undefined, { vulnerabilities });
+    expect(data.vulnerabilities?.[0]).toMatchObject({ kev: true, kevState: "listed", kevDueDate: "2026-11-18", ransomware: true, epss: 0.042, epssPercentile: 0.92, epssDate: "2026-11-06" });
+    expect(data.sources.find((s) => s.id === "platform/cisa-kev")).toMatchObject({ name: "CISA KEV", status: "stale", lastCollected: "2026-11-06T00:00:00Z", lastScanned: null, detail: "기준 2026.11.04 · refresh failed" });
+  });
 });

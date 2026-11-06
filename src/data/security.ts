@@ -18,6 +18,10 @@ export interface VulnerabilityFinding {
   id: string; advisory: string; title: string; package: string; installedVersion: string; fixedVersion: string | null;
   severity: SecuritySeverity; cvss: number | null; cvssVersion: string; cvssVector?: string; scoreSource: string;
   basisUrl: string; kev: boolean | null; epss: number | null; epssDate: string | null; imageDigest: string;
+  /** SEC-07 states from the API; absent in demo data. kev/epss above stay the simple view. */
+  kevState?: "listed" | "not_listed" | "unknown" | "no_cve";
+  epssState?: "scored" | "not_scored" | "unknown" | "no_cve";
+  epssPercentile?: number | null; kevDueDate?: string; ransomware?: boolean;
   occurrences: Array<{ environment: EnvId; app: string; workload: string; namespace: string; running: boolean | null; deployed?: DeployedState }>;
   detail: string; recommendation: string;
 }
@@ -37,7 +41,7 @@ export interface SecurityFindingRow {
   severityBasis?: string;
 }
 export interface SecuritySourceRow {
-  id: string; name: string; environment: EnvId; app?: string; status: "ok" | "error" | "unavailable" | "not_configured" | "stale" | "unsupported";
+  id: string; name: string; environment: EnvId; app?: string; status: "ok" | "error" | "unavailable" | "not_configured" | "stale" | "unsupported" | "idle";
   scope: string; lastCollected: string | null; lastScanned: string | null; scannerVersion?: string;
   databaseUpdatedAt?: string; detail: string;
 }
@@ -122,6 +126,15 @@ export function securityData(report?: SecurityReport, posture: SecurityPosture =
     databaseUpdatedAt: latestScan?.database?.builtAt,
     detail: `${scanner?.status === "connected" ? scanCounts : ""}${scanner?.message ?? "조회 API는 스캔하지 않고 저장된 결과만 읽습니다."}`,
   }] : [];
+  const EXPLOIT_SCOPE: Record<string, [string, string]> = {
+    "cisa-kev": ["CISA KEV", "알려진 악용 취약점 카탈로그 · 취약점 우선순위 근거"],
+    "first-epss": ["FIRST EPSS", "30일 내 악용 확률 추정 · 취약점 우선순위 근거"],
+  };
+  const exploitSources = (vulnReport?.exploitSources ?? []).map((s): SecuritySourceRow => ({
+    id: `platform/${s.name}`, name: EXPLOIT_SCOPE[s.name]?.[0] ?? s.name, environment: "platform", status: s.state,
+    scope: EXPLOIT_SCOPE[s.name]?.[1] ?? "취약점 우선순위 근거", lastCollected: s.collectedAt ?? null, lastScanned: null,
+    detail: `${s.version ? `기준 ${s.version} · ` : ""}${s.message}`,
+  }));
   return {
     mode: "live", generatedAt: report?.generatedAt ?? null,
     environments: [...environments.values()], apps: [], appFilterAvailable: false,
@@ -141,7 +154,7 @@ export function securityData(report?: SecurityReport, posture: SecurityPosture =
       id: `${s.environment}/${s.name}`, name: SOURCE_LABEL[s.name] ?? s.name, environment: s.environment,
       status: s.status, scope: "플랫폼이 보고한 발견 항목과 수집 상태", lastCollected: s.checkedAt,
       lastScanned: null, detail: s.message ?? "출처 조회 성공과 개별 통제 통과는 별개입니다.",
-    })), ...scanSource],
+    })), ...scanSource, ...exploitSources],
     storageKeys: report?.storageKeys,
     storageKeySources: (report?.sources ?? []).filter((s) => s.name === "storage-keys"),
   };
@@ -183,7 +196,7 @@ function vulnerabilityRows(r: SecurityVulnerabilityReport): VulnerabilityFinding
       severity: VULN_SEVERITY[v.severity] ?? "unknown",
       cvss: score ? score.baseScore : null, cvssVersion: score?.version ?? "", cvssVector: score?.vector,
       scoreSource: score ? `${score.source} · ${basisText(v.severityBasis)}` : basisText(v.severityBasis),
-      basisUrl: v.urls[0] ?? "", kev: null, epss: null, epssDate: null, imageDigest: v.digest,
+      basisUrl: v.urls[0] ?? "", ...exploitFields(v), imageDigest: v.digest,
       occurrences: r.runningImages.filter((i) => i.digest === v.digest).map((i) => ({
         environment: i.environment, app: i.app ?? "앱 미확인", workload: `${i.workload}/${i.container}`, namespace: i.namespace, running: true,
         deployed: deployedState(i.deployed),
@@ -194,6 +207,17 @@ function vulnerabilityRows(r: SecurityVulnerabilityReport): VulnerabilityFinding
   });
 }
 
+
+function exploitFields(v: SecurityVulnerabilityReport["vulnerabilities"][number]): Pick<VulnerabilityFinding, "kev" | "epss" | "epssDate" | "kevState" | "epssState" | "epssPercentile" | "kevDueDate" | "ransomware"> {
+  const e = v.exploitation;
+  if (!e) return { kev: null, epss: null, epssDate: null };
+  return {
+    kev: e.kev.state === "listed" ? true : e.kev.state === "not_listed" ? false : null,
+    kevState: e.kev.state, kevDueDate: e.kev.dueDate, ransomware: e.kev.ransomware,
+    epss: e.epss.state === "scored" ? e.epss.probability ?? null : null,
+    epssPercentile: e.epss.percentile ?? null, epssDate: e.epss.date ?? null, epssState: e.epss.state,
+  };
+}
 
 function deployedState(d?: SecurityDeployedImage): DeployedState | undefined {
   return d ? { state: d.state, reason: d.reason ?? "", deploymentId: d.deploymentId, digest: d.digest } : undefined;
