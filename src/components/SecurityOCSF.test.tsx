@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth, startSession } from "../data/live";
 import { fakeSession, installFetch, json } from "../api/fakes";
@@ -34,7 +34,7 @@ const exportBody: SecurityOCSFExport = {
   ],
 };
 
-const emptyReport = { generatedAt: "2026-11-06T15:05:00Z", summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} }, sources: [], findings: [] };
+const emptyReport = { generatedAt: "2026-11-06T15:05:00Z", summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} }, sources: [{ name: "kubernetes", provider: "gcp", environment: "gke", status: "ok", checkedAt: "2026-11-06T15:05:00Z", findings: 0 }], findings: [] };
 
 function RoutedSecurity() {
   return <Security route={useRoute()} />;
@@ -86,19 +86,21 @@ describe("OCSF 내보내기 tab (SEC-09)", () => {
   });
 
   it("downloads the whole response as a JSON blob named by the KST generation time", async () => {
-    const { user } = live(() => json(200, exportBody));
+    live(() => json(200, exportBody));
     const blobs: Blob[] = [];
     const create = vi.fn((b: Blob) => { blobs.push(b); return "blob:ocsf"; });
     const revoke = vi.fn();
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke }));
     let name = "";
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { name = this.download; });
-    await user.click(await screen.findByRole("button", { name: "JSON 내려받기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "JSON 내려받기" }));
     expect(create).toHaveBeenCalledTimes(1);
     expect(blobs[0].type).toBe("application/json");
     expect(JSON.parse(await blobs[0].text())).toEqual(exportBody);
     expect(name).toBe("hopcharlie-ocsf-20261107-0005.json");
-    expect(revoke).toHaveBeenCalledWith("blob:ocsf");
+    // Revoked after the click's task, so the browser has started the download.
+    expect(revoke).not.toHaveBeenCalled();
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:ocsf"));
   });
 
   it("says a kind without events has nothing to export", async () => {
@@ -119,6 +121,27 @@ describe("OCSF 내보내기 tab (SEC-09)", () => {
     expect(screen.queryByRole("button", { name: "JSON 내려받기" })).not.toBeInTheDocument();
   });
 
+  it("retries the export from the error", async () => {
+    let fail = true;
+    const { calls, user } = live(() => fail ? json(503, { error: { code: "security_not_configured", message: "off" } }) : json(200, exportBody));
+    const alert = await screen.findByRole("alert");
+    fail = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 불러오기" }));
+    expect(await screen.findByRole("button", { name: "JSON 내려받기" })).toBeInTheDocument();
+    expect(calls.filter((c) => c.url.startsWith("/v1/security/ocsf"))).toHaveLength(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("requests the export for the selected environment", async () => {
+    const { calls, user } = live(() => json(200, exportBody));
+    await screen.findByRole("button", { name: "JSON 내려받기" });
+    expect(screen.queryByText("앱 선택은 OCSF 내보내기에 적용되지 않습니다.")).not.toBeInTheDocument();
+    expect(calls.map((c) => c.url)).toContain("/v1/security/ocsf");
+    await user.selectOptions(screen.getByLabelText("보안 환경"), "gke");
+    await waitFor(() => expect(calls.map((c) => c.url)).toContain("/v1/security/ocsf?environment=gke"));
+    expect(await screen.findByRole("button", { name: "JSON 내려받기" })).toBeInTheDocument();
+  });
+
   it("renders the same screen from demo data in demo mode without calling the API", async () => {
     const calls = installFetch(() => json(500, {}));
     window.history.replaceState(null, "", "/#security/ocsf");
@@ -130,6 +153,21 @@ describe("OCSF 내보내기 tab (SEC-09)", () => {
     expect(within(summaryRow("통제 평가")).getAllByRole("cell").map((c) => c.textContent)).toEqual(["통제 평가", "2003", "3", "Pass 1 · Fail 1 · Unknown 1"]);
     expect(screen.getByLabelText("OCSF 이벤트 JSON")).toHaveTextContent('"is_exploit_available": true');
     expect(calls).toEqual([]);
+  });
+
+  it("filters the demo events by environment and says the app filter does not apply", async () => {
+    window.history.replaceState(null, "", "/#security/ocsf");
+    chooseMode("demo");
+    render(<RoutedSecurity />);
+    const user = userEvent.setup({ delay: null });
+    await user.selectOptions(screen.getByLabelText("보안 환경"), "gke");
+    expect(within(summaryRow("발견 항목")).getAllByRole("cell").map((c) => c.textContent)).toEqual(["발견 항목", "2004 / 2003", "0", "—"]);
+    expect(within(summaryRow("취약점")).getAllByRole("cell").map((c) => c.textContent)).toEqual(["취약점", "2002", "1", "New 1"]);
+    expect(within(summaryRow("통제 평가")).getAllByRole("cell").map((c) => c.textContent)).toEqual(["통제 평가", "2003", "0", "—"]);
+    expect(screen.getByLabelText("OCSF 이벤트 JSON")).toHaveTextContent("CVE-2024-6387");
+    await user.selectOptions(screen.getByLabelText("보안 앱"), "moimroom");
+    expect(screen.getByText("앱 선택은 OCSF 내보내기에 적용되지 않습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/앱에 연결된 평가·자산만 표시합니다/)).not.toBeInTheDocument();
   });
 });
 

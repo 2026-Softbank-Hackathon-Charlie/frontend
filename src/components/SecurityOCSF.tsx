@@ -49,7 +49,8 @@ function download(data: SecurityOCSFExport) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Revoking in the same task cancels the download in Safari and older Firefox.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 const eventLabel = (e: OCSFEvent, i: number) => text(object(e.finding_info)?.title) ?? text(object(e.finding_info)?.uid) ?? `이벤트 ${i + 1}`;
@@ -77,14 +78,30 @@ export function OCSFExportView({ data }: { data: SecurityOCSFExport }) {
   </div>;
 }
 
-function LiveOCSF() {
-  const result = useSecurityOCSF();
+function LiveOCSF({ environment }: { environment?: string }) {
+  const result = useSecurityOCSF(0, { environment });
   if (result.loading) return <Skeleton box rows={4} />;
   const alert = result.error && <div role="alert"><LoadError title="OCSF 내보내기를 불러오지 못했습니다." error={errorText(result.error)} retry={result.reload} /></div>;
   return <>{alert}{result.data && <OCSFExportView data={result.data} />}</>;
 }
 
 /** Live mode reads GET /v1/security/ocsf; demo mode shows the same screen from demo events. */
-export function SecurityOCSF({ live }: { live: boolean }) {
-  return live ? <LiveOCSF /> : <OCSFExportView data={DEMO_SECURITY_OCSF} />;
+/** Demo events carry their environment as a resource label, as the platform writes it. */
+const inEnvironment = (environment: string) => (e: OCSFEvent) =>
+  Array.isArray(e.resources) && e.resources.some((r) => Array.isArray(object(r)?.labels) && (object(r)!.labels as unknown[]).includes("environment:" + environment));
+export function demoOCSF(environment?: string): SecurityOCSFExport {
+  if (!environment) return DEMO_SECURITY_OCSF;
+  const only = inEnvironment(environment);
+  return { ...DEMO_SECURITY_OCSF, findings: DEMO_SECURITY_OCSF.findings.filter(only), vulnerabilities: DEMO_SECURITY_OCSF.vulnerabilities.filter(only), controls: DEMO_SECURITY_OCSF.controls.filter(only) };
+}
+
+/**
+ * `environment` (undefined: all) goes to the request, which applies it to every kind of event.
+ * The export has no app filter, so a selected app is named as not applied rather than ignored silently.
+ */
+export function SecurityOCSF({ live, environment, app }: { live: boolean; environment?: string; app?: string }) {
+  return <>
+    {app && <p className="hint sp-scope-note">앱 선택은 OCSF 내보내기에 적용되지 않습니다.</p>}
+    {live ? <LiveOCSF key={environment ?? ""} environment={environment} /> : <OCSFExportView key={environment ?? ""} data={demoOCSF(environment)} />}
+  </>;
 }
