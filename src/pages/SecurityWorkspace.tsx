@@ -3,8 +3,8 @@ import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td, type ChipKind } f
 import { SecurityStorageKeys } from "../components/SecurityStorageKeys";
 import { CATEGORIES, CATEGORY_LABEL } from "../data/securityMatrix";
 import {
-  DOMAINS, environmentLabel as envLabel, controlCounts, filterControls, filterVulnerabilities, summarizeVulnerabilities,
-  type ControlEvaluation, type SecurityDataset, type SecurityFindingRow, type SecuritySeverity, type VulnerabilityFinding,
+  DEPLOYED_STATE, DOMAINS, SCAN_STATE, environmentLabel as envLabel, controlCounts, filterControls, filterVulnerabilities, summarizeVulnerabilities,
+  type ControlEvaluation, type DeployedState, type RunningImageRow, type SecurityDataset, type SecurityFindingRow, type SecuritySeverity, type VulnerabilityFinding,
 } from "../data/security";
 import type { SecurityControlCoverage } from "../api/types";
 import "../styles/security.css";
@@ -83,6 +83,30 @@ function ControlMatrix({ environments, controls, coverage, findings, onSelect }:
       : unsupported(environment.id, domain.id) ? <span className="hint" title={unsupported(environment.id, domain.id)?.reason}>검사 통제 없음 · 통과 아님</span>
       : <a className="sp-matrix-cell" href="#security/controls" onClick={() => onSelect(environment.id, domain.id)}><GroupCounts controls={controls.filter((c) => c.environment === environment.id && c.domain === domain.id)} /></a>)),
   ])} /></div>;
+}
+
+function DeployedChip({ value }: { value?: DeployedState }) {
+  if (!value) return <Chip>비교 안 함</Chip>;
+  const [label, kind] = DEPLOYED_STATE[value.state];
+  return <Chip kind={kind as ChipKind}>{label}</Chip>;
+}
+
+/** Every running container: whether its digest was scanned (SEC-04) and matches the deployment record (SEC-05). */
+function RunningImages({ rows }: { rows: RunningImageRow[] }) {
+  const count = (f: (r: RunningImageRow) => boolean) => rows.filter(f).length;
+  const scanned = count((r) => r.scanState === "scanned"), failed = count((r) => r.scanState === "scan_failed");
+  const drifted = count((r) => r.deployed?.state === "mismatch");
+  return <section aria-label="실행 컨테이너 스캔 상태" className="sp-running">
+    <h3>실행 컨테이너 스캔·배포 기록</h3>
+    <p className="sp-list-meta">컨테이너 {rows.length}개 <span>· 스캔됨 {scanned} · 스캔 실패 {failed} · 미검사·digest 미확인 {rows.length - scanned - failed} · 배포 기록과 다름 {drifted}</span></p>
+    <p className="hint">스캔 실패와 미검사는 취약점 0건이 아닙니다. 배포 기록과 다르면 롤아웃 중이거나 플랫폼 밖에서 바뀐 이미지일 수 있습니다.</p>
+    <div className="box sp-table-box">{rows.length ? <Table head={["환경 / workload", "이미지 digest", "스캔", "배포 기록"]} rows={rows.map((r) => [
+      td(<><b>{envLabel(r.environment)}</b><small className="block m">{r.namespace} / {r.workload}/{r.container}</small>{r.app && <small className="block">앱 {r.app}</small>}</>),
+      td(<><span className="m sp-wrap">{r.digest ? `${r.digest.slice(0, 23)}…` : "digest 없음"}</span><small className="block sp-wrap">{r.image}</small></>),
+      td(<><Chip kind={SCAN_STATE[r.scanState][1] as ChipKind}>{SCAN_STATE[r.scanState][0]}</Chip>{r.scannedAt && <small className="block">검사 {date(r.scannedAt)}</small>}{r.scanMessage && <small className="block">{r.scanMessage}</small>}</>),
+      td(<><DeployedChip value={r.deployed} />{r.deployed?.deploymentId && <small className="block m">{r.deployed.deploymentId}</small>}{r.deployed?.reason && <small className="block">{r.deployed.reason}</small>}</>),
+    ])} /> : <Empty>선택한 환경에서 읽은 실행 컨테이너가 없습니다.</Empty>}</div>
+  </section>;
 }
 
 function Unavailable({ kind, reason }: { kind: "통제 평가" | "취약점"; reason?: string }) {
@@ -200,6 +224,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       })} /> : <Empty reset={() => { setVulnSearch(""); setVulnSeverity("all"); setVulnKev("all"); }}>현재 필터에 해당하는 취약점이 없습니다.</Empty>}</section>
       <p className="hint sp-footnote">{data.mode === "demo" ? "이미지 패키지 검사 범위의 예시입니다." : "이미지 패키지 검사 범위입니다."} 노드 OS·커널·Kubernetes 자체의 CVE까지 검사했다는 의미는 아닙니다.</p>
       </>}
+      {data.runningImages && <RunningImages rows={data.runningImages.filter((r) => environment === "all" || r.environment === environment)} />}
     </Section> : tab === "findings" ? <>
       <Section title="발견 항목" sub="우선순위 목록 밖의 항목까지, 모든 유형을 찾아봅니다.">
         <div className="sp-filters"><label className="sp-search">항목 검색<input aria-label="발견 항목 검색" placeholder="제목, 리소스 또는 출처" value={findingSearch} onChange={(e) => setFindingSearch(e.target.value)} /></label><label>유형<select aria-label="발견 항목 유형" value={findingKind} onChange={(e) => setFindingKind(e.target.value)}><option value="all">전체 유형</option>{Object.entries(KIND).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
@@ -242,7 +267,7 @@ function ControlDetail({ value: c, headingRef, live = false }: { value: ControlE
 function VulnerabilityDetail({ values, selected: v, headingRef, live = false }: { values: VulnerabilityFinding[]; selected: VulnerabilityFinding; headingRef: HeadingRef; live?: boolean }) {
   return <div className="sp-detail"><div className="sp-detail-heading"><div className="chips"><Severity value={v.severity} /><Chip kind={v.kev === true ? "warn" : ""}>{v.kev === true ? "KEV 등재" : v.kev === null ? "KEV 미확인" : "KEV 미등재"}</Chip></div><h2 ref={headingRef} tabIndex={-1}>{v.advisory}</h2><p>{v.title}</p></div>
     <div className="sp-detail-grid"><DetailBlock title="판정 근거"><dl><dt>원본 CVSS</dt><dd>{v.cvss === null ? "미확인" : `${v.cvss.toFixed(1)} · v${v.cvssVersion}`}</dd><dt>산정 출처</dt><dd>{v.scoreSource}</dd>{v.cvssVector && <><dt>벡터</dt><dd className="m sp-wrap">{v.cvssVector}</dd></>}<dt>EPSS</dt><dd>{v.epss === null ? "미확인" : `${(v.epss * 100).toFixed(1)}% · 설명용 예시`}{v.epssDate && ` (${v.epssDate})`}</dd></dl><EvidenceLink href={v.basisUrl}>취약점 원문 보기</EvidenceLink><p className="hint">CVSS는 기술적 심각도, EPSS는 악용 확률의 추정입니다. 우리 앱의 침해 확률을 뜻하지 않습니다.</p></DetailBlock><DetailBlock title="수정과 영향 판단"><p>{v.detail}</p><p>{v.recommendation}</p><dl>{values.map((item) => <div key={item.id}><dt>{item.package} {item.installedVersion}</dt><dd>수정 버전 {item.fixedVersion ?? "미확인 — 공식 배포판 공지 확인 필요"}</dd></div>)}</dl><p className="hint">{live ? "저장된 스캔 결과와 실행 중 digest의 관계입니다. 악용 가능성은 검증하지 않았습니다." : "모든 이미지·실행 관계는 시연용입니다. 실제 패키지 매칭이나 악용 가능성을 검증한 결과가 아닙니다."}</p></DetailBlock></div>
-    <DetailBlock title="영향 자산"><p className="hint">같은 이미지는 한 번 세고, 실행 위치는 환경별로 보존합니다.</p>{values.map((item) => <div className="sp-asset-group" key={item.id}><b className="sp-wrap m">{item.imageDigest}</b><Table head={["앱", "환경", "Namespace / workload", "실행 관계"]} rows={item.occurrences.map((o) => [td(o.app), td(envLabel(o.environment)), td(<span className="m">{o.namespace} / {o.workload}</span>), td(<Chip kind={o.running === true ? "run" : ""}>{o.running === true ? "실행 중" : o.running === false ? "현재 실행 안 함" : "미확인"}</Chip>)])} /></div>)}</DetailBlock>
+    <DetailBlock title="영향 자산"><p className="hint">같은 이미지는 한 번 세고, 실행 위치는 환경별로 보존합니다.</p>{values.map((item) => <div className="sp-asset-group" key={item.id}><b className="sp-wrap m">{item.imageDigest}</b><Table head={live ? ["앱", "환경", "Namespace / workload", "실행 관계", "배포 기록"] : ["앱", "환경", "Namespace / workload", "실행 관계"]} rows={item.occurrences.map((o) => [td(o.app), td(envLabel(o.environment)), td(<span className="m">{o.namespace} / {o.workload}</span>), td(<Chip kind={o.running === true ? "run" : ""}>{o.running === true ? "실행 중" : o.running === false ? "현재 실행 안 함" : "미확인"}</Chip>), ...(live ? [td(<><DeployedChip value={o.deployed} />{o.deployed?.reason && <small className="block">{o.deployed.reason}</small>}</>)] : [])])} /></div>)}</DetailBlock>
     <DetailBlock title="조치 이력"><p>{live ? "재검사나 예외 승인 이력은 아직 연결하지 않았습니다." : "미수정 시나리오입니다. 재검사나 예외 승인은 수행하지 않습니다."} 이미지가 목록에서 사라졌다는 이유만으로 ‘해결’로 처리하지 않습니다.</p></DetailBlock></div>;
 }
 

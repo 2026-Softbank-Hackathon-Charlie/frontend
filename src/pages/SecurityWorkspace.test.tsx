@@ -128,6 +128,30 @@ describe("shared security workspace", () => {
     expect(screen.queryByText("데모 보안 데이터")).not.toBeInTheDocument();
   });
 
+  it("shows each running container's scan and deployment-record state next to the vulnerabilities", async () => {
+    const digest = "sha256:" + "1".repeat(64);
+    installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
+      generatedAt: "2026-11-06T00:00:00Z", scanner: { status: "connected" },
+      scans: [{ id: "scan1", digest, status: "failed", scanner: { name: "grype", version: "0.121.0" }, finishedAt: "2026-11-06T00:00:00Z", message: "pull denied" }],
+      vulnerabilities: [],
+      runningImages: [{ environment: "eks", namespace: "shop", workload: "Deployment/shop-web", container: "web", app: "shop", image: "r/web:v1", digest, scanState: "scan_failed", scanId: "scan1",
+        deployed: { state: "mismatch", deploymentId: "dep_1", reason: "the running digest differs" } }],
+      summary: { advisories: 0, images: 0, affectedContainers: 0, occurrences: 0, notScannedContainers: 1, driftedContainers: 1 },
+    }) : call.url.includes("/v1/security/controls") ? json(503, { error: { code: "security_not_configured", message: "off" } }) : json(200, {
+      generatedAt: "2026-11-06T00:00:00Z", sources: [], storageKeys: [], findings: [],
+      summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
+    }));
+    window.history.replaceState(null, "", "/#security/vulnerabilities");
+    startSession(fakeSession());
+    render(<RoutedSecurity />);
+    const table = await screen.findByRole("region", { name: "실행 컨테이너 스캔 상태" });
+    expect(within(table).getByText("스캔 실패")).toBeInTheDocument();
+    expect(within(table).getByText("pull denied")).toBeInTheDocument();
+    expect(within(table).getByText("배포 기록과 다름")).toBeInTheDocument();
+    expect(within(table).getByText(/배포 기록과 다름 1/)).toBeInTheDocument();
+    expect(within(table).getByText(/취약점 0건이 아닙니다/)).toBeInTheDocument();
+  });
+
   it("continues to read the existing API report at the live security root", async () => {
     const calls = installFetch(() => json(200, {
       generatedAt: "2026-11-06T00:00:00Z",
