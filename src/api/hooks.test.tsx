@@ -275,8 +275,9 @@ describe("useRun", () => {
       sequence(sse([snapshotMsg(fakeRun({ status: "halted", phase: "done" }))]), sse([snapshotMsg(fakeRun({ status: "running", phase: "verify" }))], "hang")),
     );
     const { result, rerender, unmount } = renderHook(({ epoch }: { epoch: number }) => useRun("run_1", epoch), { initialProps: { epoch: 0 } });
+    // connected starts out false too: wait for the snapshot first, then for the stream to end
+    await waitFor(() => expect(result.current.run?.status).toBe("halted"));
     await waitFor(() => expect(result.current.connected).toBe(false));
-    expect(result.current.run?.status).toBe("halted");
     rerender({ epoch: 1 });
     await waitFor(() => expect(result.current.run?.status).toBe("running"));
     expect(calls).toHaveLength(2);
