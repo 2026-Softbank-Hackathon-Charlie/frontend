@@ -390,6 +390,20 @@ export interface paths {
      */
     get: operations["getSecurityVulnerabilities"];
   };
+  "/v1/security/scans": {
+    /**
+     * @description Stores one scan of one running image digest (SEC-04, ADR 0029). The
+     * platform's image scan workflow runs Grype outside the API and posts
+     * each result here; the API never scans. A succeeded scan carries
+     * Grype's JSON report, which the platform parses and normalises
+     * (severity as the advisory's source gave it, CVSS kept as given). A
+     * failed or unsupported scan carries `message` and no report, and its
+     * image counts as not scanned, never as zero vulnerabilities. A new scan
+     * of a digest replaces its earlier one. The body may be up to 32 MiB.
+     * Roles: agent, operator.
+     */
+    post: operations["submitSecurityScan"];
+  };
   "/v1/agent/sessions": {
     get: operations["listAgentSessions"];
     /**
@@ -2055,6 +2069,36 @@ export interface components {
       resultSha256?: string;
       message?: string;
     };
+    /** @description One scan result of the image scan workflow (SEC-04). */
+    SecurityScanSubmission: {
+      /**
+       * @description the reference that was scanned: a repository and `@digest`
+       * @example registry.example/app@sha256:4c2e...
+       */
+      image: string;
+      /**
+       * @description the running digest the scan is for, as the runtime reported it
+       * @example sha256:4c2e...
+       */
+      digest: string;
+      /** @enum {string} */
+      status: "succeeded" | "failed" | "unsupported";
+      /** @description why a scan failed or is unsupported */
+      message?: string;
+      /**
+       * @description the Grype version; a succeeded scan takes it from the report
+       * @example 0.121.0
+       */
+      scannerVersion?: string;
+      /** Format: date-time */
+      startedAt?: string;
+      /** Format: date-time */
+      finishedAt?: string;
+      /** @description Grype's JSON report (`grype -o json`), required when status is succeeded */
+      report?: {
+        [key: string]: unknown;
+      };
+    };
     /** @description One advisory matched to one package of one scanned image digest. */
     SecurityVulnerability: {
       /** @description stable: a hash of digest, advisory and the package's purl or name, version and type */
@@ -2107,6 +2151,32 @@ export interface components {
        * @enum {string}
        */
       scanState: "scanned" | "scan_failed" | "not_scanned" | "unknown_digest";
+      deployed?: components["schemas"]["SecurityDeployedImage"];
+    };
+    /**
+     * @description The running digest compared with the platform's deployment record of
+     * the instance (SEC-05): the latest deployment that reached the
+     * environment (healthy or degraded) and its image for the service named
+     * like the container. Digests are compared as recorded; an image index
+     * and a platform manifest of the same image have different digests, so a
+     * mismatch says what differs, not that the image is foreign.
+     */
+    SecurityDeployedImage: {
+      /**
+       * @description - match: the running digest is the deployed one.
+       * - mismatch: the running digest differs from the deployed one.
+       * - no_record: no deployment of the instance reached this environment, or it has no service of this name.
+       * - unknown: no instance label, no running or recorded digest, or the records could not be read.
+       *
+       * @enum {string}
+       */
+      state: "match" | "mismatch" | "no_record" | "unknown";
+      deploymentId?: string;
+      /** @description the image the deployment recorded for the service */
+      image?: string;
+      /** @description the digest in that image */
+      digest?: string;
+      reason?: string;
     };
     SecurityScannerState: {
       /**
@@ -2131,6 +2201,8 @@ export interface components {
       occurrences: number;
       /** @description running containers whose digest has no succeeded scan (not_scanned, scan_failed or unknown_digest) */
       notScannedContainers: number;
+      /** @description running containers whose digest differs from the deployed one (deployed.state mismatch); absent when deployment records are not compared */
+      driftedContainers?: number;
     };
     SecurityVulnerabilityReport: {
       /** Format: date-time */
@@ -2708,6 +2780,29 @@ export interface components {
       status: components["schemas"]["AppEnvironmentStatus"][];
       /** @description Every instance of the app, the default one first, then the others by branch name. */
       instances: components["schemas"]["AppInstance"][];
+      dbTopology?: components["schemas"]["AppDBTopology"];
+    };
+    /**
+     * @description The database pair of the app's default instance (ADR 0030), present
+     * only for an app registered in exactly two environments while the
+     * server sets PLATFORM_APP_DB_TOPOLOGY. Its postgres database is born
+     * primary in `primary` and a streaming replica of it in `replica`, so
+     * a migration can move it between the two. These are the roles the
+     * databases were created with; a migration swaps them in the clusters
+     * and does not change these fields. Branch instances keep their own
+     * database in each environment.
+     */
+    AppDBTopology: {
+      /**
+       * @description the environment where the database is born primary (the app's first environment)
+       * @example gke
+       */
+      primary: string;
+      /**
+       * @description the environment where the database is born a replica of primary
+       * @example eks
+       */
+      replica: string;
     };
     /**
      * @description One deployed branch of a registered app (ADR 0015). The default
@@ -4169,6 +4264,37 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Stores one scan of one running image digest (SEC-04, ADR 0029). The
+   * platform's image scan workflow runs Grype outside the API and posts
+   * each result here; the API never scans. A succeeded scan carries
+   * Grype's JSON report, which the platform parses and normalises
+   * (severity as the advisory's source gave it, CVSS kept as given). A
+   * failed or unsupported scan carries `message` and no report, and its
+   * image counts as not scanned, never as zero vulnerabilities. A new scan
+   * of a digest replaces its earlier one. The body may be up to 32 MiB.
+   * Roles: agent, operator.
+   */
+  submitSecurityScan: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SecurityScanSubmission"];
+      };
+    };
+    responses: {
+      /** @description The stored scan. */
+      201: {
+        content: {
+          "application/json": components["schemas"]["SecurityImageScan"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };

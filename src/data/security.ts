@@ -1,7 +1,7 @@
 // Shared presentation models. A missing capability is null, never a successful empty scan.
 import type {
   SecurityCategory, SecurityControlCoverage, SecurityControlReport, SecurityReport, SecuritySeverityBasis, SecuritySource,
-  SecurityVulnerabilityReport, StorageKey,
+  SecurityDeployedImage, SecurityRunningImage, SecurityVulnerabilityReport, StorageKey,
 } from "../api/types";
 import { PROVIDER_LABEL, SOURCE_LABEL } from "./securityMatrix";
 export type EnvId = string;
@@ -18,8 +18,16 @@ export interface VulnerabilityFinding {
   id: string; advisory: string; title: string; package: string; installedVersion: string; fixedVersion: string | null;
   severity: SecuritySeverity; cvss: number | null; cvssVersion: string; cvssVector?: string; scoreSource: string;
   basisUrl: string; kev: boolean | null; epss: number | null; epssDate: string | null; imageDigest: string;
-  occurrences: Array<{ environment: EnvId; app: string; workload: string; namespace: string; running: boolean | null }>;
+  occurrences: Array<{ environment: EnvId; app: string; workload: string; namespace: string; running: boolean | null; deployed?: DeployedState }>;
   detail: string; recommendation: string;
+}
+/** The running digest compared with the platform's deployment record (SEC-05). Live data only. */
+export interface DeployedState { state: SecurityDeployedImage["state"]; reason: string; deploymentId?: string; digest?: string }
+/** One running container and whether its digest has a stored scan (SEC-04) and matches its deployment record (SEC-05). */
+export interface RunningImageRow {
+  id: string; environment: EnvId; namespace: string; workload: string; container: string; app: string | null;
+  image: string; digest: string | null; scanState: SecurityRunningImage["scanState"];
+  scannedAt: string | null; scanMessage?: string; deployed?: DeployedState;
 }
 export interface SecurityFindingRow {
   id: string; title: string; kind: "configuration" | "threat" | "governance"; environment: EnvId; app?: string;
@@ -42,6 +50,8 @@ export interface SecurityDataset {
   appFilterAvailable: boolean;
   controls: ControlEvaluation[] | null;
   vulnerabilities: VulnerabilityFinding[] | null;
+  /** Running containers with their scan and deployment-record state; live mode only, also when the scanner is not connected. */
+  runningImages?: RunningImageRow[];
   /** Why controls or vulnerabilities are null in live mode. */
   unavailable?: { controls?: string; vulnerabilities?: string };
   /** Per environment and domain: evaluated, not_connected or unsupported. */
@@ -102,16 +112,21 @@ export function securityData(report?: SecurityReport, posture: SecurityPosture =
       : !vulnReport ? "취약점 API 응답을 아직 받지 못했습니다."
       : `${scanner?.message ?? "이미지 스캐너가 연결되지 않았습니다."} 실행 중 컨테이너 ${images.length}개(이미지 digest ${digests}개)는 스캔되지 않았으며, 이는 취약점 0건이 아닙니다.`;
   }
+  const latestScan = vulnReport?.scans.filter((s) => s.finishedAt).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const scanCounts = vulnReport ? `스캔 성공 ${vulnReport.scans.filter((s) => s.status === "succeeded").length}개 · 실패/미지원 ${vulnReport.scans.filter((s) => s.status !== "succeeded").length}개 digest. ` : "";
   const scanSource: SecuritySourceRow[] = vulnReport ? [{
     id: "platform/image-scan", name: "이미지 취약점 스캔", environment: "platform",
     status: scanner?.status === "connected" ? "ok" : scanner?.status === "error" ? "error" : "not_configured",
-    scope: "실행 중 이미지 digest의 저장된 스캔 결과", lastCollected: vulnReport.generatedAt, lastScanned: null,
-    detail: scanner?.message ?? "조회 API는 스캔하지 않고 저장된 결과만 읽습니다.",
+    scope: "실행 중 이미지 digest의 저장된 스캔 결과", lastCollected: vulnReport.generatedAt, lastScanned: latestScan?.finishedAt ?? null,
+    scannerVersion: latestScan ? `${latestScan.scanner.name} ${latestScan.scanner.version}` : undefined,
+    databaseUpdatedAt: latestScan?.database?.builtAt,
+    detail: `${scanner?.status === "connected" ? scanCounts : ""}${scanner?.message ?? "조회 API는 스캔하지 않고 저장된 결과만 읽습니다."}`,
   }] : [];
   return {
     mode: "live", generatedAt: report?.generatedAt ?? null,
     environments: [...environments.values()], apps: [], appFilterAvailable: false,
     controls, vulnerabilities, unavailable,
+    runningImages: vulnReport ? runningImageRows(vulnReport) : undefined,
     coverage: controlReport?.coverage, policyVersion: controlReport?.policyVersion,
     findings: (report?.findings ?? []).map((f) => ({
       id: f.id, title: f.title,
@@ -171,6 +186,7 @@ function vulnerabilityRows(r: SecurityVulnerabilityReport): VulnerabilityFinding
       basisUrl: v.urls[0] ?? "", kev: null, epss: null, epssDate: null, imageDigest: v.digest,
       occurrences: r.runningImages.filter((i) => i.digest === v.digest).map((i) => ({
         environment: i.environment, app: i.app ?? "앱 미확인", workload: `${i.workload}/${i.container}`, namespace: i.namespace, running: true,
+        deployed: deployedState(i.deployed),
       })),
       detail: FIX_STATE[v.fixState] ?? v.fixState,
       recommendation: fixed ? `${v.package.name}을(를) ${fixed} 이상으로 올린 이미지를 다시 빌드하세요.` : "수정 버전이 없으면 배포판 공지를 확인하고 완화책을 검토하세요.",
@@ -178,6 +194,30 @@ function vulnerabilityRows(r: SecurityVulnerabilityReport): VulnerabilityFinding
   });
 }
 
+
+function deployedState(d?: SecurityDeployedImage): DeployedState | undefined {
+  return d ? { state: d.state, reason: d.reason ?? "", deploymentId: d.deploymentId, digest: d.digest } : undefined;
+}
+
+function runningImageRows(r: SecurityVulnerabilityReport): RunningImageRow[] {
+  const scans = new Map(r.scans.map((s) => [s.digest, s]));
+  return r.runningImages.map((i) => {
+    const scan = i.digest ? scans.get(i.digest) : undefined;
+    return {
+      id: `${i.environment}/${i.namespace}/${i.workload}/${i.container}@${i.digest ?? ""}`,
+      environment: i.environment, namespace: i.namespace, workload: i.workload, container: i.container, app: i.app ?? null,
+      image: i.image, digest: i.digest ?? null, scanState: i.scanState,
+      scannedAt: scan?.finishedAt ?? null, scanMessage: scan?.message, deployed: deployedState(i.deployed),
+    };
+  });
+}
+
+export const SCAN_STATE: Record<RunningImageRow["scanState"], [string, string]> = {
+  scanned: ["스캔됨", "ok"], scan_failed: ["스캔 실패", "bad"], not_scanned: ["미검사", "warn"], unknown_digest: ["digest 미확인", "warn"],
+};
+export const DEPLOYED_STATE: Record<DeployedState["state"], [string, string]> = {
+  match: ["배포 기록과 일치", "ok"], mismatch: ["배포 기록과 다름", "bad"], no_record: ["배포 기록 없음", ""], unknown: ["비교 불가", "warn"],
+};
 
 export const DOMAINS: { id: Domain; label: string }[] = [
   { id: "identity", label: "권한·인증" }, { id: "data", label: "암호화" }, { id: "logging", label: "감사 로그" },

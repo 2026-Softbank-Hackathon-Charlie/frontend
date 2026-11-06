@@ -94,6 +94,7 @@ export type SecurityControlReport = S["SecurityControlReport"];
 export type SecurityImageScan = S["SecurityImageScan"];
 export type SecurityVulnerability = S["SecurityVulnerability"];
 export type SecurityRunningImage = S["SecurityRunningImage"];
+export type SecurityDeployedImage = S["SecurityDeployedImage"];
 export type SecurityScannerState = S["SecurityScannerState"];
 export type SecurityVulnerabilityReport = S["SecurityVulnerabilityReport"];
 export type StorageKey = S["StorageKey"];

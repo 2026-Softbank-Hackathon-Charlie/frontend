@@ -180,6 +180,25 @@ describe("live posture mapping", () => {
     expect(v?.scoreSource).toContain("Negligible");
   });
 
+  it("lists every running container with its scan and deployment-record state, and the scanner's metadata", () => {
+    const failedDigest = "sha256:" + "2".repeat(64);
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, vulnerabilities: [], summary,
+      scans: [
+        { id: "scan1", digest, status: "succeeded", scanner: { name: "grype", version: "0.121.0" }, finishedAt: "2026-11-06T08:00:00Z", database: { builtAt: "2026-11-05T04:00:00Z" } },
+        { id: "scan2", digest: failedDigest, status: "failed", scanner: { name: "grype", version: "0.121.0" }, finishedAt: "2026-11-06T08:30:00Z", message: "pull denied" },
+      ],
+      runningImages: [
+        { ...images[0], deployed: { state: "mismatch", deploymentId: "dep_1", digest: "sha256:" + "9".repeat(64), reason: "differs" } },
+        { ...images[1], digest: failedDigest, scanState: "scan_failed", scanId: "scan2", deployed: { state: "unknown", reason: "records unreadable" } },
+      ] } });
+    expect(d.vulnerabilities).toEqual([]);
+    expect(d.runningImages?.map((r) => [r.scanState, r.deployed?.state, r.scanMessage])).toEqual([["scanned", "mismatch", undefined], ["scan_failed", "unknown", "pull denied"]]);
+    expect(d.runningImages?.[0].scannedAt).toBe("2026-11-06T08:00:00Z");
+    const source = d.sources.find((s) => s.id === "platform/image-scan");
+    expect(source).toMatchObject({ status: "ok", lastScanned: "2026-11-06T08:30:00Z", scannerVersion: "grype 0.121.0" });
+    expect(source?.detail).toContain("실패/미지원 1개");
+  });
+
   it("keeps a finding's severity basis and source URL", () => {
     const report: SecurityReport = {
       generatedAt, summary: { bySeverity: { total: 1, critical: 0, high: 0, medium: 1, low: 0, info: 0 }, byEnvironment: {} }, sources: [], storageKeys: [], findings: [{

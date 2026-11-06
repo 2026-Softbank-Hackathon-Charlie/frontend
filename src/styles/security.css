@@ -90,3 +90,6 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
   .sp-page .tabs { flex-wrap: wrap; }
   .sp-table-box:has(.tbl)::after { content: "표를 좌우로 움직여 나머지 정보를 확인하세요."; display: block; padding: var(--sp-xs) var(--sp-sm); font-size: 11px; color: var(--muted); background: var(--fill); }
 }
+
+.sp-running { margin-top: 24px; }
+.sp-running h3 { margin: 0 0 6px; font-size: 15px; }
