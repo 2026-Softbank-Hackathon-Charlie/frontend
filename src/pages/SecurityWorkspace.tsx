@@ -31,6 +31,14 @@ const date = (value: string | null) => value ? new Date(value).toLocaleString("k
 const matches = (search: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
 const unique = (values: string[]) => [...new Set(values)];
 
+const NO_SCAN_TIME = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
+
+function ScanTimes({ collected, scanned }: { collected: string | null; scanned: string | null }) {
+  return <><b className="block">수집 {date(collected)}</b>{scanned
+    ? <small className="block">검사 {date(scanned)}</small>
+    : <small className="block sp-no-scan" title={NO_SCAN_TIME}><span>(검사 시각 미확인)</span> <span aria-label={NO_SCAN_TIME} role="img">ⓘ</span></small>}</>;
+}
+
 function groupVulnerabilities(values: VulnerabilityFinding[]): VulnerabilityFinding[][] {
   const groups = new Map<string, VulnerabilityFinding[]>();
   for (const value of values) {
@@ -238,7 +246,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       <SecurityStorageKeys keys={data.storageKeys?.filter((k) => (environment === "all" || k.environment === environment) && (app === "all" || k.app === app))} sources={data.storageKeySources.filter((s) => environment === "all" || s.environment === environment)} />
     </> : <Section title="수집 상태" sub="결과를 읽었다는 것과 모든 검사를 통과했다는 것은 다릅니다.">
       <div className="sp-source-summary"><b>선택 환경의 출처 {sources.length}개</b><span>수집 완료 {sources.filter((s) => s.status === "ok").length} · 그 외 {missingSources.length}</span><small>앱 필터와 관계없이 환경 수준의 수집 범위를 표시합니다.</small></div>
-      <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block">{envLabel(s.environment)}</small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<><span>수집 {date(s.lastCollected)}</span><small className="block">검사 {date(s.lastScanned)}</small></>, "nw")])} /></div>
+      <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block">{envLabel(s.environment)}</small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<ScanTimes collected={s.lastCollected} scanned={s.lastScanned} />, "nw")])} /></div>
       <div className="sp-method"><b>미확인 상태를 숨기지 않습니다</b><p>스캔 실패나 미지원은 발견 0건이 아닙니다. 결과 조회와 실제 재검사는 별개이며, 이 화면은 스캔 Job이나 정책 변경을 실행하지 않습니다.</p></div>
     </Section>}
     <footer className="sp-footer"><span>HopCharlie · 보안·거버넌스</span><span>{data.mode === "demo" ? "시연 데이터" : "실제 API 조회"} · 읽기 전용 · 스캔 / 정책 변경 없음</span></footer>

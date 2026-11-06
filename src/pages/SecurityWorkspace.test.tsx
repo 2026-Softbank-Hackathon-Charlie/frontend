@@ -68,7 +68,10 @@ describe("shared security workspace", () => {
     startSession(fakeSession());
     render(<RoutedSecurity />);
     expect(await screen.findByText("partial read")).toBeInTheDocument();
-    expect(screen.getByText("검사 미확인")).toBeInTheDocument();
+    const noScan = screen.getAllByText("(검사 시각 미확인)")[0];
+    expect(noScan.closest("small")).toHaveAttribute("title", "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.");
+    expect(screen.getAllByText(/^수집 \d/)[0].tagName).toBe("B");
+    expect(screen.queryByText("검사 미확인")).not.toBeInTheDocument();
     expect(screen.getByText("수집 실패")).toBeInTheDocument();
     expect(screen.queryByText("수집 완료")).not.toBeInTheDocument();
   });
