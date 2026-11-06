@@ -11,7 +11,7 @@ function setup(hash = "") {
   localStorage.setItem("hopcharlie.mode", "demo");
   initAuth();
   const sim = createSim();
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   render(
     <SimProvider sim={sim} intervalMs={0}>
       <App />
@@ -545,7 +545,7 @@ describe("GitHub deploy screens (platform API)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#deploy-dep_9"));
     const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/apps/moimroom/instances"))!;
     expect(JSON.parse(post.body!)).toEqual({ branch: "feature/x", autoDeploy: false });
-  });
+  }, 15000); // drives the whole instances tab (~3s on CI)
 
   it("says why a branch was refused in Korean: 409 and 400 as messages, 422 as the check result", async () => {
     const { user } = setup("#app-moimroom/instances");

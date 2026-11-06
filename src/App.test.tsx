@@ -496,7 +496,7 @@ describe("HopCharlie console (platform API)", () => {
     expect(screen.getByText(/AI가 Plan을 내지 못하고 끝났습니다: AI 응답이 3번 모두 검사에 걸림/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
     expect(await screen.findByRole("button", { name: "Plan 작성" })).toBeInTheDocument();
-  });
+  }, 15000); // ~3.2s on the CI runner, close to the 5s default under load
 
   it("moves from the AI plan to the Plan it submits", async () => {
     let done = false;
