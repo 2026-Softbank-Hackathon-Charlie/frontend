@@ -355,8 +355,11 @@ function runReducer(s: RunState, a: RunAction): RunState {
   }
 }
 
-/** Follows one run live over SSE until it ends. A falsy `runId` watches nothing. */
-export function useRun(runId: string | null | undefined): RunWatch {
+/**
+ * Follows one run live over SSE until it ends. A falsy `runId` watches nothing. The stream closes on an ended
+ * status, so bump `epoch` to follow the same run again after a command revived it (resume).
+ */
+export function useRun(runId: string | null | undefined, epoch = 0): RunWatch {
   const [s, dispatch] = useReducer(runReducer, idle);
   useEffect(() => {
     dispatch({ type: "reset" });
@@ -375,7 +378,7 @@ export function useRun(runId: string | null | undefined): RunWatch {
       if (!ctrl.signal.aborted) dispatch({ type: "error", error: toApiError(e) });
     });
     return () => ctrl.abort();
-  }, [runId]);
+  }, [runId, epoch]);
   return { run: s.run, events: s.events, error: s.error, connected: s.connected };
 }
 

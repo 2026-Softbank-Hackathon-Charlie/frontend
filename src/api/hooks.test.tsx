@@ -270,6 +270,19 @@ describe("useRun", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("follows an ended run again when the epoch moves (resume revives the same run)", async () => {
+    const calls = installFetch(
+      sequence(sse([snapshotMsg(fakeRun({ status: "halted", phase: "done" }))]), sse([snapshotMsg(fakeRun({ status: "running", phase: "verify" }))], "hang")),
+    );
+    const { result, rerender, unmount } = renderHook(({ epoch }: { epoch: number }) => useRun("run_1", epoch), { initialProps: { epoch: 0 } });
+    await waitFor(() => expect(result.current.connected).toBe(false));
+    expect(result.current.run?.status).toBe("halted");
+    rerender({ epoch: 1 });
+    await waitFor(() => expect(result.current.run?.status).toBe("running"));
+    expect(calls).toHaveLength(2);
+    unmount();
+  });
+
   it("reports an error that stops the watch", async () => {
     installFetch(() => json(404, { error: { code: "run_not_found", message: "no run run_x" } }));
     const { result } = renderHook(() => useRun("run_x"));

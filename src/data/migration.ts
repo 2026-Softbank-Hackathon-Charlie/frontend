@@ -332,15 +332,17 @@ export function useLiveMigration(): MigrationView {
   // Start options belong to one plan: another plan (a new one, after a reject, a rollback) starts from the defaults.
   const [picked, setPicked] = useState<{ planRef: string | null; options: StartOptions }>({ planRef: null, options: DEFAULT_START });
   const [selected, setSelected] = useState<string | null>(null);
+  // The run follows its stream again after a resume (the stream closed when the run ended); the resume's answer
+  // shows until the new stream's snapshot arrives. A halted run the operator left with reset is not picked up again.
+  const [revived, setRevived] = useState<{ epoch: number; run?: Run }>({ epoch: 0 });
+  const [dismissed, setDismissed] = useState<string | null>(null);
 
-  const app = (apps.data ?? []).find((a) => a.name === appName) ?? apps.data?.[0];
-  const aiRuns = useAIRuns(app?.name, 5000);
-  const envs = app?.environments.map((e) => e.env) ?? [];
-
-  // Pick up work already in progress: an active run, else the newest plan waiting for approval.
+  // Pick up work already in progress: an active run, else the newest run when it halted (it waits for an
+  // operator to resume it), else the newest plan waiting for approval.
   useEffect(() => {
     if (!enabled || runId || planRef) return;
-    const active = runs.data?.find((r) => ACTIVE.has(r.status));
+    const newest = runs.data?.[0];
+    const active = runs.data?.find((r) => ACTIVE.has(r.status)) ?? (newest?.status === "halted" && newest.runId !== dismissed ? newest : undefined);
     if (active) {
       setRunId(active.runId);
       setPlanRef(active.planRef);
@@ -348,13 +350,22 @@ export function useLiveMigration(): MigrationView {
     }
     const pending = [...(plans.data ?? [])].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).find((p) => p.status === "pending_approval");
     if (pending) setPlanRef(pending.ref);
-  }, [enabled, runs.data, plans.data, runId, planRef]);
+  }, [enabled, runs.data, plans.data, runId, planRef, dismissed]);
 
   const plan = plans.data?.find((p) => p.ref === planRef);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
-  const watch = useRun(enabled ? runId : null);
-  const run = watch.run;
+  const watch = useRun(enabled ? runId : null, revived.epoch);
+  const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
+  // The app of the run or plan on screen (its namespace, which a rollback keeps), else the one picked: the map
+  // reads this app's gateway scope, so after a reload it must not fall back to the first app.
+  const list = apps.data ?? [];
+  const srcNs = run?.source.namespace ?? plan?.summary.source.namespace;
+  const tgtNs = run?.target.namespace ?? plan?.summary.target.namespace;
+  const owner = list.find((a) => a.namespace === srcNs) ?? list.find((a) => a.namespace === tgtNs);
+  const app = owner ?? list.find((a) => a.name === appName) ?? list[0];
+  const aiRuns = useAIRuns(app?.name, 5000);
+  const envs = app?.environments.map((e) => e.env) ?? [];
   const sessions = useAgentSessions(enabled && planRef ? 3000 : 0, planRef ? { planRef } : {});
   // Without a run: the newest sessions, to show a plan hopai is writing for this app as it happens.
   const recent = useAgentSessions(enabled && !runId ? 3000 : 0, { limit: 20 });
@@ -487,7 +498,12 @@ export function useLiveMigration(): MigrationView {
       }),
     doSwitch: () => act(async () => void (run && (await switchMigration(run.runId)))),
     abort: () => act(async () => void (run && (await abortMigration(run.runId, { reason: "운영자가 중단" })))),
-    resume: () => act(async () => void (run && (await resumeMigration(run.runId)))),
+    resume: () =>
+      act(async () => {
+        if (!run) return;
+        const res = await resumeMigration(run.runId);
+        setRevived((x) => ({ epoch: x.epoch + 1, run: res }));
+      }),
     rollback: () =>
       act(async () => {
         if (!run) return;
@@ -498,6 +514,7 @@ export function useLiveMigration(): MigrationView {
       }),
     reset: () => {
       setTracked(undefined);
+      if (runId) setDismissed(runId);
       setRunId(null);
       setPlanRef(null);
       setEngine(undefined);

@@ -43,7 +43,7 @@ export const ENGINE_STEPS: EngineStep[] = [
   { id: "delta", label: "변경분 동기화", detail: "복제 지연이 기준 아래로 내려올 때까지", phase: "sync", s: 55, e: 65, post: false },
   { id: "fence", label: "쓰기 보류", detail: "게이트웨이가 쓰기를 붙잡고 원본 쓰기를 막음", phase: "cutover", s: 0, e: 1.2, post: true },
   { id: "switchover", label: "대상 승격", detail: "마지막 변경 반영, 대상 DB 승격", phase: "cutover", s: 1.2, e: 4.5, post: true },
-  { id: "start-target", label: "대상 앱 시작", detail: "콜드 모드에서 대상 앱을 띄움, 웜 모드는 건너뜀", phase: "cutover", s: 4.5, e: 4.5, post: true },
+  { id: "start-target", label: "대상 앱 시작", detail: "콜드 모드에서 대상 앱을 띄움, 웜 모드는 할 일 없이 통과", phase: "cutover", s: 4.5, e: 4.5, post: true },
   { id: "cutover", label: "트래픽 전환", detail: "쓰기 대상을 바꾸고 보류한 쓰기 전달", phase: "cutover", s: 4.5, e: 6.8, post: true },
   { id: "verify", label: "검증", detail: "행 수, 기본 키, k6 쓰기 기록, 파일 해시 대조", phase: "verify", s: 6.8, e: 10.4, post: true },
   { id: "finalize", label: "마무리", detail: "원본 축소, 원본은 읽기 전용으로 보존", phase: "verify", s: 10.4, e: 13.6, post: true },

@@ -56,4 +56,11 @@ describe("migration progress groups", () => {
     const g = groupsOf(ended({ status: "succeeded", observe }, { outcome: "succeeded" }), events);
     expect(g[3].items.at(-1)).toMatchObject({ label: "전환 후 관찰 (판정 없이 끝남)", st: "neu" });
   });
+
+  it("shows start-target without a check mark on a run from before the step existed", () => {
+    const steps = Object.fromEntries(["fence", "switchover", "cutover", "verify", "finalize"].map((k) => [k, { status: "succeeded" as const }]));
+    const g = groupsOf(ended({ status: "succeeded" }, { outcome: "succeeded", steps }), []);
+    expect(g[2].items.map((x) => x.st)).toEqual(["ok", "ok", "neu", "ok"]);
+    expect(g.map((x) => x.st)).toEqual(["done", "done", "done", "done"]);
+  });
 });
