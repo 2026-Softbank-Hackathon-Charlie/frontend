@@ -272,3 +272,23 @@ describe("exploitation evidence", () => {
     expect(data.vulnerabilities?.[0].kevState).toBeUndefined();
   });
 });
+
+describe("security exceptions", () => {
+  it("maps an exception on a finding and on a vulnerability", () => {
+    const exception = { id: "sx_1", targetType: "finding" as const, targetId: "f1", reason: "accepted risk", expiresAt: "2026-11-20T14:59:59Z", createdBy: "admin", createdAt: "2026-11-07T00:00:00Z" };
+    const report = {
+      generatedAt: "2026-11-07T00:00:00Z", sources: [], storageKeys: [],
+      summary: { bySeverity: { total: 1, critical: 0, high: 1, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
+      findings: [{ id: "f1", environment: "eks", provider: "aws", source: "aws-iam", check: "c", category: "identity", severity: "high", title: "t", resource: "r", detail: "d", recommendation: "x", observedAt: "2026-11-07T00:00:00Z", exception }],
+    } as SecurityReport;
+    const data = securityData(report, { vulnerabilities: {
+      generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" }, scans: [], runningImages: [],
+      summary: { advisories: 1, images: 1, affectedContainers: 0, occurrences: 1, notScannedContainers: 0 },
+      vulnerabilities: [{ id: "v1", scanId: "s", digest: "sha256:a", advisory: "CVE-1", aliases: [], fixedVersions: [], fixState: "unknown", severity: "high",
+        severityBasis: { type: "vendor", issuer: "x", policy: "p" }, cvss: [], urls: [], package: { name: "p", version: "1", type: "deb" },
+        exception: { ...exception, targetType: "vulnerability", targetId: "v1" } }],
+    } as never });
+    expect(data.findings[0].exception).toEqual({ id: "sx_1", reason: "accepted risk", expiresAt: "2026-11-20T14:59:59Z", createdBy: "admin" });
+    expect(data.vulnerabilities![0].exception).toEqual({ id: "sx_1", reason: "accepted risk", expiresAt: "2026-11-20T14:59:59Z", createdBy: "admin" });
+  });
+});

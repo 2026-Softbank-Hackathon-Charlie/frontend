@@ -64,3 +64,19 @@ describe("labels and reasons", () => {
     expect(epssLabel(v({ epss: 0.94, epssDate: "2026-11-06" }), true)).toBe("EPSS 94.0% · 11/06 기준 (예시)");
   });
 });
+
+describe("sortByPriority with exceptions", () => {
+  const ex = (expiresAt: string) => ({ id: "sx", reason: "r", expiresAt, createdBy: "admin" });
+  it("puts groups whose first member has an active exception last, keeping each part's order", () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    const groups = [
+      [v({ advisory: "kev-excepted", kev: true, kevState: "listed", exception: ex(future) })],
+      [v({ advisory: "low" })],
+      [v({ advisory: "crit", severity: "critical" })],
+      [v({ advisory: "crit-excepted", severity: "critical", exception: ex(future) })],
+      [v({ advisory: "expired", severity: "high", exception: ex(past) })],
+    ];
+    expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["crit", "expired", "low", "kev-excepted", "crit-excepted"]);
+  });
+});

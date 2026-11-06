@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth, startSession } from "../data/live";
 import { fakeSession, installFetch, json } from "../api/fakes";
@@ -7,6 +7,7 @@ import { Security } from "./Security";
 import { SecurityWorkspace } from "./SecurityWorkspace";
 import { securityData } from "../data/security";
 import type { SecurityReport } from "../api/types";
+import { DEMO_SECURITY_DATA } from "../sim/securityWorkspace";
 
 afterEach(() => {
   cleanup();
@@ -297,5 +298,123 @@ describe("shared security workspace", () => {
     });
     expect(screen.getByRole("heading", { level: 2, name: "수집 상태" })).toBeInTheDocument();
     expect(screen.getByLabelText("보안 환경")).toHaveValue("k3s");
+  });
+});
+
+describe("security exceptions (SEC-08)", () => {
+  const NOW = new Date("2026-11-07T01:00:00Z"); // 11/07 10:00 KST
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const exception = { id: "sx_1", reason: "보완 통제 적용", expiresAt: "2026-11-20T14:59:59Z", createdBy: "admin", createdAt: "2026-11-07T00:00:00Z" };
+  const vuln = (id: string, advisory: string, extra: object = {}) => ({
+    id, scanId: "s1", digest: "sha256:a", advisory, aliases: [], fixedVersions: [], fixState: "unknown", severity: "critical",
+    severityBasis: { type: "vendor", issuer: "x", policy: "p1" }, cvss: [], urls: [], package: { name: "pkg-" + id, version: "1.0", type: "deb" }, ...extra,
+  });
+  const data = () => securityData({
+    ...liveReport,
+    findings: [
+      { ...liveReport.findings[0], exception: { ...exception, targetType: "finding", targetId: "high-item" } },
+      liveReport.findings[1],
+    ],
+  } as SecurityReport, { vulnerabilities: {
+    generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" }, scans: [],
+    runningImages: [{ environment: "eks", namespace: "shop", workload: "Deployment/web", container: "web", app: "shop", image: "r/web:v1", digest: "sha256:a", scanState: "scanned" }],
+    summary: { advisories: 2, images: 1, affectedContainers: 1, occurrences: 2, notScannedContainers: 0 },
+    vulnerabilities: [
+      vuln("v-ex", "CVE-2026-0001", { exception: { ...exception, targetType: "vulnerability", targetId: "v-ex" } }),
+      vuln("v-kev", "CVE-2026-0002", { severity: "low", exploitation: { cve: "CVE-2026-0002", kev: { state: "listed" }, epss: { state: "unknown" } } }),
+    ],
+  } as never });
+  const user = () => userEvent.setup({ delay: null });
+
+  it("hides excepted rows by default, shows them muted and last with 포함, and only them with 예외만", async () => {
+    const u = user();
+    render(<SecurityWorkspace route="security/vulnerabilities" data={data()} reload={vi.fn()} />);
+    const list = screen.getByRole("region", { name: "취약점 목록" });
+    const filter = screen.getByLabelText("예외");
+    expect(within(filter).getAllByRole("option").map((o) => o.textContent)).toEqual(["제외", "포함", "예외만"]);
+    expect(filter).toHaveValue("exclude");
+    expect(within(list).queryByRole("link", { name: "CVE-2026-0001" })).not.toBeInTheDocument();
+    await u.selectOptions(filter, "include");
+    const links = within(list).getAllByRole("link").map((a) => a.textContent);
+    expect(links).toEqual(["CVE-2026-0002", "CVE-2026-0001"]);
+    const row = within(list).getByRole("link", { name: "CVE-2026-0001" }).closest("tr")!;
+    expect(row).toHaveClass("sp-excepted");
+    expect(within(row).getByText("예외 · 11/20까지")).toBeInTheDocument();
+    await u.selectOptions(filter, "only");
+    expect(within(list).getAllByRole("link").map((a) => a.textContent)).toEqual(["CVE-2026-0001"]);
+  });
+
+  it("filters and marks excepted findings", async () => {
+    const u = user();
+    render(<SecurityWorkspace route="security/findings" data={data()} reload={vi.fn()} />);
+    expect(screen.queryByRole("link", { name: "실제 높은 등급 신호" })).not.toBeInTheDocument();
+    await u.selectOptions(screen.getByLabelText("예외"), "only");
+    const row = screen.getByRole("link", { name: "실제 높은 등급 신호" }).closest("tr")!;
+    expect(row).toHaveClass("sp-excepted");
+    expect(within(row).getByText("예외 · 11/20까지")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "실제 낮은 등급 신호" })).not.toBeInTheDocument();
+  });
+
+  it("registers an exception for a KEV vulnerability with at most 7 days and reloads", async () => {
+    const calls = installFetch(() => json(201, { ...exception, targetType: "vulnerability", targetId: "v-kev" }));
+    const reload = vi.fn();
+    const u = user();
+    render(<SecurityWorkspace route="security/vulnerabilities/v-kev" data={data()} reload={reload} />);
+    await u.click(screen.getByRole("button", { name: "예외 등록" }));
+    const date = screen.getByLabelText("만료일");
+    expect(date).toHaveAttribute("max", "2026-11-14");
+    expect(date).toHaveValue("2026-11-14");
+    expect(screen.getByText("예외는 심각도를 바꾸지 않습니다. 만료일이 지나면 다시 미처리로 보입니다. KEV 등재 취약점은 최대 7일입니다.")).toBeInTheDocument();
+    const submit = screen.getByRole("button", { name: "등록" });
+    expect(submit).toBeDisabled();
+    await u.type(screen.getByLabelText("사유"), "   ");
+    expect(submit).toBeDisabled();
+    await u.type(screen.getByLabelText("사유"), "보완 통제 적용");
+    fireEvent.change(date, { target: { value: "2026-11-10" } });
+    await u.click(submit);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(["POST /v1/security/exceptions"]);
+    expect(JSON.parse(calls[0].body!)).toEqual({ targetType: "vulnerability", targetId: "v-kev", reason: "보완 통제 적용", expiresAt: "2026-11-10T14:59:59.000Z" });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows 30 days for a finding and cancels the form", async () => {
+    const u = user();
+    render(<SecurityWorkspace route="security/findings/low-item" data={data()} reload={vi.fn()} />);
+    await u.click(screen.getByRole("button", { name: "예외 등록" }));
+    expect(screen.getByLabelText("만료일")).toHaveAttribute("max", "2026-12-07");
+    expect(screen.getByText("예외는 심각도를 바꾸지 않습니다. 만료일이 지나면 다시 미처리로 보입니다.")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("사유")).not.toBeInTheDocument();
+  });
+
+  it("revokes an exception and reloads", async () => {
+    const calls = installFetch(() => json(200, { ...exception, targetType: "finding", targetId: "high-item", revokedAt: "2026-11-07T01:00:00Z", revokedBy: "admin" }));
+    const reload = vi.fn();
+    const u = user();
+    render(<SecurityWorkspace route="security/findings/high-item" data={data()} reload={reload} />);
+    expect(screen.getByText("예외 · 11/20까지 · admin")).toBeInTheDocument();
+    expect(screen.getByText("보완 통제 적용")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: "예외 해제" }));
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(["DELETE /v1/security/exceptions/sx_1"]);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the server's message when a request is refused", async () => {
+    installFetch(() => json(403, { error: { code: "forbidden", message: "operator 권한이 필요합니다." } }));
+    const reload = vi.fn();
+    const u = user();
+    render(<SecurityWorkspace route="security/findings/high-item" data={data()} reload={reload} />);
+    await u.click(screen.getByRole("button", { name: "예외 해제" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("operator 권한이 필요합니다.");
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("shows no exception buttons in demo mode", () => {
+    open("#security/vulnerabilities/" + DEMO_SECURITY_DATA.vulnerabilities![0].id);
+    expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "예외 등록" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "예외 해제" })).not.toBeInTheDocument();
   });
 });

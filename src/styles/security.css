@@ -102,3 +102,12 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-no-scan:hover .sp-tip, .sp-info:focus + .sp-tip { display: block; }
 
 .sp-reasons { color: var(--muted); font-weight: 600; }
+/* SEC-08: an excepted row stays visible but muted; the detail panel's register/revoke form. */
+.sp-page .tbl tr.sp-excepted { opacity: .6; }
+.sp-exception { display: grid; gap: var(--sp-sm); justify-items: start; margin-block-start: var(--sp-md); }
+.sp-exception p { margin: 0; }
+.sp-exception-form { max-width: 520px; }
+.sp-exception-form label { width: 100%; }
+.sp-exception-form textarea { width: 100%; font: inherit; font-size: 14px; }
+.sp-exception-actions { display: flex; gap: var(--sp-xs); }
+.sp-exception-error { color: var(--bad); font-size: 12px; }

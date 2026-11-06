@@ -1,10 +1,16 @@
 // Shared presentation models. A missing capability is null, never a successful empty scan.
 import type {
   SecurityCategory, SecurityControlCoverage, SecurityControlReport, SecurityReport, SecuritySeverityBasis, SecuritySource,
-  SecurityDeployedImage, SecurityRunningImage, SecurityVulnerabilityReport, StorageKey,
+  SecurityDeployedImage, SecurityException, SecurityRunningImage, SecurityVulnerabilityReport, StorageKey,
 } from "../api/types";
 import { PROVIDER_LABEL, SOURCE_LABEL } from "./securityMatrix";
 export type EnvId = string;
+/** An operator's time-limited exception (SEC-08). It never changes severity. Live data only. */
+export interface ExceptionInfo { id: string; reason: string; expiresAt: string; createdBy: string }
+const exceptionInfo = (e?: SecurityException): ExceptionInfo | undefined =>
+  e ? { id: e.id, reason: e.reason, expiresAt: e.expiresAt, createdBy: e.createdBy } : undefined;
+/** Active while it has not expired; the server sends only unrevoked ones. */
+export const activeException = (e?: ExceptionInfo, now = Date.now()) => !!e && Date.parse(e.expiresAt) > now;
 export type SecuritySeverity = "critical" | "high" | "medium" | "low" | "info" | "unknown";
 export type Domain = "identity" | "data" | "logging" | "policy" | "vulnerability";
 export interface ControlEvaluation {
@@ -24,6 +30,7 @@ export interface VulnerabilityFinding {
   epssPercentile?: number | null; kevDueDate?: string; ransomware?: boolean;
   occurrences: Array<{ environment: EnvId; app: string; workload: string; namespace: string; running: boolean | null; deployed?: DeployedState }>;
   detail: string; recommendation: string;
+  exception?: ExceptionInfo;
 }
 /** The running digest compared with the platform's deployment record (SEC-05). Live data only. */
 export interface DeployedState { state: SecurityDeployedImage["state"]; reason: string; deploymentId?: string; digest?: string }
@@ -39,6 +46,7 @@ export interface SecurityFindingRow {
   detail: string; recommendation: string; observedAt: string;
   /** Who set the severity, the source's own value and the policy version. */
   severityBasis?: string;
+  exception?: ExceptionInfo;
 }
 export interface SecuritySourceRow {
   id: string; name: string; environment: EnvId; app?: string; status: "ok" | "error" | "unavailable" | "not_configured" | "stale" | "unsupported" | "idle";
@@ -149,6 +157,7 @@ export function securityData(report?: SecurityReport, posture: SecurityPosture =
       check: f.check, category: f.category, domain: domainByCategory[f.category], controlId: f.controlId,
       basisUrl: f.severityBasis?.sourceUrl ?? null, severityBasis: f.severityBasis ? basisText(f.severityBasis) : undefined,
       resource: f.resource, detail: f.detail, recommendation: f.recommendation, observedAt: f.observedAt,
+      exception: exceptionInfo(f.exception),
     })),
     sources: [...(report?.sources ?? []).map((s): SecuritySourceRow => ({
       id: `${s.environment}/${s.name}`, name: SOURCE_LABEL[s.name] ?? s.name, environment: s.environment,
@@ -203,6 +212,7 @@ function vulnerabilityRows(r: SecurityVulnerabilityReport): VulnerabilityFinding
       })),
       detail: FIX_STATE[v.fixState] ?? v.fixState,
       recommendation: fixed ? `${v.package.name}을(를) ${fixed} 이상으로 올린 이미지를 다시 빌드하세요.` : "수정 버전이 없으면 배포판 공지를 확인하고 완화책을 검토하세요.",
+      exception: exceptionInfo(v.exception),
     };
   });
 }

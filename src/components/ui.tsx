@@ -117,7 +117,8 @@ export const td = (v: ReactNode, cls?: string): Cell => ({ v, cls });
 
 const isNum = (c: Cell | undefined) => !!c?.cls?.split(" ").includes("num");
 
-export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
+/** `rowClass` gives a row its class, by row index. */
+export function Table({ head, rows, rowClass }: { head: string[]; rows: Cell[][]; rowClass?: (i: number) => string | undefined }) {
   // a column of numbers aligns its head with them; the last column without a head (actions) hugs the right
   const num = head.map((_, i) => rows.length > 0 && rows.every((r) => isNum(r[i])));
   const act = (i: number) => i === head.length - 1 && head[i] === "";
@@ -135,7 +136,7 @@ export function Table({ head, rows }: { head: string[]; rows: Cell[][] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i}>
+            <tr key={i} className={rowClass?.(i)}>
               {r.map((c, j) => (
                 <td key={j} className={act(j) ? (c.cls ? c.cls + " act" : "act") : c.cls}>
                   {c.v}
