@@ -9,6 +9,7 @@ import {
   getMatrix,
   getSecurity,
   getSecurityControls,
+  getSecurityOCSF,
   getSecurityVulnerabilities,
   getTraffic,
   listAgentSessions,
@@ -50,6 +51,7 @@ import type {
   RunEvent,
   SecurityControlReport,
   SecurityReport,
+  SecurityOCSFExport,
   SecurityVulnerabilityReport,
   StatusChangedData,
   TrafficState,
@@ -217,6 +219,12 @@ export function useSecurityControls(pollMs = 0, q: SecurityPostureQuery = {}): R
 export function useSecurityVulnerabilities(pollMs = 0, q: SecurityPostureQuery = {}): Resource<SecurityVulnerabilityReport> {
   const key = "security-vulnerabilities:" + JSON.stringify([q.environment, q.refresh]);
   return usePolled(key, pollMs, (signal) => getSecurityVulnerabilities(q, { signal }));
+}
+
+/** The OCSF export of the security data (SEC-09). */
+export function useSecurityOCSF(pollMs = 0, q: SecurityQuery = {}): Resource<SecurityOCSFExport> {
+  const key = "security-ocsf:" + JSON.stringify([q.environment, q.severity, q.refresh]);
+  return usePolled(key, pollMs, (signal) => getSecurityOCSF(q, { signal }));
 }
 
 /** Agent sessions, newest first, optionally only those of one plan or run. */

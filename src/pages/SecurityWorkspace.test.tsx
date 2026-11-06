@@ -154,7 +154,7 @@ describe("shared security workspace", () => {
     expect(screen.getByRole("link", { name: /실제 높은 등급 신호/ })).toBeInTheDocument();
     expect(screen.getAllByText("미연동")).toHaveLength(4);
   });
-  it("shares all five tabs in live mode without filling unsupported capabilities from fixtures", async () => {
+  it("shares all six tabs in live mode without filling unsupported capabilities from fixtures", async () => {
     installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
       generatedAt: "2026-11-06T00:00:00Z", scanner: { status: "not_configured", message: "스캐너 미연결." }, scans: [], vulnerabilities: [],
       runningImages: [{ environment: "gke", namespace: "shop", workload: "Deployment/web", container: "app", image: "ghcr.io/x/app:v1", scanState: "unknown_digest" }],
@@ -166,7 +166,7 @@ describe("shared security workspace", () => {
     window.history.replaceState(null, "", "/#security/vulnerabilities");
     startSession(fakeSession());
     render(<RoutedSecurity />);
-    expect(within(screen.getByRole("navigation", { name: "보안 메뉴" })).getAllByRole("link")).toHaveLength(5);
+    expect(within(screen.getByRole("navigation", { name: "보안 메뉴" })).getAllByRole("link")).toHaveLength(6);
     expect(await screen.findByText("취약점 결과 없음")).toBeInTheDocument();
     expect(screen.getByText(/컨테이너 1개.*0건이 아닙니다/)).toBeInTheDocument();
     expect(screen.queryByText("데모 보안 데이터")).not.toBeInTheDocument();
@@ -232,12 +232,12 @@ describe("shared security workspace", () => {
     expect(screen.queryByText("데모 보안 데이터")).not.toBeInTheDocument();
     expect(screen.queryByText("CVE-2021-44228")).not.toBeInTheDocument();
   });
-  it("labels the fixture clearly and exposes all five views", () => {
+  it("labels the fixture clearly and exposes all six views", () => {
     open();
     expect(screen.getByText("데모 보안 데이터")).toBeInTheDocument();
     const navigation = screen.getByRole("navigation", { name: "보안 메뉴" });
-    expect(within(navigation).getAllByRole("link")).toHaveLength(5);
-    for (const label of ["개요", "통제 점검", "취약점", "발견 항목", "수집 상태"]) {
+    expect(within(navigation).getAllByRole("link")).toHaveLength(6);
+    for (const label of ["개요", "통제 점검", "취약점", "발견 항목", "수집 상태", "OCSF 내보내기"]) {
       expect(within(navigation).getByRole("link", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByText(/실제 인프라 점검 결과가 아닙니다/)).toBeInTheDocument();

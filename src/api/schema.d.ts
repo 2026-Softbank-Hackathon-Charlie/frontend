@@ -350,7 +350,19 @@ export interface paths {
      * Every event declares `metadata.version` and the `cloud` profile and
      * follows the official class schema of that version; the platform's
      * tests validate the mapping against it. Nothing new is read: each value
-     * comes from the matching `SecurityFinding`. Error codes as for
+     * comes from the matching `SecurityFinding`.
+     *
+     * `vulnerabilities` and `controls` carry the data of
+     * `GET /v1/security/vulnerabilities` and `GET /v1/security/controls`
+     * (same collection, `environment` filter, KEV, EPSS and exceptions):
+     * each vulnerability is a Vulnerability Finding (class 2002), Suppressed
+     * with the exception's reason while an exception is active, and
+     * `is_exploit_available` with the CISA KEV catalog URL only when the CVE
+     * is KEV-listed; `cve.epss` only when FIRST has a score. Each control
+     * evaluation is a Compliance Finding (class 2003) with
+     * `compliance.status_id` Pass, Fail or Unknown; not_applicable
+     * evaluations are left out. `severity` filters `findings` only. When
+     * they cannot be built, the two arrays are empty. Error codes as for
      * `/v1/security`.
      */
     get: operations["getSecurityOCSF"];
@@ -2421,6 +2433,24 @@ export interface components {
       findings: {
           [key: string]: unknown;
         }[];
+      /**
+       * @description OCSF Vulnerability Finding (2002) events, one per vulnerability,
+       * as the OCSF schema defines them (snake_case keys, `time` in epoch
+       * milliseconds). Their shape is the OCSF standard's, not this API's,
+       * so it is not repeated here.
+       */
+      vulnerabilities: {
+          [key: string]: unknown;
+        }[];
+      /**
+       * @description OCSF Compliance Finding (2003) events, one per control evaluation
+       * (not_applicable left out), as the OCSF schema defines them
+       * (snake_case keys, `time` in epoch milliseconds). Their shape is
+       * the OCSF standard's, not this API's, so it is not repeated here.
+       */
+      controls: {
+          [key: string]: unknown;
+        }[];
     };
     SecurityReport: {
       /**
@@ -4334,7 +4364,19 @@ export interface operations {
    * Every event declares `metadata.version` and the `cloud` profile and
    * follows the official class schema of that version; the platform's
    * tests validate the mapping against it. Nothing new is read: each value
-   * comes from the matching `SecurityFinding`. Error codes as for
+   * comes from the matching `SecurityFinding`.
+   *
+   * `vulnerabilities` and `controls` carry the data of
+   * `GET /v1/security/vulnerabilities` and `GET /v1/security/controls`
+   * (same collection, `environment` filter, KEV, EPSS and exceptions):
+   * each vulnerability is a Vulnerability Finding (class 2002), Suppressed
+   * with the exception's reason while an exception is active, and
+   * `is_exploit_available` with the CISA KEV catalog URL only when the CVE
+   * is KEV-listed; `cve.epss` only when FIRST has a score. Each control
+   * evaluation is a Compliance Finding (class 2003) with
+   * `compliance.status_id` Pass, Fail or Unknown; not_applicable
+   * evaluations are left out. `severity` filters `findings` only. When
+   * they cannot be built, the two arrays are empty. Error codes as for
    * `/v1/security`.
    */
   getSecurityOCSF: {

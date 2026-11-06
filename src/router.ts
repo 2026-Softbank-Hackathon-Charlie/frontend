@@ -28,7 +28,7 @@ const ALIASES: Record<string, string> = { "migrate-shop": "migrate-app" };
 export function parseRoute(hash: string): string {
   const raw = hash.replace(/^#/, "").replace(/\?.*$/, "") || "overview";
   const h = ALIASES[raw] ?? raw;
-  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h) || /^security\/(sources|(controls|vulnerabilities|findings)(\/[A-Za-z0-9_-]+)?)$/.test(h)) return h;
+  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h) || /^security\/(sources|ocsf|(controls|vulnerabilities|findings)(\/[A-Za-z0-9_-]+)?)$/.test(h)) return h;
   return "overview";
 }
 
