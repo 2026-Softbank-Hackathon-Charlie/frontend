@@ -1799,7 +1799,6 @@ export interface components {
        */
       controlId?: string;
       severityBasis?: components["schemas"]["SecuritySeverityBasis"];
-      /** @description the active exception, if any */
       exception?: components["schemas"]["SecurityException"];
     };
     /**
@@ -2183,7 +2182,6 @@ export interface components {
       cvss: components["schemas"]["SecurityCVSS"][];
       urls: string[];
       exploitation?: components["schemas"]["SecurityExploitation"];
-      /** @description the active exception, if any */
       exception?: components["schemas"]["SecurityException"];
     };
     /**
