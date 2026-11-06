@@ -180,6 +180,16 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%}
 .legend i.sq{border-radius:1px;background:transparent!important;border:1.5px solid var(--st-ok)}
 
+/* Validation explanations stay readable independently of the wide map. */
+.validations{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0}
+.validations[hidden]{display:none}
+.validation{min-width:0;border:1px solid var(--sb-border-subtle);border-top:3px solid var(--sb-link);padding:18px;background:var(--sb-surface-alt)}
+.validation header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.validation h3{margin:0;font-size:16px;color:var(--sb-text-strong)}
+.validation p{margin:10px 0;font-size:14px;overflow-wrap:anywhere}
+.validation .criteria{font-weight:600}
+.validation ul{padding-left:20px;margin:10px 0 0;font-size:13px;color:var(--sb-text-muted);overflow-wrap:anywhere}
+@media(max-width:760px){.validations{grid-template-columns:minmax(0,1fr)}}
 /* detail */
 .checks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
 .checks li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--sb-border-subtle);font-size:14px}
@@ -259,13 +269,14 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
       <span class="lbl">진행 단계</span>
       <div class="seg" role="group" aria-label="진행바 보기 방식">
         <button type="button" data-view="simple" aria-pressed="true">간략</button>
-        <button type="button" data-view="detail" aria-pressed="false">상세</button>
+        <button type="button" data-view="detail" aria-controls="validations" aria-pressed="false">상세</button>
       </div>
     </div>
     <div class="stepscroll">
       <ol class="steps simple" id="stepsSimple" aria-label="이주 단계 (간략)"></ol>
       <ol class="steps detail" id="steps" aria-label="이주 단계 (상세)" hidden></ol>
     </div>
+    <section class="validations" id="validations" aria-label="이전 검증 상세 설명" hidden></section>
     <div id="banners" role="status"></div>
 
     <div class="mapwrap">
@@ -443,6 +454,7 @@ function buildSteps(s){
 function groupsOf(s){ const G=[]; s.phases.forEach((p,i)=>{ let g=G.find(x=>x.name===p.group); if(!g){ g={name:p.group, idx:[]}; G.push(g); } g.idx.push(i); }); return G; }
 const BAR = { done:'d', cur:'c', wait:'w', fail:'f', skip:'s', todo:'' };
 function setView(v){
+  $('validations').hidden = v!=='detail';
   $('stepsSimple').hidden = v!=='simple'; $('steps').hidden = v!=='detail';
   document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.view===v)));
   store.set('hc.stepView', v);
@@ -526,9 +538,26 @@ function render(s){
     acts.dataset.k = ak;
     acts.replaceChildren(...s.actions.map(a=>{ const b=document.createElement('button'); b.type='button'; b.className=a.cls; b.textContent=a.label; b.disabled=s.busy; b.onclick=()=>send({type:'hc-cmd', key:a.key}); return b; }));
   }
+  renderValidations(s);
   renderDetail(s);
   renderLog(s);
   renderRun(s);
+}
+function renderValidations(s){
+  const panel=$('validations'), data=s.validations || [], key=JSON.stringify(data);
+  if(panel.dataset.k===key) return;
+  panel.dataset.k=key;
+  panel.replaceChildren(...data.map(v=>{
+    const card=document.createElement('article'); card.className='validation';
+    const head=document.createElement('header'), title=document.createElement('h3'), status=document.createElement('span');
+    title.textContent=v.title; status.className='pill '+v.tone; status.textContent=v.status; head.append(title,status); card.append(head);
+    for(const [text,cls] of [[v.purpose,''],['검사 항목 · '+v.criteria,'criteria'],[v.summary,'']]){
+      const p=document.createElement('p'); p.textContent=text; p.className=cls; card.append(p);
+    }
+    const list=document.createElement('ul');
+    for(const text of v.evidence){ const li=document.createElement('li'); li.textContent=text; list.append(li); }
+    card.append(list); return card;
+  }));
 }
 function renderDetail(s){
   const key = JSON.stringify(s.detail);

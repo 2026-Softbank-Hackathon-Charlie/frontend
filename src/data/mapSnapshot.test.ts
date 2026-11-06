@@ -50,6 +50,26 @@ const snap = (v: MigrationView, traffic?: TrafficState) => buildMapSnapshot(v, {
 const keys = (v: MigrationView) => snap(v).phases.map((p) => p.key);
 
 describe("migration map snapshot: one map from the setup to the end of the run", () => {
+  it("does not infer validation success from a completed migration", () => {
+    const s = snap(view({ stage: "run", run: run({ status: "succeeded" }) }));
+    expect(s.validations.map(x => x.status)).toEqual(["결과 미수신", "검사 기록 없음"]);
+    expect(s.validations.every(x => x.tone === "idle")).toBe(true);
+  });
+
+  it.each(["pass", "fail", "unknown", "skip"] as const)("keeps residency %s separate with its evidence", status => {
+    const s = snap(view({ preflight: {
+      at: at(1), blocked: status === "fail",
+      residency: { status, summary: "정책 검사 결과", digest: "abc123", items: [{ label: "대상 테이블", detail: "app.public.customers", status }] },
+      capacity: { status: "pass", summary: "capacity passed", items: [] },
+    } }));
+    const residency = s.validations[1];
+    expect(residency.status).toBe(({ pass: "허용", fail: "차단", unknown: "확인 불가", skip: "검사 안 함" })[status]);
+    expect(residency.summary).toBe("정책 검사 결과");
+    expect(residency.evidence).toContain("대상 테이블 · app.public.customers");
+    expect(residency.evidence).toContain("정책 digest: abc123");
+    expect(residency.evidence.some(x => x.startsWith("검사 시각:"))).toBe(true);
+  });
+
   it("before a plan, nothing is at work and the target is only a candidate", () => {
     const s = snap(view());
     expect(s.cur).toBe(-1);

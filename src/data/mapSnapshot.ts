@@ -79,6 +79,8 @@ export interface MapSnapshot {
   cur: number;
   banners: { cls: "" | "okb" | "wab" | "inb"; title: string; text: string }[];
   detail: { title: string; desc: string; checks: [name: string, evidence: string, pillCls: string, pillText: string][] };
+  /** Explanations and received evidence, shown only in the detailed view. */
+  validations: { title: string; purpose: string; criteria: string; status: string; tone: string; summary: string; evidence: string[] }[];
   /** the engine events panel: AI session events and run events, oldest first, at most 120 */
   events: { id: string; ts: string; kind: string; cls: string; text: string }[];
   actions: { key: MapAction; label: string; cls: string }[];
@@ -655,6 +657,30 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     cur,
     banners,
     detail,
+    validations: [
+      {
+        title: "동등성 검증",
+        purpose: "옮겨 간 환경에서도 원본에 필요한 운영 기능을 제공하는지 확인합니다.",
+        criteria: "인증·권한 / 시크릿 / 감사 로그 / 모니터링·알림 / 백업·복구",
+        status: "결과 미수신",
+        tone: "idle",
+        summary: "현재 지도에는 동등성 검사 결과가 전달되지 않습니다. 이전 완료나 샌드박스 리허설 성공만으로 동등성 통과를 판단하지 않습니다.",
+        evidence: ["원본의 운영 요구사항과 대상 환경의 실제 점검 결과를 비교합니다.", "검사 결과와 적용 모드에 따른 시작 차단 여부는 플랫폼 기록에서 확인해야 합니다."],
+      },
+      {
+        title: "레지던시 검증",
+        purpose: "원본 데이터를 목적지 국가로 옮겨도 되는지 정책에 대조합니다.",
+        criteria: "원본 전체 테이블·버킷 / 데이터 분류 / 목적지 국가의 허용 여부",
+        status: !v.preflight ? "검사 기록 없음" : ({ pass: "허용", fail: "차단", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[v.preflight.residency.status],
+        tone: !v.preflight ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[v.preflight.residency.status],
+        summary: v.preflight?.residency.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 기록 없음은 허용을 뜻하지 않습니다.",
+        evidence: v.preflight ? [
+          "검사 시각: " + new Date(v.preflight.at).toLocaleString("ko-KR"),
+          ...v.preflight.residency.items.map(i => i.label + (i.detail ? " · " + i.detail : "")),
+          ...(v.preflight.residency.digest ? ["정책 digest: " + v.preflight.residency.digest] : []),
+        ] : ["시작 직전에 플랫폼이 검사하며, 정책 위반 시 이전을 시작하지 않습니다.", "정책 미설정·롤백 면제는 실제 검사 통과와 구분합니다."],
+      },
+    ],
     events: all.slice(-120).map(({ t: _t, ...x }) => x),
     actions,
     busy: v.busy,
