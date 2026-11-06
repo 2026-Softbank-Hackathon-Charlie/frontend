@@ -424,6 +424,14 @@ describe("GitHub deploy screens (platform API)", () => {
     expect(window.location.hash).toBe("#new");
   });
 
+  it("opens the migration page on the app of the row whose 이전 is clicked", async () => {
+    setup("#apps");
+    const mig: ApiApp = { ...app, name: "moimroom-mig", namespace: "moimroom-mig", environments: [{ env: "gke", cnpgCluster: "moimroom-mig-db", dbHost: "db" }, { env: "eks", cnpgCluster: "moimroom-mig-db", dbHost: "db" }] };
+    live((c, u) => (u.pathname === "/v1/apps" && c.method === "GET" ? json(200, { apps: [mig] }) : undefined));
+    const link = await within(await screen.findByRole("table")).findByRole("link", { name: "이전" });
+    expect(link).toHaveAttribute("href", "#migrate-app?app=moimroom-mig");
+  });
+
   it("sends DELETE only after the app's name is typed in the in-page confirmation", async () => {
     const { user } = setup("#app-moimroom");
     const calls = live((c, u) => {
