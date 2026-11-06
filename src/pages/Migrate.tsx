@@ -7,7 +7,7 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
-import { approvalBlock, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
+import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -74,6 +74,8 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <RunStatusChip r={v.run} />
                   ) : v.stage === "review" && v.plan?.status === "approved" ? (
                     <Chip kind={v.preflight?.blocked ? "bad" : "warn"}>{v.preflight?.blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}</Chip>
+                  ) : v.stage === "review" && rehearsing(v) ? (
+                    <Chip kind="run">리허설 중</Chip>
                   ) : v.stage === "review" && approvalBlock(v.plan) ? (
                     <Chip kind="bad">승인 불가 (리허설 미통과)</Chip>
                   ) : v.stage === "review" ? (
@@ -463,13 +465,15 @@ function BlockedApproveBox({ v, reason }: { v: MigrationView; reason: string }) 
     <div className="box">
       <div className="bh">
         <b>승인</b>
-        <Chip kind="bad" dot>
-          승인 불가
+        <Chip kind={rehearsing(v) ? "run" : "bad"} dot>
+          {rehearsing(v) ? "리허설 중" : "승인 불가"}
         </Chip>
       </div>
       <div className="bb">
         <b>
-          Plan {v.plan.ref} (revision {v.plan.revision})은 AI가 제출했지만 리허설을 통과하지 않아 승인할 수 없습니다.
+          {rehearsing(v)
+            ? `Plan ${v.plan.ref} (revision ${v.plan.revision})을 AI 실행기가 샌드박스에서 리허설하고 있습니다. 통과하면 승인할 수 있습니다.`
+            : `Plan ${v.plan.ref} (revision ${v.plan.revision})은 AI가 제출했지만 리허설을 통과하지 않아 승인할 수 없습니다.`}
         </b>
         <p className="hint">플랫폼이 이유를 이렇게 남겼습니다: {reason}</p>
         <p className="hint">

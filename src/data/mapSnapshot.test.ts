@@ -198,6 +198,13 @@ describe("migration map: an AI plan that has not passed its rehearsal (platform 
     expect(s.kpi.pill).toEqual(["no", "승인 불가 · 리허설 미통과"]);
   });
 
+  it("says the rehearsal is running while the AI runner has not uploaded its report yet", () => {
+    const s = snap(view({ stage: "review", plan: blocked, aiRun: { available: true, running: true, start: noop } }));
+    expect(s.actions.map((a) => a.key)).toEqual([]);
+    expect(s.banners[0].title).toContain("리허설 중");
+    expect(s.kpi.pill).toEqual(["info", "리허설 중"]);
+  });
+
   it("offers approve once the rehearsal passed for this plan", () => {
     const ok = plan({ submittedRole: "agent", rehearsal: { required: true, passed: true } });
     expect(snap(view({ stage: "review", plan: ok })).actions.map((a) => a.key)).toEqual(["approve"]);
