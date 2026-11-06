@@ -358,7 +358,7 @@ export interface paths {
   "/v1/security/controls": {
     /**
      * @description The platform's control catalog and every evaluation of it, from the
-     * same collection and cache as `GET /v1/security` (ADR 0029). Each
+     * same collection and cache as `GET /v1/security` (ADR 0034). Each
      * control is one check with its condition, the asset it evaluates, its
      * official references (exact or partial) and what it does not
      * establish. Each evaluation is pass, fail, unknown or not_applicable
@@ -377,7 +377,7 @@ export interface paths {
   "/v1/security/vulnerabilities": {
     /**
      * @description Package vulnerabilities of image digests and the running containers
-     * that use them (ADR 0029). Scans run outside the request (CI or a
+     * that use them (ADR 0034). Scans run outside the request (CI or a
      * worker); this endpoint only reads stored results and the clusters'
      * running images, from the same collection and cache as
      * `GET /v1/security`.
@@ -392,7 +392,7 @@ export interface paths {
   };
   "/v1/security/scans": {
     /**
-     * @description Stores one scan of one running image digest (SEC-04, ADR 0029). The
+     * @description Stores one scan of one running image digest (SEC-04, ADR 0034). The
      * platform's image scan workflow runs Grype outside the API and posts
      * each result here; the API never scans. A succeeded scan carries
      * Grype's JSON report, which the platform parses and normalises
@@ -1777,7 +1777,7 @@ export interface components {
       severityBasis?: components["schemas"]["SecuritySeverityBasis"];
     };
     /**
-     * @description Set on every finding by servers that implement ADR 0029.
+     * @description Set on every finding by servers that implement ADR 0034.
      * - configuration: a setting checked against a control.
      * - threat: a detection of activity (GuardDuty, Security Hub threat types).
      * - governance: the platform's own rules about its requests and records (audit denials, unrecorded bucket keys, server settings).
@@ -1796,7 +1796,7 @@ export interface components {
      */
     SecuritySeverityBasisType: "vendor" | "cvss" | "platform_policy";
     /**
-     * @description Where a severity came from (ADR 0029). The source's own value is kept
+     * @description Where a severity came from (ADR 0034). The source's own value is kept
      * as given and never overwritten; `severity` is the platform's
      * normalised label for sorting and filtering.
      */
@@ -2023,7 +2023,7 @@ export interface components {
       /** @example debian-12 */
       distro?: string;
     };
-    /** @description One scan of one image digest by the platform's scanner (ADR 0029). */
+    /** @description One scan of one image digest by the platform's scanner (ADR 0034). */
     SecurityImageScan: {
       id: string;
       /**
@@ -2120,10 +2120,105 @@ export interface components {
       severityBasis: components["schemas"]["SecuritySeverityBasis"];
       cvss: components["schemas"]["SecurityCVSS"][];
       urls: string[];
+      exploitation?: components["schemas"]["SecurityExploitation"];
+    };
+    /**
+     * @description Exploitation evidence for the vulnerability's CVE (SEC-07, ADR 0034),
+     * read when the report is built. It is a separate basis for priority and
+     * never changes `severity`; scores are not combined. VEX is not applied.
+     */
+    SecurityExploitation: {
+      /**
+       * @description the CVE looked up: the advisory, or its first CVE alias; absent when there is none
+       * @example CVE-2024-6387
+       */
+      cve?: string;
+      kev: components["schemas"]["SecurityKEV"];
+      epss: components["schemas"]["SecurityEPSS"];
+    };
+    /** @description The CISA Known Exploited Vulnerabilities catalog. */
+    SecurityKEV: {
+      /**
+       * @description - listed: the CVE is in the catalog.
+       * - not_listed: a catalog read in the last 3 days does not have the CVE.
+       * - unknown: no catalog read in the last 3 days; this is not "not listed".
+       * - no_cve: the vulnerability has no CVE id, so the catalog does not apply.
+       *
+       * @enum {string}
+       */
+      state: "listed" | "not_listed" | "unknown" | "no_cve";
+      /** @example 2026.11.04 */
+      catalogVersion?: string;
+      /**
+       * @description YYYY-MM-DD; listed only
+       * @example 2026-11-04
+       */
+      dateAdded?: string;
+      /**
+       * @description the catalog's remediation due date for US federal agencies (YYYY-MM-DD); listed only
+       * @example 2026-11-18
+       */
+      dueDate?: string;
+      /** @description the catalog's knownRansomwareCampaignUse is Known; listed only */
+      ransomware?: boolean;
+    };
+    /** @description The FIRST Exploit Prediction Scoring System score of the CVE. */
+    SecurityEPSS: {
+      /**
+       * @description - scored: FIRST has a score for the CVE.
+       * - not_scored: FIRST answered and has no score for the CVE.
+       * - unknown: no answer in the last 3 days; this is not "not scored".
+       * - no_cve: the vulnerability has no CVE id.
+       *
+       * @enum {string}
+       */
+      state: "scored" | "not_scored" | "unknown" | "no_cve";
+      /**
+       * Format: double
+       * @description 0..1: estimated probability of exploitation activity in the next 30 days
+       * @example 0.042
+       */
+      probability?: number;
+      /**
+       * Format: double
+       * @description 0..1: the share of scored CVEs with a lower or equal score
+       * @example 0.92
+       */
+      percentile?: number;
+      /**
+       * @description the score date (YYYY-MM-DD)
+       * @example 2026-11-06
+       */
+      date?: string;
+    };
+    /** @description The state of one exploitation evidence source for this report (SEC-07). */
+    SecurityExploitSource: {
+      /**
+       * @description cisa-kev or first-epss
+       * @example cisa-kev
+       */
+      name: string;
+      /**
+       * @description - ok: read and current.
+       * - stale: the last refresh failed; values read earlier (at most 3 days old) are used.
+       * - unavailable: nothing current was read; values are unknown.
+       * - idle: nothing to look up (no CVE in the report).
+       *
+       * @enum {string}
+       */
+      state: "ok" | "stale" | "unavailable" | "idle";
+      /** @description KEV catalogVersion, or the EPSS score date */
+      version?: string;
+      /**
+       * Format: date-time
+       * @description the last successful read
+       */
+      collectedAt?: string;
+      message: string;
     };
     /**
      * @description One container of a running workload and the image it runs, read from
-     * the cluster (ADR 0029). The tag in `image` is for display; the digest
+     * the cluster (ADR 0034). The tag in `image` is for display; the digest
      * identifies the image.
      */
     SecurityRunningImage: {
@@ -2213,6 +2308,8 @@ export interface components {
       /** @description Containers of running pods outside system namespaces, by environment, namespace, workload and container. An environment whose cluster could not be read has none; see `sources` of `GET /v1/security`. */
       runningImages: components["schemas"]["SecurityRunningImage"][];
       summary: components["schemas"]["SecurityVulnerabilitySummary"];
+      /** @description KEV and EPSS read state for this report (SEC-07); absent when the server does not look them up. */
+      exploitSources?: components["schemas"]["SecurityExploitSource"][];
     };
     SecuritySource: {
       /** @example aws-guardduty */
@@ -2658,7 +2755,7 @@ export interface components {
       plan: components["schemas"]["EnginePlan"];
       sourceStats?: components["schemas"]["SourceStats"];
       /**
-       * @description Why sourceStats is absent. not_measured covers an unset password variable, an unreachable database and a failed query.
+       * @description Why sourceStats is absent. not_measured covers an unset password variable, an unreachable database and a failed query. For an app registered with a database pair, an unreachable database usually means the management cluster's route to it is still being made (a few minutes after registration); draft again later.
        * @enum {string}
        */
       sourceStatsReason?: "not_measured";
@@ -4201,7 +4298,7 @@ export interface operations {
   };
   /**
    * @description The platform's control catalog and every evaluation of it, from the
-   * same collection and cache as `GET /v1/security` (ADR 0029). Each
+   * same collection and cache as `GET /v1/security` (ADR 0034). Each
    * control is one check with its condition, the asset it evaluates, its
    * official references (exact or partial) and what it does not
    * establish. Each evaluation is pass, fail, unknown or not_applicable
@@ -4237,7 +4334,7 @@ export interface operations {
   };
   /**
    * @description Package vulnerabilities of image digests and the running containers
-   * that use them (ADR 0029). Scans run outside the request (CI or a
+   * that use them (ADR 0034). Scans run outside the request (CI or a
    * worker); this endpoint only reads stored results and the clusters'
    * running images, from the same collection and cache as
    * `GET /v1/security`.
@@ -4269,7 +4366,7 @@ export interface operations {
     };
   };
   /**
-   * @description Stores one scan of one running image digest (SEC-04, ADR 0029). The
+   * @description Stores one scan of one running image digest (SEC-04, ADR 0034). The
    * platform's image scan workflow runs Grype outside the API and posts
    * each result here; the API never scans. A succeeded scan carries
    * Grype's JSON report, which the platform parses and normalises

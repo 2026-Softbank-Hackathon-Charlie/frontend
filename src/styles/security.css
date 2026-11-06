@@ -95,3 +95,5 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-running h3 { margin: 0 0 6px; font-size: 15px; }
 
 .sp-no-scan { color: var(--muted); cursor: help; }
+
+.sp-reasons { color: var(--muted); font-weight: 600; }
