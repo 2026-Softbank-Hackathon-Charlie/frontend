@@ -404,6 +404,30 @@ export interface paths {
      */
     post: operations["submitSecurityScan"];
   };
+  "/v1/security/exceptions": {
+    /**
+     * @description Every security exception, active, expired and revoked (SEC-08, ADR
+     * 0034). Roles: viewer, agent, operator.
+     */
+    get: operations["listSecurityExceptions"];
+    /**
+     * @description Records a time-limited exception for one finding or vulnerability
+     * (SEC-08, ADR 0034). It never changes severity. `reason` is 1-500
+     * characters after trimming. `expiresAt` is after now and at most 30
+     * days later, or at most 7 days for a vulnerability whose CVE is
+     * KEV-listed. 409 when the target already has an active exception.
+     * Roles: operator.
+     */
+    post: operations["createSecurityException"];
+  };
+  "/v1/security/exceptions/{id}": {
+    /**
+     * @description Revokes an exception now (SEC-08). The record is kept with
+     * `revokedAt` and `revokedBy`. 409 when it is already revoked.
+     * Roles: operator.
+     */
+    delete: operations["revokeSecurityException"];
+  };
   "/v1/agent/sessions": {
     get: operations["listAgentSessions"];
     /**
@@ -1775,6 +1799,8 @@ export interface components {
        */
       controlId?: string;
       severityBasis?: components["schemas"]["SecuritySeverityBasis"];
+      /** @description the active exception, if any */
+      exception?: components["schemas"]["SecurityException"];
     };
     /**
      * @description Set on every finding by servers that implement ADR 0034.
@@ -2099,6 +2125,42 @@ export interface components {
         [key: string]: unknown;
       };
     };
+    /**
+     * @description An operator's time-limited exception for one finding or vulnerability
+     * (SEC-08, ADR 0034). It never changes severity. Active while not revoked
+     * and before expiresAt; a severity change does not end it.
+     */
+    SecurityException: {
+      /** @example sx_3f2a9c1b */
+      id: string;
+      targetType: components["schemas"]["SecurityExceptionTarget"];
+      /** @description a SecurityFinding id or a SecurityVulnerability id */
+      targetId: string;
+      reason: string;
+      /** Format: date-time */
+      expiresAt: string;
+      createdBy: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      revokedAt?: string;
+      revokedBy?: string;
+    };
+    /** @enum {string} */
+    SecurityExceptionTarget: "finding" | "vulnerability";
+    SecurityExceptionRequest: {
+      targetType: components["schemas"]["SecurityExceptionTarget"];
+      targetId: string;
+      reason: string;
+      /**
+       * Format: date-time
+       * @description after now and at most 30 days later; at most 7 days for a KEV-listed vulnerability
+       */
+      expiresAt: string;
+    };
+    SecurityExceptionList: {
+      exceptions: components["schemas"]["SecurityException"][];
+    };
     /** @description One advisory matched to one package of one scanned image digest. */
     SecurityVulnerability: {
       /** @description stable: a hash of digest, advisory and the package's purl or name, version and type */
@@ -2121,6 +2183,8 @@ export interface components {
       cvss: components["schemas"]["SecurityCVSS"][];
       urls: string[];
       exploitation?: components["schemas"]["SecurityExploitation"];
+      /** @description the active exception, if any */
+      exception?: components["schemas"]["SecurityException"];
     };
     /**
      * @description Exploitation evidence for the vulnerability's CVE (SEC-07, ADR 0034),
@@ -4392,6 +4456,78 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Every security exception, active, expired and revoked (SEC-08, ADR
+   * 0034). Roles: viewer, agent, operator.
+   */
+  listSecurityExceptions: {
+    responses: {
+      /** @description The exceptions. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityExceptionList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Records a time-limited exception for one finding or vulnerability
+   * (SEC-08, ADR 0034). It never changes severity. `reason` is 1-500
+   * characters after trimming. `expiresAt` is after now and at most 30
+   * days later, or at most 7 days for a vulnerability whose CVE is
+   * KEV-listed. 409 when the target already has an active exception.
+   * Roles: operator.
+   */
+  createSecurityException: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SecurityExceptionRequest"];
+      };
+    };
+    responses: {
+      /** @description The stored exception. */
+      201: {
+        content: {
+          "application/json": components["schemas"]["SecurityException"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Revokes an exception now (SEC-08). The record is kept with
+   * `revokedAt` and `revokedBy`. 409 when it is already revoked.
+   * Roles: operator.
+   */
+  revokeSecurityException: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description The revoked exception. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityException"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };

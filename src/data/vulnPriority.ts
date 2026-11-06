@@ -1,6 +1,6 @@
 // SEC-07: default priority order and its reasons. KEV, running state and EPSS
 // are separate bases next to severity; nothing here changes a severity.
-import type { SecuritySeverity, VulnerabilityFinding } from "./security";
+import { activeException, type SecuritySeverity, type VulnerabilityFinding } from "./security";
 
 const SEVERITY_RANK: Record<SecuritySeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
 const md = (d: string) => d.slice(5).replace("-", "/");
@@ -9,9 +9,13 @@ const isRunning = (g: VulnerabilityFinding[]) => g.some((v) => v.occurrences.som
 const maxEpss = (g: VulnerabilityFinding[]) => Math.max(-1, ...g.map((v) => v.epss ?? -1));
 const topPercent = (pct: number) => Math.max(1, Math.round((1 - pct) * 100));
 
-/** KEV listed → running → severity → EPSS (highest first) → advisory. KEV unknown ranks as not listed. */
+/**
+ * KEV listed → running → severity → EPSS (highest first) → advisory. KEV unknown ranks as not listed.
+ * Groups whose first member has an active exception (SEC-08) come after all others, in the same order.
+ */
 export function sortByPriority(groups: VulnerabilityFinding[][]): VulnerabilityFinding[][] {
-  const key = (g: VulnerabilityFinding[]) => [listed(g) ? 0 : 1, isRunning(g) ? 0 : 1, Math.min(...g.map((v) => SEVERITY_RANK[v.severity]))];
+  const now = Date.now();
+  const key = (g: VulnerabilityFinding[]) => [activeException(g[0].exception, now) ? 1 : 0, listed(g) ? 0 : 1, isRunning(g) ? 0 : 1, Math.min(...g.map((v) => SEVERITY_RANK[v.severity]))];
   return [...groups].sort((a, b) => {
     const ka = key(a), kb = key(b);
     for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i];

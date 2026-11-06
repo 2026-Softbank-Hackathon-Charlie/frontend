@@ -47,6 +47,9 @@ import type {
   Run,
   RunList,
   SecurityControlReport,
+  SecurityException,
+  SecurityExceptionList,
+  SecurityExceptionRequest,
   SecurityReport,
   SecuritySeverity,
   SecurityVulnerabilityReport,
@@ -405,6 +408,19 @@ export const getSecurityControls = (q: SecurityPostureQuery = {}, o?: RequestOpt
 /** Running images, their scan state and stored scan results. The server never scans in this call. */
 export const getSecurityVulnerabilities = (q: SecurityPostureQuery = {}, o?: RequestOptions) =>
   request<SecurityVulnerabilityReport>("GET", "/v1/security/vulnerabilities", { ...o, query: q });
+
+/** Every exception, active, expired and revoked. Role viewer. */
+export const listSecurityExceptions = (o?: RequestOptions) =>
+  request<SecurityExceptionList>("GET", "/v1/security/exceptions", o);
+/**
+ * Except one finding or vulnerability until expiresAt (at most 30 days, 7 for a KEV-listed CVE). It never changes
+ * severity. 400 for a bad reason or expiry, 403 below operator, 409 when the target already has an active one.
+ */
+export const createSecurityException = (body: SecurityExceptionRequest, o?: RequestOptions) =>
+  request<SecurityException>("POST", "/v1/security/exceptions", { ...o, body });
+/** End an exception now; answers it with revokedAt. Role operator. */
+export const revokeSecurityException = (id: string, o?: RequestOptions) =>
+  request<SecurityException>("DELETE", `/v1/security/exceptions/${seg(id)}`, o);
 
 // --- agent activity ---
 

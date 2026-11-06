@@ -1,4 +1,7 @@
 import {
+  createSecurityException,
+  listSecurityExceptions,
+  revokeSecurityException,
   ApiError,
   approveDeviceLogin,
   approvePlan,
@@ -478,5 +481,21 @@ describe("apps from GitHub", () => {
     expect(JSON.parse(calls[0].body!)).toEqual({ branch: "dev", redeploy: true });
     installFetch(() => json(409, { error: { code: "nothing_to_redeploy", message: "moimroom--dev has no healthy deployment" } }));
     await expect(createDeployment("moimroom", { branch: "dev", redeploy: true })).rejects.toMatchObject({ status: 409, code: "nothing_to_redeploy" });
+  });
+});
+
+describe("security exceptions", () => {
+  it("lists, creates and revokes exceptions", async () => {
+    const calls = installFetch(() => json(200, { exceptions: [] }));
+    const body = { targetType: "finding" as const, targetId: "f/1", reason: "accepted", expiresAt: "2026-11-10T23:59:59+09:00" };
+    await listSecurityExceptions();
+    await createSecurityException(body);
+    await revokeSecurityException("sx/1");
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET /v1/security/exceptions",
+      "POST /v1/security/exceptions",
+      "DELETE /v1/security/exceptions/sx%2F1",
+    ]);
+    expect(JSON.parse(calls[1].body!)).toEqual(body);
   });
 });
