@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td, type ChipKind } from "../components/ui";
 import { SecurityStorageKeys } from "../components/SecurityStorageKeys";
 import { CATEGORIES, CATEGORY_LABEL } from "../data/securityMatrix";
@@ -35,9 +35,10 @@ const unique = (values: string[]) => [...new Set(values)];
 const NO_SCAN_TIME = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
 
 function ScanTimes({ collected, scanned }: { collected: string | null; scanned: string | null }) {
+  const tipId = useId();
   return <><b className="block sp-collected">수집 {date(collected)}</b>{scanned
     ? <small className="block">검사 {date(scanned)}</small>
-    : <small className="block sp-no-scan" title={NO_SCAN_TIME}><span>(검사 시각 미확인)</span> <span aria-label={NO_SCAN_TIME} role="img">ⓘ</span></small>}</>;
+    : <small className="block sp-no-scan"><span>(검사 시각 미확인)</span> <span className="sp-info" tabIndex={0} aria-describedby={tipId}>ⓘ</span><span role="tooltip" id={tipId} className="sp-tip">{NO_SCAN_TIME}</span></small>}</>;
 }
 
 function groupVulnerabilities(values: VulnerabilityFinding[]): VulnerabilityFinding[][] {

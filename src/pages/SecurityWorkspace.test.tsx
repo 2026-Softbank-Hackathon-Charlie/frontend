@@ -69,12 +69,28 @@ describe("shared security workspace", () => {
     render(<RoutedSecurity />);
     expect(await screen.findByText("partial read")).toBeInTheDocument();
     const noScan = screen.getAllByText("(검사 시각 미확인)")[0];
-    expect(noScan.closest("small")).toHaveAttribute("title", "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.");
+    const explanation = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
+    expect(noScan.closest("small")).not.toHaveAttribute("title");
+    const info = noScan.closest("small")!.querySelector(".sp-info") as HTMLElement;
+    expect(info).toHaveAttribute("tabindex", "0");
+    expect(info).not.toHaveAttribute("title");
+    expect(info).not.toHaveAttribute("aria-label");
+    const tip = document.getElementById(info.getAttribute("aria-describedby")!);
+    expect(tip).toHaveAttribute("role", "tooltip");
+    expect(tip).toHaveTextContent(explanation);
     expect(screen.getAllByText(/^수집 \d/)[0].tagName).toBe("B");
     expect(screen.getAllByText(/^수집 \d/)[0]).toHaveClass("sp-collected");
     expect(screen.queryByText("검사 미확인")).not.toBeInTheDocument();
     expect(screen.getByText("수집 실패")).toBeInTheDocument();
     expect(screen.queryByText("수집 완료")).not.toBeInTheDocument();
+  });
+
+  it("shows a scan time and no unknown-scan notice for a scanned source row", async () => {
+    const user = open("#security/sources");
+    expect(user).toBeDefined();
+    const row = (await screen.findAllByText("이미지 취약점 검사"))[0].closest("tr")!;
+    expect(row.textContent).toMatch(/검사 \d/);
+    expect(row.textContent).not.toContain("(검사 시각 미확인)");
   });
 
   it("keeps a GHSA-only row out of the KEV-unknown filter and says CVE 없음 once", async () => {
