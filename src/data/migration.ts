@@ -611,6 +611,11 @@ export function useLiveMigration(): MigrationView {
 // approvalBlock is why the platform refuses to approve this plan, or "" when it can be approved: an AI plan
 // (submitted by the agent) needs a passing rehearsal report for the plan as it is now (platform #24).
 // The platform makes the decision; the console only hides the approve buttons and shows the reason.
+/** The AI runner is still rehearsing the plan it submitted: its missing report is a wait, not a failure. */
+export function rehearsing(v: Pick<MigrationView, "plan" | "aiRun">): boolean {
+  return !!approvalBlock(v.plan) && !!v.aiRun?.running;
+}
+
 export function approvalBlock(plan: PlanRecord | undefined | null): string {
   const g = plan?.status === "pending_approval" ? plan.rehearsal : undefined;
   if (!g?.required || g.passed) return "";

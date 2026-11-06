@@ -6,7 +6,7 @@ import type { AgentEvent, AgentSession, Environment, Run, RunEvent, TrafficState
 import { blockedOf, eventText as agentText } from "../components/agent";
 import { ENV, ENV_ORDER, envKeyOf, sampleBucketName, type EnvKey } from "../sim/data";
 import { CANARY, CANARY_PRESETS, ENGINE_STEPS, statusText } from "../sim/mig";
-import { approvalBlock, PLATFORM_GATE, type MigrationView } from "./migration";
+import { approvalBlock, PLATFORM_GATE, rehearsing, type MigrationView } from "./migration";
 import { isAfter } from "../api/hooks";
 import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
@@ -546,7 +546,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
         ? ["info", "AI 작업 중"]
         : v.plan?.status === "approved"
           ? [v.preflight?.blocked ? "no" : "wa", v.preflight?.blocked ? "시작 막힘" : "승인됨 · 시작 전"]
-          : approvalBlock(v.plan)
+          : rehearsing(v)
+            ? ["info", "리허설 중"]
+            : approvalBlock(v.plan)
             ? ["no", "승인 불가 · 리허설 미통과"]
             : ["wa", "승인 대기"];
   const phaseTitle = r?.status === "succeeded" ? "완료" : r?.status === "rolled_back" ? "롤백" : r?.status === "halted" ? "멈춤" : v.stage === "setup" ? "이전 설정" : (curPhase?.label ?? (r ? statusText(r.status, r.phase) : "-"));
@@ -584,7 +586,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     banners.push(
       v.plan.status === "approved"
         ? { cls: v.preflight?.blocked ? "" : "wab", title: v.preflight?.blocked ? "시작 전 검사에서 막혔습니다" : "승인됐지만 아직 시작하지 않았습니다", text: v.preflight?.blocked ? "검사 결과의 이유를 해결한 뒤 다시 시작하세요." : "다시 시작할 수 있습니다." }
-        : approvalBlock(v.plan)
+        : rehearsing(v)
+          ? { cls: "inb", title: "리허설 중 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "AI 실행기가 이 Plan을 샌드박스에서 리허설하고 있습니다(1~2분). 통과하면 승인할 수 있습니다." }
+          : approvalBlock(v.plan)
           ? { cls: "", title: "승인할 수 없음 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "AI 계획이 리허설을 통과하지 않았습니다. AI 실행기로 다시 리허설하거나 반려하세요. (" + approvalBlock(v.plan) + ")" }
           : { cls: "wab", title: "사람 승인 필요 · Plan " + v.plan.ref + " (revision " + v.plan.revision + ")", text: "승인하면 시작 전 검사를 거쳐 엔진이 실행합니다. [승인 ✓]을 누르거나 오른쪽 승인 카드에서 옵션을 고르세요." },
     );
