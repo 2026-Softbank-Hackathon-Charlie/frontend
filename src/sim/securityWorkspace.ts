@@ -5,7 +5,7 @@ import { SIM_SECURITY } from "./security";
 export const DEMO_SECURITY_ENVIRONMENTS: { id: EnvId; label: string; provider: string }[] = [
   { id: "eks", label: "AWS EKS", provider: "AWS" },
   { id: "gke", label: "GCP GKE", provider: "GCP" },
-  { id: "k3s", label: "온프레미스 k3s", provider: "ON-PREM" },
+  { id: "k3s", label: "onprem k3s", provider: "ON-PREM" },
 ];
 export const DEMO_SECURITY_AT = "2026-11-06T00:30:00+09:00";
 export const DEMO_SECURITY_META = {
