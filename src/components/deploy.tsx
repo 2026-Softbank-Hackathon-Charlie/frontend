@@ -378,7 +378,7 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
       r.push(
         td(
           a.environments.length > 0 ? (
-            <a className="btn ghost" href="#migrate-app">
+            <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
               이전
             </a>
           ) : (
