@@ -95,10 +95,10 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-running { margin-top: 24px; }
 .sp-running h3 { margin: 0 0 6px; font-size: 15px; }
 
-.sp-no-scan { color: var(--muted); position: relative; }
+.sp-no-scan { color: var(--muted); }
 .sp-info { cursor: help; border-radius: 4px; }
 .sp-info:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-.sp-tip { display: none; position: absolute; right: 0; top: 100%; z-index: 20; width: max-content; max-width: 280px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: var(--fg); color: var(--canvas); font-size: 12px; line-height: 1.4; white-space: normal; text-align: left; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
-.sp-info:hover + .sp-tip, .sp-info:focus + .sp-tip { display: block; }
+.sp-tip { display: none; max-width: 280px; margin-top: 4px; padding: 6px 8px; border-radius: 6px; background: var(--fg); color: var(--canvas); font-size: 12px; line-height: 1.4; white-space: normal; text-align: left; }
+.sp-no-scan:hover .sp-tip, .sp-info:focus + .sp-tip { display: block; }
 
 .sp-reasons { color: var(--muted); font-weight: 600; }

@@ -74,7 +74,7 @@ describe("shared security workspace", () => {
     const info = noScan.closest("small")!.querySelector(".sp-info") as HTMLElement;
     expect(info).toHaveAttribute("tabindex", "0");
     expect(info).not.toHaveAttribute("title");
-    expect(info).not.toHaveAttribute("aria-label");
+    expect(info).toHaveAttribute("aria-label", "설명");
     const tip = document.getElementById(info.getAttribute("aria-describedby")!);
     expect(tip).toHaveAttribute("role", "tooltip");
     expect(tip).toHaveTextContent(explanation);

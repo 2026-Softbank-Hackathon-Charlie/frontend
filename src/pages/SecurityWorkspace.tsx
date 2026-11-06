@@ -38,7 +38,7 @@ function ScanTimes({ collected, scanned }: { collected: string | null; scanned: 
   const tipId = useId();
   return <><b className="block sp-collected">수집 {date(collected)}</b>{scanned
     ? <small className="block">검사 {date(scanned)}</small>
-    : <small className="block sp-no-scan"><span>(검사 시각 미확인)</span> <span className="sp-info" tabIndex={0} aria-describedby={tipId}>ⓘ</span><span role="tooltip" id={tipId} className="sp-tip">{NO_SCAN_TIME}</span></small>}</>;
+    : <small className="block sp-no-scan"><span>(검사 시각 미확인)</span> <span className="sp-info" tabIndex={0} role="img" aria-label="설명" aria-describedby={tipId} onKeyDown={(e) => { if (e.key === "Escape") e.currentTarget.blur(); }}>ⓘ</span><span role="tooltip" id={tipId} className="sp-tip">{NO_SCAN_TIME}</span></small>}</>;
 }
 
 function groupVulnerabilities(values: VulnerabilityFinding[]): VulnerabilityFinding[][] {
