@@ -220,7 +220,19 @@ describe("environmentLabel", () => {
       .toEqual(["AWS EKS", "GCP GKE", "onprem", "AWS Cloud", "GCP Cloud", "Cloudflare", "Platform"]);
     expect(environmentLabel("new-env")).toBe("new-env");
   });
+});
 
+describe("exploitation evidence", () => {
+  const report = (vulnerability: object | null, exploitSources: object[] = []) => ({
+    generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" as const }, scans: [], runningImages: [],
+    summary: { advisories: 1, images: 1, affectedContainers: 0, occurrences: 1, notScannedContainers: 0 },
+    vulnerabilities: vulnerability ? [{
+      id: "v1", scanId: "s1", digest: "sha256:a", advisory: "CVE-2024-6387", aliases: [], fixedVersions: [], fixState: "unknown" as const,
+      severity: "high" as const, severityBasis: { type: "vendor" as const, issuer: "x", policy: "p1", reason: "y" }, cvss: [], urls: [],
+      package: { name: "openssh", version: "9.6", type: "deb" }, ...vulnerability,
+    }] : [],
+    exploitSources,
+  });
   it("maps KEV and EPSS evidence and lists them as sources", () => {
     const vulnerabilities = {
       generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" as const }, scans: [], runningImages: [],
@@ -237,5 +249,26 @@ describe("environmentLabel", () => {
     const data = securityData(undefined, { vulnerabilities });
     expect(data.vulnerabilities?.[0]).toMatchObject({ kev: true, kevState: "listed", kevDueDate: "2026-11-18", ransomware: true, epss: 0.042, epssPercentile: 0.92, epssDate: "2026-11-06" });
     expect(data.sources.find((s) => s.id === "platform/cisa-kev")).toMatchObject({ name: "CISA KEV", status: "stale", lastCollected: "2026-11-06T00:00:00Z", lastScanned: null, detail: "기준 2026.11.04 · refresh failed" });
+  });
+
+  it("lists an idle FIRST EPSS source as idle", () => {
+    const data = securityData(undefined, { vulnerabilities: report(null, [{ name: "first-epss", state: "idle" as const, message: "no CVE" }]) as never });
+    expect(data.sources.find((s) => s.id === "platform/first-epss")).toMatchObject({ name: "FIRST EPSS", status: "idle" });
+  });
+
+  it("keeps unknown KEV and EPSS as null with an unknown state", () => {
+    const data = securityData(undefined, { vulnerabilities: report({ exploitation: { cve: "CVE-2024-6387", kev: { state: "unknown" }, epss: { state: "unknown" } } }) as never });
+    expect(data.vulnerabilities?.[0]).toMatchObject({ kev: null, kevState: "unknown", epss: null, epssState: "unknown" });
+  });
+
+  it("marks a GHSA-only vulnerability as no_cve", () => {
+    const data = securityData(undefined, { vulnerabilities: report({ advisory: "GHSA-aaaa-bbbb-cccc", exploitation: { kev: { state: "no_cve" }, epss: { state: "no_cve" } } }) as never });
+    expect(data.vulnerabilities?.[0]).toMatchObject({ kev: null, kevState: "no_cve", epssState: "no_cve" });
+  });
+
+  it("leaves evidence empty when the vulnerability has no exploitation field", () => {
+    const data = securityData(undefined, { vulnerabilities: report({}) as never });
+    expect(data.vulnerabilities?.[0]).toMatchObject({ kev: null, epss: null });
+    expect(data.vulnerabilities?.[0].kevState).toBeUndefined();
   });
 });
