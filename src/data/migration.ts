@@ -17,8 +17,8 @@ import {
   submitPlan,
   switchMigration,
 } from "../api/client";
-import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApps, useRun, useRuns } from "../api/hooks";
-import type { AgentEvent, AgentSession, AIRun, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
+import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApps, useRun, useRuns, useTraffic } from "../api/hooks";
+import type { AgentEvent, AgentSession, AIRun, App, AppDBTopology, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
@@ -84,9 +84,14 @@ export interface MigrationView {
   src: string;
   tgt: string;
   srcLabel: string;
+  /** live, before a plan: why the source is not the gateway's write backend (the gateway did not answer) */
+  srcNote?: string;
   tgtLabel: string;
   targets: EnvOption[];
   setTarget(v: string): void;
+  /** live: the apps that can be migrated (two or more environments), to pick one */
+  apps?: EnvOption[];
+  setApp?(name: string): void;
   /** the app exists and can be migrated */
   ready: boolean;
   plan?: PlanRecord;
@@ -308,6 +313,48 @@ function envLabel(name: string): string {
   return k ? ENV[k].name : name;
 }
 
+/** Apps with two or more environments, the only ones a migration can move. */
+export function migratableApps(list: App[]): App[] {
+  return list.filter((a) => a.environments.length >= 2);
+}
+
+/** Whether a run or plan moves the database in `ns`, as source or target (the namespace may differ per environment). */
+export function touches(ns: string, x: { source: { namespace: string }; target: { namespace: string } }): boolean {
+  return x.source.namespace === ns || x.target.namespace === ns;
+}
+
+/**
+ * The environment whose database is primary now. The gateway sends the app's writes there (its backends are named
+ * after the environments), and a migration moves both. Without the gateway's answer, the environment the database
+ * was born primary in (dbTopology, which a migration does not update); without that either, undefined.
+ */
+export function currentPrimary(envs: string[], topology: AppDBTopology | undefined, writeBackend: string | undefined): string | undefined {
+  if (writeBackend && envs.includes(writeBackend)) return writeBackend;
+  return topology && envs.includes(topology.primary) ? topology.primary : undefined;
+}
+
+export interface DBRole {
+  role: "primary" | "replica";
+  /** whether the gateway sends the app's writes here; undefined when the gateway did not say */
+  traffic?: "active" | "standby";
+}
+
+/** The app's two databases now: the primary takes the writes; the other is a read-only replica of it. */
+export function dbRoles(topology: AppDBTopology, writeBackend: string | undefined): Record<string, DBRole> {
+  const envs = [topology.primary, topology.replica];
+  const known = !!writeBackend && envs.includes(writeBackend);
+  const primary = known ? writeBackend : topology.primary;
+  const out: Record<string, DBRole> = {};
+  for (const e of envs) out[e] = { role: e === primary ? "primary" : "replica", traffic: known ? (e === writeBackend ? "active" : "standby") : undefined };
+  return out;
+}
+
+/** The app named in the page's hash, #migrate-app?app=<name>. */
+function appOfHash(): string {
+  const q = window.location.hash.split("?")[1];
+  return q ? (new URLSearchParams(q).get("app") ?? "") : "";
+}
+
 /** The AI runner the platform starts as a Job: whether the server has one, its latest run for the app, and start. */
 export interface AIRunView {
   available: boolean;
@@ -321,7 +368,7 @@ export function useLiveMigration(): MigrationView {
   const apps = useApps();
   const plans = usePlans(enabled ? 3000 : 0, enabled);
   const runs = useRuns(enabled ? 5000 : 0);
-  const [appName, setAppName] = useState<string>("");
+  const [appName, setAppName] = useState<string>(appOfHash);
   const [tgt, setTgt] = useState<string>("");
   const [planRef, setPlanRef] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -337,33 +384,43 @@ export function useLiveMigration(): MigrationView {
   const [revived, setRevived] = useState<{ epoch: number; run?: Run }>({ epoch: 0 });
   const [dismissed, setDismissed] = useState<string | null>(null);
 
-  // Pick up work already in progress: an active run, else the newest run when it halted (it waits for an
-  // operator to resume it), else the newest plan waiting for approval.
+  // The app on screen: the one picked (or named in the hash), else the first with work in progress, else the
+  // first that can be migrated. Once chosen it stays, so a run that ends does not move the page to another app.
+  const list = migratableApps(apps.data ?? []);
+  const newestPending = (ns?: string) =>
+    [...(plans.data ?? [])].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).find((p) => p.status === "pending_approval" && (ns === undefined || touches(ns, p.summary)));
+  const busyRun = runs.data?.find((r) => ACTIVE.has(r.status));
+  const busyPlan = newestPending();
+  const app =
+    list.find((a) => a.name === appName) ??
+    list.find((a) => (busyRun && touches(a.namespace, busyRun)) || (busyPlan && touches(a.namespace, busyPlan.summary))) ??
+    list[0];
   useEffect(() => {
-    if (!enabled || runId || planRef) return;
-    const newest = runs.data?.[0];
-    const active = runs.data?.find((r) => ACTIVE.has(r.status)) ?? (newest?.status === "halted" && newest.runId !== dismissed ? newest : undefined);
+    if (app && app.name !== appName) setAppName(app.name);
+  }, [app, appName]);
+  const ns = app?.namespace;
+
+  // Pick up work already in progress on this app: an active run, else its newest run when it halted (it waits for an
+  // operator to resume it), else its newest plan waiting for approval. Another app's work stays off this page.
+  useEffect(() => {
+    if (!enabled || runId || planRef || !ns) return;
+    const mine = runs.data?.filter((r) => touches(ns, r));
+    const newest = mine?.[0];
+    const active = mine?.find((r) => ACTIVE.has(r.status)) ?? (newest?.status === "halted" && newest.runId !== dismissed ? newest : undefined);
     if (active) {
       setRunId(active.runId);
       setPlanRef(active.planRef);
       return;
     }
-    const pending = [...(plans.data ?? [])].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).find((p) => p.status === "pending_approval");
+    const pending = newestPending(ns);
     if (pending) setPlanRef(pending.ref);
-  }, [enabled, runs.data, plans.data, runId, planRef, dismissed]);
+  }, [enabled, runs.data, plans.data, runId, planRef, dismissed, ns]);
 
   const plan = plans.data?.find((p) => p.ref === planRef);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
   const watch = useRun(enabled ? runId : null, revived.epoch);
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
-  // The app of the run or plan on screen (its namespace, which a rollback keeps), else the one picked: the map
-  // reads this app's gateway scope, so after a reload it must not fall back to the first app.
-  const list = apps.data ?? [];
-  const srcNs = run?.source.namespace ?? plan?.summary.source.namespace;
-  const tgtNs = run?.target.namespace ?? plan?.summary.target.namespace;
-  const owner = list.find((a) => a.namespace === srcNs) ?? list.find((a) => a.namespace === tgtNs);
-  const app = owner ?? list.find((a) => a.name === appName) ?? list[0];
   const aiRuns = useAIRuns(app?.name, 5000);
   const envs = app?.environments.map((e) => e.env) ?? [];
   const sessions = useAgentSessions(enabled && planRef ? 3000 : 0, planRef ? { planRef } : {});
@@ -403,7 +460,19 @@ export function useLiveMigration(): MigrationView {
   // the other sessions' stored events, so the map and the checks count every session, not only the one followed
   const stored = useStoredSessionEvents(enabled ? sessionList : [], follow);
 
-  const src = run?.source.env ?? plan?.summary.source.env ?? envs[0] ?? "";
+  // Before a plan: the source is where the gateway sends the app's writes now, so a second migration starts where the
+  // first one left the database. Without the gateway's answer (no gateway scope, gateway down), the environment the
+  // database was born primary in, else the first environment.
+  const choosing = !run && !plan;
+  const traffic = useTraffic(5000, undefined, app?.name, enabled && choosing && !!app);
+  const trafficFailed = !!traffic.error;
+  const srcLoading = choosing && !!app && traffic.loading;
+  const topology = app?.deploy?.dbTopology;
+  const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : (currentPrimary(envs, topology, trafficFailed ? undefined : traffic.data?.writeBackend) ?? envs[0] ?? ""));
+  const srcNote =
+    choosing && !srcLoading && trafficFailed
+      ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
+      : undefined;
   const target = run?.target.env ?? plan?.summary.target.env ?? (tgt && tgt !== src ? tgt : envs.find((e) => e !== src) ?? "");
 
   async function act(fn: () => Promise<void>) {
@@ -430,10 +499,19 @@ export function useLiveMigration(): MigrationView {
     stage,
     src,
     tgt: target,
-    srcLabel: envLabel(src),
+    srcLabel: srcLoading ? "확인 중" : envLabel(src),
+    srcNote,
     tgtLabel: envLabel(target),
     targets: envs.filter((e) => e !== src).map((e) => ({ value: e, label: envLabel(e) })),
     setTarget: setTgt,
+    apps: list.map((a) => ({ value: a.name, label: a.name })),
+    setApp: (name) => {
+      if (name === app?.name) return;
+      setAppName(name);
+      window.history.replaceState(null, "", "#migrate-app?app=" + encodeURIComponent(name));
+      clear();
+      setTgt("");
+    },
     ready: !!app,
     // while a plan session is on screen, an older Plan the page picked up is not the one being written
     plan: planning ? undefined : plan,
@@ -513,15 +591,21 @@ export function useLiveMigration(): MigrationView {
         preflight.reload();
       }),
     reset: () => {
-      setTracked(undefined);
       if (runId) setDismissed(runId);
-      setRunId(null);
-      setPlanRef(null);
-      setEngine(undefined);
-      setNotice("");
-      setStartKey(newIdempotencyKey());
+      clear();
     },
   };
+
+  /** Leaves the run or plan on screen for the setup form. */
+  function clear() {
+    setTracked(undefined);
+    setSelected(null);
+    setRunId(null);
+    setPlanRef(null);
+    setEngine(undefined);
+    setNotice("");
+    setStartKey(newIdempotencyKey());
+  }
 }
 
 // approvalBlock is why the platform refuses to approve this plan, or "" when it can be approved: an AI plan

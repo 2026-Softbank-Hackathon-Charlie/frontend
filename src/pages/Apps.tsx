@@ -7,6 +7,7 @@ import { envName } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
+import { dbRoles, type DBRole } from "../data/migration";
 import { useLive } from "../data/live";
 import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
 import { navigate, type AppTab } from "../router";
@@ -164,6 +165,16 @@ function EnvCell({ name, chip, children }: { name: string; chip: ReactNode; chil
   );
 }
 
+/** One environment of a database pair: whether the gateway sends it the writes, and its database's role. */
+function DBRoleLine({ r }: { r: DBRole }) {
+  return (
+    <span className="appd-dbrole">
+      {r.traffic && <Chip kind={r.traffic === "active" ? "ok" : "neu"}>{r.traffic === "active" ? "트래픽 받는 중" : "대기"}</Chip>}
+      <span className="hint">DB {r.role === "primary" ? "primary" : "replica(읽기 전용)"}{r.traffic ? "" : ", 처음 만든 역할"}</span>
+    </span>
+  );
+}
+
 /**
  * A "더 보기" disclosure: a button that shows a few rarer actions under it. A click outside, focus moving
  * out of it, or choosing an action closes it; Escape closes it and puts focus back on the button.
@@ -256,6 +267,8 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const deps = m.deployments ?? [];
   const running = deps.find((x) => !isFinalDeploymentStatus(x.status));
   const def = "기본 인스턴스(" + a.name + ")";
+  // the database pair's roles now, by where the gateway sends the writes (ADR 0030); none without a pair
+  const roles = d?.dbTopology ? dbRoles(d.dbTopology, m.writeBackend) : undefined;
   const tabHref = (t: string) => "#app-" + a.name + (t === "overview" ? "" : "/" + t);
 
   /** Deploys `branch` into its instance; without one, the default instance. */
@@ -307,7 +320,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
         </button>
       )}
       {a.environments.length > 0 && (
-        <a className="btn ghost" href="#migrate-app">
+        <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
           <Icon name="arrow-right-left" size={16} />
           이전
         </a>
@@ -501,6 +514,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
                   </span>
                 )}
                 {s.url && <ExtLink href={s.url} />}
+                {roles?.[s.env] && <DBRoleLine r={roles[s.env]} />}
               </EnvCell>
             ))}
           </EnvStrip>

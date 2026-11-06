@@ -17,11 +17,19 @@ function SimNewApp() {
   return <NewAppForm m={useSimNewApp()} />;
 }
 
+/**
+ * The environments checked at first: the two that make a database pair (platform ADR 0030), so a new app can be
+ * migrated between them. A third one would leave the app without a pair.
+ */
+const DEFAULT_ENVS = new Set(["eks", "gke"]);
+
 function NewAppForm({ m }: { m: NewAppModel }) {
   const [repoSel, setRepo] = useState("");
   /** null: the repo's default branch */
   const [branchSel, setBranch] = useState<string | null>(null);
+  /** the operator's choice per environment; an environment not in it is checked when it is in DEFAULT_ENVS */
   const [off, setOff] = useState<Record<string, boolean>>({});
+  const isOff = (env: string) => off[env] ?? !DEFAULT_ENVS.has(env);
   const [autoDeploy, setAutoDeploy] = useState(true);
   const [busy, setBusy] = useState(false);
   /** what the last submit got back instead of a deployment, for the repo and branch it was for */
@@ -36,7 +44,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
   useEffect(() => setQuery(repo?.fullName ?? "", branch), [setQuery, repo?.fullName, branch]);
 
   const envs = m.envs ?? [];
-  const chosen = envs.filter((e) => !off[e.value]).map((e) => e.value);
+  const chosen = envs.filter((e) => !isOff(e.value)).map((e) => e.value);
   const mine = refused?.key === key ? refused : undefined;
   const check = mine?.validation ? { ...m.check, data: mine.validation, error: undefined, loading: false } : m.check;
   const can = !!repo && !!check.data?.valid && !check.loading && chosen.length > 0 && !busy;
@@ -106,11 +114,12 @@ function NewAppForm({ m }: { m: NewAppModel }) {
                 <div className="checks">
                   {envs.map((e) => (
                     <label key={e.value}>
-                      <input type="checkbox" id={"dep-env-" + e.value} checked={!off[e.value]} onChange={(x) => setOff({ ...off, [e.value]: !x.target.checked })} /> {e.label}
+                      <input type="checkbox" id={"dep-env-" + e.value} checked={!isOff(e.value)} onChange={(x) => setOff({ ...off, [e.value]: !x.target.checked })} /> {e.label}
                     </label>
                   ))}
                 </div>
               )}
+              <small>두 환경을 고르면 목록에서 앞선 환경의 DB가 primary가 되고, 다른 환경의 DB는 그 읽기 전용 replica로 떠서 바로 이전할 수 있습니다.</small>
             </fieldset>
             <label className="check">
               <input type="checkbox" checked={autoDeploy} onChange={(e) => setAutoDeploy(e.target.checked)} /> push할 때마다 자동으로 배포

@@ -3,7 +3,7 @@
 // so every page has one code path. Pages mount a live hook only in live mode: it fetches as soon as it mounts.
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, createApp, createAppInstance, createDeployment, deleteApp, deleteAppInstance, specInvalid } from "../api/client";
-import { useApp, useApps, useAppSpecValidation, useDeployment, useDeployments, useEnvironments, useGitHubRepos, type SpecCheck } from "../api/hooks";
+import { useApp, useApps, useAppSpecValidation, useDeployment, useDeployments, useEnvironments, useGitHubRepos, useTraffic, type SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AppCreateRequest, AppInstance, AppSpecValidation, Deployment, DeploymentEvent, GitHubRepo } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, sampleBucket } from "../sim/data";
@@ -51,6 +51,8 @@ export interface AppModel {
   /** newest first, of every instance */
   deployments: Deployment[] | undefined;
   now: number;
+  /** live, for an app with a database pair (deploy.dbTopology): the gateway's write backend; undefined when it did not answer */
+  writeBackend?: string;
   /** Deploys the head of `branch` into its instance; without one, the app's own branch (the default instance). */
   redeploy(branch?: string): Promise<SubmitResult>;
   /** Deploys the last healthy deployment of `branch`'s instance again without a build (trigger redeploy), with the secrets as they are now. */
@@ -307,6 +309,8 @@ export function useLiveApp(name: string): AppModel {
   const deployments = useDeployments(name, 5000);
   const active = deployments.data?.some((d) => !isFinalDeploymentStatus(d.status)) ?? false;
   const now = useNow(active, 5000);
+  // Which of the pair takes the writes now; only an app with a database pair has two backends to tell apart.
+  const traffic = useTraffic(10000, undefined, name, !!app.data?.deploy?.dbTopology);
   return {
     live: true,
     app: app.data,
@@ -315,6 +319,7 @@ export function useLiveApp(name: string): AppModel {
     notFound: app.error?.status === 404,
     deployments: deployments.data,
     now,
+    writeBackend: traffic.error ? undefined : traffic.data?.writeBackend,
     redeploy: (branch) =>
       submitting(async () => {
         const d = await createDeployment(name, branch ? { branch } : undefined);

@@ -1,5 +1,6 @@
 import { CANARY_PRESETS } from "../sim/mig";
-import { approvalBlock, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest } from "./migration";
+import { approvalBlock, currentPrimary, dbRoles, DEFAULT_START, migratableApps, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest, touches } from "./migration";
+import type { App } from "../api/types";
 import { fakeAgentSession } from "../api/fakes";
 import type { AgentEvent, PlanRecord } from "../api/types";
 
@@ -94,5 +95,34 @@ describe("approval block (platform #24)", () => {
     expect(approvalBlock(rec({}))).toBe("");
     expect(approvalBlock(rec({ status: "approved", rehearsal: { required: true, passed: false } }))).toBe("");
     expect(approvalBlock(undefined)).toBe("");
+  });
+});
+
+describe("which app and environment a migration starts from", () => {
+  const topo = { primary: "gke", replica: "eks" };
+  const envs = ["eks", "gke"];
+
+  it("starts from where the gateway sends the writes, so a second migration goes back", () => {
+    expect(currentPrimary(envs, topo, "eks")).toBe("eks");
+    expect(currentPrimary(envs, topo, "gke")).toBe("gke");
+  });
+
+  it("falls back to the environment the database was born primary in, then to none", () => {
+    expect(currentPrimary(envs, topo, undefined)).toBe("gke");
+    // a backend that is not one of the app's environments says nothing about them
+    expect(currentPrimary(envs, topo, "onprem")).toBe("gke");
+    expect(currentPrimary(envs, undefined, undefined)).toBeUndefined();
+  });
+
+  it("names the primary, the read-only replica and the traffic of each database", () => {
+    expect(dbRoles(topo, "eks")).toEqual({ eks: { role: "primary", traffic: "active" }, gke: { role: "replica", traffic: "standby" } });
+    expect(dbRoles(topo, undefined)).toEqual({ gke: { role: "primary", traffic: undefined }, eks: { role: "replica", traffic: undefined } });
+  });
+
+  it("lists only apps with two environments and matches runs by either namespace", () => {
+    const app = (name: string, n: number) => ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: ["eks", "gke"].slice(0, n).map((env) => ({ env, cnpgCluster: name, dbHost: "h" })) }) as App;
+    expect(migratableApps([app("a", 2), app("b", 0), app("c", 1)]).map((a) => a.name)).toEqual(["a"]);
+    expect(touches("moimroom", { source: { namespace: "charlie-apps" }, target: { namespace: "moimroom" } })).toBe(true);
+    expect(touches("shop", { source: { namespace: "moim" }, target: { namespace: "moim" } })).toBe(false);
   });
 });

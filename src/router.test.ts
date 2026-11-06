@@ -7,6 +7,8 @@ describe("routes", () => {
     // links written while the sample app was shop keep working
     expect(parseRoute("#migrate-shop")).toBe("migrate-app");
     expect(navCurrent(parseRoute("#migrate-shop"))).toBe("migrate");
+    // the app to migrate rides along as a query
+    expect(parseRoute("#migrate-app?app=moim")).toBe("migrate-app");
   });
 
   it("opens an app's tabs, all under 앱", () => {
