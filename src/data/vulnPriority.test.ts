@@ -21,6 +21,27 @@ describe("sortByPriority", () => {
     ];
     expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["kev", "running-low", "epss-high", "crit-low-epss", "kev-unknown"]);
   });
+
+  it("breaks full ties by advisory ascending", () => {
+    const groups = [[v({ advisory: "CVE-2" })], [v({ advisory: "CVE-1" })]];
+    expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["CVE-1", "CVE-2"]);
+  });
+
+  it("ranks a group as KEV when only its second member is listed", () => {
+    const groups = [[v({ advisory: "A-plain", severity: "critical" })], [v({ advisory: "Z-multi", severity: "low" }), v({ advisory: "Z-multi", severity: "low", kev: true, kevState: "listed" })]];
+    expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["Z-multi", "A-plain"]);
+  });
+
+  it("ranks KEV unknown the same as not_listed", () => {
+    const groups = [[v({ advisory: "B", kev: false, kevState: "not_listed" })], [v({ advisory: "A", kev: null, kevState: "unknown" })]];
+    expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["A", "B"]);
+    expect(sortByPriority([...groups].reverse()).map((g) => g[0].advisory)).toEqual(["A", "B"]);
+  });
+
+  it("uses the most severe member as the group severity", () => {
+    const groups = [[v({ advisory: "A-high", severity: "high" })], [v({ advisory: "Z-mixed", severity: "low" }), v({ advisory: "Z-mixed", severity: "critical" })]];
+    expect(sortByPriority(groups).map((g) => g[0].advisory)).toEqual(["Z-mixed", "A-high"]);
+  });
 });
 
 describe("labels and reasons", () => {

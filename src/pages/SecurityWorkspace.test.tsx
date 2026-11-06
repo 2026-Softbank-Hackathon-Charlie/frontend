@@ -69,12 +69,43 @@ describe("shared security workspace", () => {
     render(<RoutedSecurity />);
     expect(await screen.findByText("partial read")).toBeInTheDocument();
     const noScan = screen.getAllByText("(검사 시각 미확인)")[0];
-    expect(noScan.closest("small")).toHaveAttribute("title", "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.");
+    const explanation = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
+    expect(noScan.closest("small")).not.toHaveAttribute("title");
+    const info = noScan.closest("small")!.querySelector(".sp-info") as HTMLElement;
+    expect(info).toHaveAttribute("tabindex", "0");
+    expect(info).not.toHaveAttribute("title");
+    expect(info).toHaveAttribute("aria-label", "설명");
+    const tip = document.getElementById(info.getAttribute("aria-describedby")!);
+    expect(tip).toHaveAttribute("role", "tooltip");
+    expect(tip).toHaveTextContent(explanation);
     expect(screen.getAllByText(/^수집 \d/)[0].tagName).toBe("B");
     expect(screen.getAllByText(/^수집 \d/)[0]).toHaveClass("sp-collected");
     expect(screen.queryByText("검사 미확인")).not.toBeInTheDocument();
     expect(screen.getByText("수집 실패")).toBeInTheDocument();
     expect(screen.queryByText("수집 완료")).not.toBeInTheDocument();
+  });
+
+  it("shows a scan time and no unknown-scan notice for a scanned source row", async () => {
+    open("#security/sources");
+    const row = (await screen.findAllByText("이미지 취약점 검사"))[0].closest("tr")!;
+    expect(row.textContent).toMatch(/검사 \d/);
+    expect(row.textContent).not.toContain("(검사 시각 미확인)");
+  });
+
+  it("labels an idle exploitation source as 조회 대상 없음", async () => {
+    installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
+      generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" }, scans: [], runningImages: [], vulnerabilities: [],
+      summary: { advisories: 0, images: 0, affectedContainers: 0, occurrences: 0, notScannedContainers: 0 },
+      exploitSources: [{ name: "first-epss", state: "idle", message: "no CVE" }],
+    }) : call.url.includes("/v1/security/controls") ? json(503, { error: { code: "security_not_configured", message: "off" } }) : json(200, {
+      generatedAt: "2026-11-07T00:00:00Z", sources: [], storageKeys: [], findings: [],
+      summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
+    }));
+    window.history.replaceState(null, "", "/#security/sources");
+    startSession(fakeSession());
+    render(<RoutedSecurity />);
+    const row = (await screen.findByText("FIRST EPSS")).closest("tr")!;
+    expect(within(row).getByText("조회 대상 없음")).toBeInTheDocument();
   });
 
   it("keeps a GHSA-only row out of the KEV-unknown filter and says CVE 없음 once", async () => {
