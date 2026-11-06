@@ -18,9 +18,9 @@ export const CATEGORY_LABEL: Record<SecurityCategory, string> = {
 export const PROVIDER_LABEL: Record<SecurityProvider, string> = {
   aws: "AWS",
   gcp: "GCP",
-  onprem: "온프레미스",
+  onprem: "onprem",
   cloudflare: "Cloudflare",
-  platform: "플랫폼",
+  platform: "Platform",
 };
 
 /** Friendly names of the platform's sources (security.Collectors). */

@@ -217,7 +217,7 @@ describe("live posture mapping", () => {
 describe("environmentLabel", () => {
   it("names every environment the live API reports", () => {
     expect(["eks", "gke", "onprem", "aws-account", "gcp-project", "cloudflare-account", "platform"].map(environmentLabel))
-      .toEqual(["AWS EKS", "GCP GKE", "온프레미스", "AWS 계정", "GCP 프로젝트", "Cloudflare 계정", "플랫폼"]);
+      .toEqual(["AWS EKS", "GCP GKE", "onprem", "AWS Cloud", "GCP Cloud", "Cloudflare", "Platform"]);
     expect(environmentLabel("new-env")).toBe("new-env");
   });
 });
