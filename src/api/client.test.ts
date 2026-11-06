@@ -124,6 +124,7 @@ describe("client requests", () => {
     await listAudit({ limit: 5, before: 9 });
     await approvePlan("pln_1");
     await rejectPlan("pln_1");
+    await getTraffic("30s", "moimroom");
     expect(calls.map((c) => c.url)).toEqual([
       "/v1/plans/a%2Fb",
       "/v1/traffic?window=30s",
@@ -131,6 +132,7 @@ describe("client requests", () => {
       "/v1/audit?limit=5&before=9",
       "/v1/plans/pln_1/approve",
       "/v1/plans/pln_1/reject",
+      "/v1/traffic?window=30s&app=moimroom",
     ]);
     // approve's body is optional; reject's is required.
     expect([calls[4].body, calls[4].headers.has("Content-Type")]).toEqual([undefined, false]);

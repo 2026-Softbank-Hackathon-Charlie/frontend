@@ -979,7 +979,12 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
 
 /* ---------- engine run ---------- */
 
+/** A run from before start-target existed has no record of it once it reached cutover. */
+const noStartTarget = (r: Run, id: string) => id === "start-target" && !r.engine.steps[id] && !!r.engine.steps.cutover;
+
 function stepState(r: Run, id: string): StepState {
+  // counted as passed so the stop is not placed there; the list shows it as neutral
+  if (noStartTarget(r, id)) return "ok";
   const s = r.engine.steps[id]?.status ?? "pending";
   return s === "succeeded" ? "ok" : s === "running" ? "run" : s === "failed" ? "bad" : "wait";
 }
@@ -1072,7 +1077,11 @@ export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, event
   const cur = r.status === "succeeded" ? (o?.passed === false ? GROUP_OF.observe : 4) : GROUP_OF[stopPhase(r, events, steps)];
   const st = (i: number): GroupSt => (i < cur ? "done" : i > cur ? "todo" : r.status === "awaiting_switch" ? "wait" : active ? "run" : "bad");
   const engine = (phase: RunPhase) =>
-    ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] => ({ label: s.label, st: steps[s.id], detail: s.detail, now: steps[s.id] === "run" ? "진행 중" : undefined }));
+    ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] =>
+      noStartTarget(r, s.id)
+        ? { label: s.label + " (기록 없음)", st: "neu", detail: "이 단계가 생기기 전의 실행입니다." }
+        : { label: s.label, st: steps[s.id], detail: s.detail, now: steps[s.id] === "run" ? "진행 중" : undefined },
+    );
   const at = (t: string) => mmss(secs(r.startedAt, t));
   // an ended run's open part ends when the run did
   const until = (t?: string) => t ?? (active ? undefined : (r.endedAt ?? r.updatedAt));
@@ -1179,7 +1188,16 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
     case "rolled_back":
       return [noun + "하지 못하고 " + v.srcLabel + "로 원복했습니다.", "원본이 다시 트래픽을 받고, 잃은 데이터는 없습니다." + why];
     case "halted":
-      return ["대상 승격 뒤에 멈췄습니다. 운영자가 판단해야 합니다.", "승격을 요청한 뒤라 자동으로 원복하지 않았습니다." + why];
+      return [
+        "대상 승격 뒤에 멈췄습니다. 운영자가 판단해야 합니다.",
+        "승격을 요청한 뒤라 자동으로 원복하지 않았습니다. " +
+          (r.engine.writesHeld
+            ? "게이트웨이가 아직 쓰기를 붙잡고 있어서, 운영자가 정할 때까지 사용자의 쓰기는 기다리고 게이트웨이의 최대 보류 시간이 지나면 실패합니다. "
+            : "") +
+          v.tgtLabel +
+          " DB가 primary인지 확인한 뒤 이어서 실행할 수 있습니다. 엔진은 대상 승격이 끝났고 원본에 쓸 수 없는 것을 확인해야 멈춘 단계부터 다시 진행하고, 확인하지 못하면 다시 멈춥니다(halted)." +
+          why,
+      ];
     case "failed":
       return [noun + "이 실패했습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
     case "aborted":

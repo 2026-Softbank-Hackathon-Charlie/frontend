@@ -4,6 +4,7 @@
 // The map's buttons come back as {type:"hc-cmd"} and run the same actions as the rest of the page.
 import { useEffect, useRef, useState } from "react";
 import { useEnvironments, useTraffic } from "../api/hooks";
+import { useAuth } from "../data/live";
 import type { Environment, TrafficState } from "../api/types";
 import type { MigrationView } from "../data/migration";
 import { buildMapSnapshot, type MapAction, type MapSnapshot } from "../data/mapSnapshot";
@@ -21,9 +22,12 @@ export function MigrationMapFrame(p: MapFrameProps) {
 }
 
 function LiveFrame(p: MapFrameProps) {
-  const traffic = useTraffic(2000, "30s");
+  // the migrating app's gateway scope, which its run holds and routes
+  const traffic = useTraffic(2000, "30s", p.v.app || undefined);
   const envs = useEnvironments(30000);
-  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} />;
+  // resume is an operator command (the platform answers 403 to other roles)
+  const operator = useAuth().session?.principal.role === "operator";
+  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} canResume={operator} />;
 }
 
 const RUN: Record<MapAction, (v: MigrationView) => void> = {
@@ -35,13 +39,14 @@ const RUN: Record<MapAction, (v: MigrationView) => void> = {
   reset: (v) => v.reset(),
 };
 
-export function MapFrame({ v, hero, traffic, envs }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[] }) {
+export function MapFrame({ v, hero, traffic, envs, canResume = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; canResume?: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef(false);
   const [height, setHeight] = useState(1240);
   const [ready, setReady] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const snap = buildMapSnapshot(v, { traffic, envs, now, hero });
+  if (!canResume) snap.actions = snap.actions.filter((a) => a.key !== "resume");
   const json = JSON.stringify(snap);
 
   // durations of the phase at work move with the clock

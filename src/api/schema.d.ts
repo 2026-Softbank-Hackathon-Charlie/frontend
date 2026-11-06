@@ -266,6 +266,14 @@ export interface paths {
      * @description Continue a run that is `interrupted` (the server restarted), `failed`
      * or `aborted`. Steps that already succeeded are skipped. Like a start,
      * it needs records in the plan's written-records stream. Role operator.
+     *
+     * A `halted` run resumes too: the engine first checks that the target's
+     * promotion went through and nothing else is primary (the target is the
+     * topology primary, writable and settled; the source follows it and runs
+     * in recovery), counts the switchover as done and carries on from the
+     * first unfinished step. If it cannot confirm that, the run ends
+     * `halted` again with the reason in statusReason. A run that halted
+     * before the promotion was requested is refused the same way.
      */
     post: operations["resumeMigration"];
     parameters: {
@@ -287,7 +295,11 @@ export interface paths {
     };
   };
   "/v1/traffic": {
-    /** @description The traffic gateway's live state and request statistics. */
+    /**
+     * @description The traffic gateway's live state and request statistics. Without
+     * `app`, the gateway's default app; with it, that app's scope
+     * (`<gateway>/apps/<app>`), which a migration of the app holds and routes.
+     */
     get: operations["getTraffic"];
   };
   "/v1/matrix": {
@@ -1008,6 +1020,7 @@ export interface components {
       gateway?: {
         /** @enum {string} */
         mode?: "http" | "none";
+        /** @description The platform gateway's admin URL (PLATFORM_GATEWAY_URL) for a plan whose databases belong to no registered app (the gateway's default app), otherwise exactly `<PLATFORM_GATEWAY_URL>/apps/<app>` of the app that owns both databases. Drafts use the app's scope. */
         url?: string;
         token?: string;
         sourceBackend?: string;
@@ -1028,6 +1041,11 @@ export interface components {
         switchoverTimeout?: string;
         /** @example 3m */
         maxDowntime?: string;
+        /**
+         * @description Longest the fence gate may take; delta times a rehearsal of it before writes are held. Default 20s.
+         * @example 20s
+         */
+        maxFenceGate?: string;
       };
     };
     EnginePlanEndpoint: {
@@ -1266,7 +1284,7 @@ export interface components {
      * awaiting_switch: data is in sync; waiting for an operator to call /switch.
      * succeeded: traffic and data are on the target and verified.
      * rolled_back: the source serves traffic again; nothing was lost.
-     * halted: the target was asked to promote and something failed; an operator decides.
+     * halted: the target was asked to promote and something failed; an operator decides (resume continues it once the engine confirms the promotion).
      * failed: failed before anything irreversible; can be resumed.
      * aborted: stopped by an operator before anything irreversible; can be resumed.
      * interrupted: the server restarted while the run was active; can be resumed.
@@ -1278,7 +1296,7 @@ export interface components {
      * @description sync: precheck, prepare, presync, delta.
      * canary: read traffic share on the target.
      * awaiting_switch: waiting for /switch.
-     * cutover: fence, switchover, cutover (writes are held here).
+     * cutover: fence, switchover, start-target, cutover (writes are held here).
      * verify: verify, finalize.
      * observe: optional; the cutover succeeded and the target's traffic is
      *   watched against the gate before the run ends (ObserveOptions).
@@ -1407,7 +1425,7 @@ export interface components {
       /** Format: date-time */
       updatedAt: string;
       outcome: components["schemas"]["EngineOutcome"];
-      /** @description Keyed by step: precheck, prepare, presync, delta, fence, switchover, cutover, verify, finalize. */
+      /** @description Keyed by step: precheck, prepare, presync, delta, fence, switchover, start-target, cutover, verify, finalize. start-target starts a cold plan's target app; other plans skip it. Runs from before it existed have no start-target record until resumed. */
       steps: {
         [key: string]: components["schemas"]["StepRecord"];
       };
@@ -3447,6 +3465,14 @@ export interface operations {
    * @description Continue a run that is `interrupted` (the server restarted), `failed`
    * or `aborted`. Steps that already succeeded are skipped. Like a start,
    * it needs records in the plan's written-records stream. Role operator.
+   *
+   * A `halted` run resumes too: the engine first checks that the target's
+   * promotion went through and nothing else is primary (the target is the
+   * topology primary, writable and settled; the source follows it and runs
+   * in recovery), counts the switchover as done and carries on from the
+   * first unfinished step. If it cannot confirm that, the run ends
+   * `halted` again with the reason in statusReason. A run that halted
+   * before the promotion was requested is refused the same way.
    */
   resumeMigration: {
     parameters: {
@@ -3501,12 +3527,18 @@ export interface operations {
       default: components["responses"]["Internal"];
     };
   };
-  /** @description The traffic gateway's live state and request statistics. */
+  /**
+   * @description The traffic gateway's live state and request statistics. Without
+   * `app`, the gateway's default app; with it, that app's scope
+   * (`<gateway>/apps/<app>`), which a migration of the app holds and routes.
+   */
   getTraffic: {
     parameters: {
       query?: {
         /** @description Statistics window, a duration between 1s and 5m. */
         window?: string;
+        /** @description An app registered on this server (GET /v1/apps). Any other name is 400. */
+        app?: string;
       };
     };
     responses: {

@@ -368,9 +368,12 @@ export const getWrittenRecords = (stream: string, o?: RequestOptions) =>
 export const listEnvironments = (o?: RequestOptions) => request<EnvironmentList>("GET", "/v1/envs", o);
 export const getEnvironment = (name: string, o?: RequestOptions) =>
   request<Environment>("GET", `/v1/envs/${seg(name)}`, o);
-/** `window` is a duration between 1s and 5m; the server defaults to 10s. */
-export const getTraffic = (window?: string, o?: RequestOptions) =>
-  request<TrafficState>("GET", "/v1/traffic", { ...o, query: { window } });
+/**
+ * `window` is a duration between 1s and 5m; the server defaults to 10s. `app` (a registered app, else 400) reads that
+ * app's gateway scope, the one its migration routes; without it, the gateway's default app.
+ */
+export const getTraffic = (window?: string, app?: string, o?: RequestOptions) =>
+  request<TrafficState>("GET", "/v1/traffic", { ...o, query: { window, app } });
 export const getMatrix = (o?: RequestOptions) => request<Matrix>("GET", "/v1/matrix", o);
 /** Newest first. Pass `nextBefore` from the previous page as `before`. */
 export const listAudit = (q: { limit?: number; before?: number } = {}, o?: RequestOptions) =>
