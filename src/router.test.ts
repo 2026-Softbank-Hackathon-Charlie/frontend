@@ -44,7 +44,7 @@ describe("routes", () => {
   });
 
   it("opens security tabs and details under the same sidebar entry", () => {
-    for (const tab of ["controls", "vulnerabilities", "findings", "sources"]) {
+    for (const tab of ["controls", "vulnerabilities", "findings", "sources", "ocsf"]) {
       const route = "security/" + tab;
       expect(parseRoute("#" + route)).toBe(route);
       expect(navCurrent(route)).toBe("security");
@@ -54,6 +54,7 @@ describe("routes", () => {
     expect(parseRoute("#security/controls/eks-rbac")).toBe("security/controls/eks-rbac");
     expect(parseRoute("#security/nope")).toBe("overview");
     expect(parseRoute("#security/sources/unknown")).toBe("overview");
+    expect(parseRoute("#security/ocsf/x")).toBe("overview");
   });
 
   it("keeps the page position while moving between security tabs and details", () => {

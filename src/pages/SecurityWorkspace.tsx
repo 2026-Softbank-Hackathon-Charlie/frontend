@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td, type ChipKind } from "../components/ui";
 import { SecurityStorageKeys } from "../components/SecurityStorageKeys";
 import { SecurityExceptionPanel, exceptionLabel } from "../components/SecurityException";
+import { SecurityOCSF } from "../components/SecurityOCSF";
 import { CATEGORIES, CATEGORY_LABEL } from "../data/securityMatrix";
 import {
   DEPLOYED_STATE, DOMAINS, SCAN_STATE, activeException, environmentLabel as envLabel, controlCounts, filterControls, filterVulnerabilities, summarizeVulnerabilities,
@@ -13,10 +14,10 @@ import "../styles/security.css";
 
 type Environment = ControlEvaluation["environment"];
 type Scope = "all" | Environment;
-type Tab = "overview" | "controls" | "vulnerabilities" | "findings" | "sources";
+type Tab = "overview" | "controls" | "vulnerabilities" | "findings" | "sources" | "ocsf";
 const TABS = [
   { id: "overview", label: "개요" }, { id: "controls", label: "통제 점검" }, { id: "vulnerabilities", label: "취약점" },
-  { id: "findings", label: "발견 항목" }, { id: "sources", label: "수집 상태" },
+  { id: "findings", label: "발견 항목" }, { id: "sources", label: "수집 상태" }, { id: "ocsf", label: "OCSF 내보내기" },
 ];
 const SEVERITY: Record<SecuritySeverity, [string, ChipKind]> = {
   critical: ["치명", "bad"], high: ["높음", "bad"], medium: ["중간", "warn"], low: ["낮음", ""], info: ["정보", ""], unknown: ["미확인", ""],
@@ -196,7 +197,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
     <Tabs label="보안 메뉴" items={TABS} current={tab} hrefOf={tabHref} />
     {error && data.generatedAt && <LoadError title="최신 결과를 다시 읽지 못했습니다. 마지막 성공 결과를 표시합니다." error={error} retry={reload} />}
     {missingSources.length > 0 && <div className="sp-coverage-note"><div><b>점검이 완료되지 않은 출처 {missingSources.length}개</b><span> {unique(missingSources.map((s) => envLabel(s.environment))).join(", ")}의 일부 결과는 미확인·미연결 또는 오래된 상태입니다.</span></div><a href="#security/sources">범위 확인 →</a></div>}
-    {app !== "all" && <p className="hint sp-scope-note">앱에 연결된 평가·자산만 표시합니다. 계정 수준 통제는 ‘전체 앱’에서, 수집 상태는 선택한 환경 범위에서 확인합니다.</p>}
+    {app !== "all" && tab !== "ocsf" && <p className="hint sp-scope-note">앱에 연결된 평가·자산만 표시합니다. 계정 수준 통제는 ‘전체 앱’에서, 수집 상태는 선택한 환경 범위에서 확인합니다.</p>}
 
     {loading ? <Skeleton box rows={4} /> : error && !data.generatedAt ? <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={error} retry={reload} /> : itemId ? <>
       <a className="sp-back" href={tabHref(tab)}><span aria-hidden="true">← </span>{TABS.find((t) => t.id === tab)?.label} 목록으로</a>
@@ -259,7 +260,9 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
         <FindingsList findings={findings} vulnerabilities={vulnerabilities} search={findingSearch} kind={findingKind} severity={findingSeverity} category={findingCategory} exception={findingException} reset={() => { setFindingSearch(""); setFindingKind("all"); setFindingSeverity("all"); setFindingCategory("all"); setFindingException("exclude"); }} />
       </Section>
       <SecurityStorageKeys keys={data.storageKeys?.filter((k) => (environment === "all" || k.environment === environment) && (app === "all" || k.app === app))} sources={data.storageKeySources.filter((s) => environment === "all" || s.environment === environment)} />
-    </> : <Section title="수집 상태" sub="결과를 읽었다는 것과 모든 검사를 통과했다는 것은 다릅니다.">
+    </> : tab === "ocsf" ? <Section title="OCSF 내보내기">
+      <SecurityOCSF live={data.mode === "live"} environment={environment === "all" ? undefined : environment} app={app === "all" ? undefined : app} />
+    </Section> : <Section title="수집 상태" sub="결과를 읽었다는 것과 모든 검사를 통과했다는 것은 다릅니다.">
       <div className="sp-source-summary"><b>선택 환경의 출처 {sources.length}개</b><span>수집 완료 {sources.filter((s) => s.status === "ok").length} · 그 외 {missingSources.length}</span><small>앱 필터와 관계없이 환경 수준의 수집 범위를 표시합니다.</small></div>
       <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block">{envLabel(s.environment)}</small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<ScanTimes collected={s.lastCollected} scanned={s.lastScanned} />, "nw")])} /></div>
       <div className="sp-method"><b>미확인 상태를 숨기지 않습니다</b><p>스캔 실패나 미지원은 발견 0건이 아닙니다. 결과 조회와 실제 재검사는 별개이며, 이 화면은 스캔 Job이나 정책 변경을 실행하지 않습니다.</p></div>

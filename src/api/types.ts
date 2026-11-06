@@ -86,6 +86,8 @@ export type SecuritySource = S["SecuritySource"];
 export type SeverityCounts = S["SeverityCounts"];
 export type SecuritySummary = S["SecuritySummary"];
 export type SecurityReport = S["SecurityReport"];
+/** OCSF 1.9.0 events of the security data (SEC-09); the events themselves are free-form OCSF objects. */
+export type SecurityOCSFExport = S["SecurityOCSFExport"];
 export type SecuritySeverityBasis = S["SecuritySeverityBasis"];
 export type SecurityControl = S["SecurityControl"];
 export type SecurityControlEvaluation = S["SecurityControlEvaluation"];

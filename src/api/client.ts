@@ -50,6 +50,7 @@ import type {
   SecurityException,
   SecurityExceptionList,
   SecurityExceptionRequest,
+  SecurityOCSFExport,
   SecurityReport,
   SecuritySeverity,
   SecurityVulnerabilityReport,
@@ -398,6 +399,10 @@ export type SecurityQuery = {
 /** The filters apply to the findings and to every count. 503 security_not_configured when the server has no collectors. */
 export const getSecurity = (q: SecurityQuery = {}, o?: RequestOptions) =>
   request<SecurityReport>("GET", "/v1/security", { ...o, query: q });
+
+/** The same data as OCSF events: findings (2004/2003), vulnerabilities (2002) and control evaluations (2003). `severity` filters findings only. */
+export const getSecurityOCSF = (q: SecurityQuery = {}, o?: RequestOptions) =>
+  request<SecurityOCSFExport>("GET", "/v1/security/ocsf", { ...o, query: q });
 
 export type SecurityPostureQuery = Omit<SecurityQuery, "severity">;
 

@@ -111,3 +111,7 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-exception-form textarea { width: 100%; font: inherit; font-size: 14px; }
 .sp-exception-actions { display: flex; gap: var(--sp-xs); }
 .sp-exception-error { color: var(--bad); font-size: 12px; }
+/* SEC-09: OCSF export tab. */
+.sp-ocsf-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-sm); flex-wrap: wrap; margin-block-end: var(--sp-md); font-size: 13px; }
+.sp-ocsf-head p { margin: 0; font-variant-numeric: tabular-nums; }
+.sp-ocsf-json { max-height: 560px; overflow: auto; }

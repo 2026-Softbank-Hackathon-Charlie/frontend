@@ -21,6 +21,7 @@ import {
   getPlan,
   getPlanAttachment,
   getSecurity,
+  getSecurityOCSF,
   getTraffic,
   getWrittenRecords,
   listAgentEvents,
@@ -192,6 +193,7 @@ describe("client requests", () => {
     await draftPlan({ app: "shop", source: "gke", target: "eks" });
     await rollbackMigration("run_1");
     await rollbackMigration("run_1", { reason: "p95 regressed", autoSwitch: false });
+    await getSecurityOCSF({ environment: "gke" });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "GET /v1/security?environment=gke&severity=high&refresh=true",
       "GET /v1/security",
@@ -205,6 +207,7 @@ describe("client requests", () => {
       "POST /v1/plans/draft",
       "POST /v1/migrations/run_1/rollback",
       "POST /v1/migrations/run_1/rollback",
+      "GET /v1/security/ocsf?environment=gke",
     ]);
     // The JSON page is chosen by format=json; the Accept header stays the client's usual one.
     expect(calls[5].headers.get("Accept")).toBe("application/json");
