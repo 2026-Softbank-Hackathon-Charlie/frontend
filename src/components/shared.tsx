@@ -149,19 +149,18 @@ function LiveRoutes({ withCount }: { withCount?: boolean }) {
   return <RoutesView routes={m.data.routes} withCount={withCount} />;
 }
 
-function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: boolean }) {
+export function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withCount?: boolean }) {
   const done = routes.filter((r) => r.status === "succeeded").length;
   const rows = routes.map((r) => {
     const x = r.result;
-    const ended = r.status && r.finishedAt;
     return [
       td(envShort(r.source) + " → " + envShort(r.target), "nw"),
       td(r.status ? <Chip kind={RESULT_KIND[r.status] ?? ""}>{statusText(r.status)}</Chip> : <Chip>미실행</Chip>),
-      td(ended && x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "num"),
-      td(ended && x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "num"),
-      td(ended && x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "num"),
-      td(ended && x ? (x.missingRows ?? "-") + " / " + (x.missingWrites ?? "-") + " / " + (x.missingFiles ?? "-") : "-", "num"),
-      td(ended && x?.requests !== undefined ? fmt(x.requests) : "-", "num"),
+      td(x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "num"),
+      td(x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "num"),
+      td(x?.failedRequests !== undefined ? fmt(x.failedRequests) + "건" : "-", "num"),
+      td(x ? (x.missingRows ?? "미측정") + " / " + (x.missingWrites ?? "미측정") + " / " + (x.missingFiles ?? "미측정") : "-", "num"),
+      td(x?.requests !== undefined ? fmt(x.requests) : "-", "num"),
       td(r.runId ?? "-", "m"),
     ];
   });
