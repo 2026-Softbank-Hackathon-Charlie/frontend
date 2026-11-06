@@ -102,7 +102,7 @@ describe("migration map snapshot: one map from the setup to the end of the run",
 
   it("lists the AI phases, the approval, the engine steps, one phase per canary weight and the switch, in order", () => {
     expect(keys(view({ stage: "run", plan: plan({ status: "started" as PlanRecord["status"] }), run: run({ canary: canary([]) }) }))).toEqual([
-      "ai-plan", "ai-rehearsal", "approve", "preflight", "precheck", "prepare", "presync", "delta", "canary-0", "canary-1", "canary-2", "switch", "fence", "switchover", "cutover", "verify", "finalize",
+      "ai-plan", "ai-rehearsal", "approve", "preflight", "precheck", "prepare", "presync", "delta", "canary-0", "canary-1", "canary-2", "switch", "fence", "switchover", "start-target", "cutover", "verify", "finalize",
     ]);
   });
 
@@ -141,6 +141,14 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(s.nodes["aws.db"][0]).toBe("crit");
     expect(s.phases.some((p) => p.key === "rb")).toBe(false);
     expect(s.kpi.phase).toBe("멈춤");
+    expect(s.actions.map((a) => a.key)).toContain("resume");
+  });
+
+  it("shows start-target as done on a warm run and as skipped on a run from before the step existed", () => {
+    const st = (steps: Run["engine"]["steps"]) => snap(view({ stage: "run", run: run({ status: "succeeded", phase: "done" }, { steps }) })).phases.find((p) => p.key === "start-target")!.st;
+    expect(st({ "start-target": { status: "succeeded" }, cutover: { status: "succeeded" } })).toBe("done");
+    expect(st({ cutover: { status: "succeeded" } })).toBe("skip");
+    expect(st({})).toBe("todo");
   });
 
   it("offers no abort once the promotion is requested", () => {

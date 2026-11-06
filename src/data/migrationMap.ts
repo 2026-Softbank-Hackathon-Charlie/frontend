@@ -21,7 +21,7 @@ export function mapEvents(r: Run, events: RunEvent[]): RunEvent[] {
 /** Engine step states: the snapshot, brought forward by step events newer than the snapshot's record. */
 export function mapSteps(r: Run, events: RunEvent[]): Record<string, MapStepState> {
   const steps: Record<string, MapStepState> = {};
-  for (const { id } of ENGINE_STEPS) steps[id] = r.engine.steps[id]?.status ?? "pending";
+  for (const { id } of ENGINE_STEPS) steps[id] = r.engine.steps[id]?.status ?? (id === "start-target" && r.engine.steps.cutover ? "skipped" : "pending");
   for (const e of events) {
     if (!e.step || !(e.step in steps)) continue;
     const rec = r.engine.steps[e.step];

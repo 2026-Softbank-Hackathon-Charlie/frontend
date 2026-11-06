@@ -101,9 +101,9 @@ export function useEnvironments(pollMs = 0): Resource<Environment[]> {
   return usePolled("envs", pollMs, async (signal) => (await listEnvironments({ signal })).environments);
 }
 
-/** `window` is the statistics window, 1s to 5m (server default 10s). */
-export function useTraffic(pollMs = 0, window?: string): Resource<TrafficState> {
-  return usePolled("traffic:" + (window ?? ""), pollMs, (signal) => getTraffic(window, { signal }));
+/** `window` is the statistics window, 1s to 5m (server default 10s); `app` reads that app's gateway scope. */
+export function useTraffic(pollMs = 0, window?: string, app?: string): Resource<TrafficState> {
+  return usePolled("traffic:" + (window ?? "") + ":" + (app ?? ""), pollMs, (signal) => getTraffic(window, app, { signal }));
 }
 
 /** All runs, newest first. */

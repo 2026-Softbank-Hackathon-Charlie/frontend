@@ -302,7 +302,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
       : [],
     lines: events.filter((e) => e.kind === "status_changed" && (e.data?.status === "awaiting_switch" || e.data?.phase === "cutover")).map(runLine),
   });
-  ["fence", "switchover", "cutover"].forEach((id) => engine(id, "전환"));
+  ["fence", "switchover", "start-target", "cutover"].forEach((id) => engine(id, "전환"));
   ["verify", "finalize"].forEach((id) => engine(id, "정리"));
   const o = r?.observe;
   if (o) {
@@ -619,7 +619,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
   if (r) {
     if (r.status === "awaiting_switch") actions.push({ key: "switch", label: "전환", cls: "attn" });
     if (active && !r.engine.promoteRequested) actions.push({ key: "abort", label: "중단", cls: "ghost" });
-    if (r.status === "failed" || r.status === "aborted" || r.status === "interrupted") actions.push({ key: "resume", label: "이어서 실행", cls: "" });
+    if (r.status === "failed" || r.status === "aborted" || r.status === "interrupted" || r.status === "halted") actions.push({ key: "resume", label: "이어서 실행", cls: "" });
     if (r.status === "succeeded" && !r.observe?.rollbackRunId) actions.push({ key: "rollback", label: "롤백", cls: "danger" });
     if (!active) actions.push({ key: "reset", label: "다른 경로로 이전", cls: "ghost" });
   }

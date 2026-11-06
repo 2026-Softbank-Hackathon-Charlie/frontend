@@ -27,7 +27,7 @@ describe("migration progress groups", () => {
     ];
     const g = groupsOf(ended({ status: "halted" }, { outcome: "halted", promoteRequested: true, failureStep: "switchover" }), events);
     expect(g.map((x) => x.st)).toEqual(["done", "done", "bad", "todo"]);
-    expect(g[2].items.map((x) => x.st)).toEqual(["ok", "bad", "wait"]);
+    expect(g[2].items.map((x) => x.st)).toEqual(["ok", "bad", "wait", "wait"]);
     // the stopped part ends when the run did instead of staying open
     expect(g[2].range).toBe("00:08 ~ 00:13");
   });

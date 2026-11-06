@@ -72,7 +72,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 인증 | `login`, `logout`, `getDeviceLogin`, `approveDeviceLogin(userCode, role)`, `denyDeviceLogin`, `onUnauthorized(cb)` |
 | 계획 | `listPlans`, `getPlan`, `submitPlan`, `approvePlan`, `rejectPlan`, `listApps`, `draftPlan`, `putPlanAttachment`, `getPlanAttachment` |
 | 이전 | `listMigrations`, `getMigration`, `startMigration`, `switchMigration`, `abortMigration`, `resumeMigration`, `rollbackMigration`, `getWrittenRecords` |
-| 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window)` |
+| 환경, 트래픽 | `listEnvironments`, `getEnvironment`, `getTraffic(window, app)` |
 | 보안 | `getSecurity({ environment, severity, refresh })` |
 | 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
 | GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { branch, ref, environments, redeploy })`, `listDeployments(name, { branch, limit })`, `createAppInstance(name, { branch, autoDeploy })`, `deleteAppInstance(name, instance)`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
@@ -111,7 +111,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 훅 | 돌려주는 값 |
 |----|-------------|
 | `useEnvironments(pollMs)` | `Environment[]` |
-| `useTraffic(pollMs, window)` | `TrafficState` |
+| `useTraffic(pollMs, window, app)` | `TrafficState` |
 | `useRuns(pollMs)` | `Run[]` (최신순) |
 | `useMatrix()` | `Matrix` |
 | `useAudit(limit)` | `AuditEntry[]` (최신순) |

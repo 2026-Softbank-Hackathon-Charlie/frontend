@@ -21,7 +21,8 @@ export function MigrationMapFrame(p: MapFrameProps) {
 }
 
 function LiveFrame(p: MapFrameProps) {
-  const traffic = useTraffic(2000, "30s");
+  // the migrating app's gateway scope, which its run holds and routes
+  const traffic = useTraffic(2000, "30s", p.v.app || undefined);
   const envs = useEnvironments(30000);
   return <MapFrame {...p} traffic={traffic.data} envs={envs.data} />;
 }

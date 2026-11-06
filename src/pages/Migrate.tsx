@@ -980,6 +980,8 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
 /* ---------- engine run ---------- */
 
 function stepState(r: Run, id: string): StepState {
+  // A run from before start-target existed has no record of it once it reached cutover.
+  if (id === "start-target" && !r.engine.steps[id] && r.engine.steps.cutover) return "ok";
   const s = r.engine.steps[id]?.status ?? "pending";
   return s === "succeeded" ? "ok" : s === "running" ? "run" : s === "failed" ? "bad" : "wait";
 }
@@ -1179,7 +1181,13 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
     case "rolled_back":
       return [noun + "하지 못하고 " + v.srcLabel + "로 원복했습니다.", "원본이 다시 트래픽을 받고, 잃은 데이터는 없습니다." + why];
     case "halted":
-      return ["대상 승격 뒤에 멈췄습니다. 운영자가 판단해야 합니다.", "승격을 요청한 뒤라 자동으로 원복하지 않았습니다." + why];
+      return [
+        "대상 승격 뒤에 멈췄습니다. 운영자가 판단해야 합니다.",
+        "승격을 요청한 뒤라 자동으로 원복하지 않았습니다. " +
+          v.tgtLabel +
+          " DB가 primary인지 확인한 뒤 이어서 실행할 수 있습니다. 엔진은 대상 승격이 끝났고 원본에 쓸 수 없는 것을 확인해야 멈춘 단계부터 다시 진행하고, 확인하지 못하면 다시 멈춥니다(halted)." +
+          why,
+      ];
     case "failed":
       return [noun + "이 실패했습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
     case "aborted":
