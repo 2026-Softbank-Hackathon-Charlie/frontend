@@ -72,10 +72,11 @@ export interface Resource<T> {
 
 /**
  * Loads at mount, then `pollMs` after each answer (0: once). `key` names
- * everything `load` depends on; a null key loads nothing.
+ * everything `load` depends on; a null key loads nothing. An answer for
+ * another key is not shown: a new key starts loading again.
  */
 function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSignal) => Promise<T>): Resource<T> {
-  const [state, setState] = useState<{ data?: T; error?: ApiError }>({});
+  const [state, setState] = useState<{ key?: string; data?: T; error?: ApiError }>({});
   const [nonce, setNonce] = useState(0);
   useEffect(() => {
     if (key === null) return;
@@ -84,9 +85,9 @@ function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSi
     const tick = async () => {
       try {
         const data = await load(ctrl.signal);
-        if (!ctrl.signal.aborted) setState({ data });
+        if (!ctrl.signal.aborted) setState({ key, data });
       } catch (e) {
-        if (!ctrl.signal.aborted) setState((s) => ({ data: s.data, error: toApiError(e) }));
+        if (!ctrl.signal.aborted) setState((s) => ({ key, data: s.key === key ? s.data : undefined, error: toApiError(e) }));
       }
       if (!ctrl.signal.aborted && pollMs > 0) timer = setTimeout(tick, pollMs);
     };
@@ -99,6 +100,7 @@ function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSi
   }, [key, pollMs, nonce]);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   if (key === null) return { data: undefined, error: undefined, loading: false, reload };
+  if (state.key !== key) return { data: undefined, error: undefined, loading: true, reload };
   return { data: state.data, error: state.error, loading: state.data === undefined && state.error === undefined, reload };
 }
 
@@ -106,9 +108,9 @@ export function useEnvironments(pollMs = 0): Resource<Environment[]> {
   return usePolled("envs", pollMs, async (signal) => (await listEnvironments({ signal })).environments);
 }
 
-/** `window` is the statistics window, 1s to 5m (server default 10s); `app` reads that app's gateway scope. */
-export function useTraffic(pollMs = 0, window?: string, app?: string): Resource<TrafficState> {
-  return usePolled("traffic:" + (window ?? "") + ":" + (app ?? ""), pollMs, (signal) => getTraffic(window, app, { signal }));
+/** `window` is the statistics window, 1s to 5m (server default 10s); `app` reads that app's gateway scope. `enabled` false loads nothing. */
+export function useTraffic(pollMs = 0, window?: string, app?: string, enabled = true): Resource<TrafficState> {
+  return usePolled(enabled ? "traffic:" + (window ?? "") + ":" + (app ?? "") : null, pollMs, (signal) => getTraffic(window, app, { signal }));
 }
 
 /** All runs, newest first. */

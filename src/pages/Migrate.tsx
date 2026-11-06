@@ -85,7 +85,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
                   ),
                 ),
                 td(
-                  <a className="btn ghost" href="#migrate-app">
+                  <a className="btn ghost" href={"#migrate-app" + (live ? "?app=" + encodeURIComponent(v.app) : "")}>
                     {v.stage === "setup" ? "이전 설정" : "열기"}
                   </a>,
                 ),
@@ -188,6 +188,24 @@ function Notice({ text }: { text: string }) {
   );
 }
 
+/** Live: which app the page migrates. Switching leaves the run or plan on screen; the other app's own work is picked up. */
+function AppPick({ v }: { v: MigrationView }) {
+  if (!v.apps || !v.setApp) return null;
+  const setApp = v.setApp;
+  return (
+    <label className="mg-apppick">
+      <span>앱</span>
+      <select aria-label="이전할 앱" value={v.app} disabled={v.busy} onChange={(e) => setApp(e.target.value)}>
+        {v.apps.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function Migrate() {
   return useLive() ? <LiveMigrate /> : <SimMigrate />;
 }
@@ -240,7 +258,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     return page(
       <>
-        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." />
+        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<AppPick v={v} />} />
         <Notice text={v.notice} />
         <div className="split">
           <div className="box">
@@ -251,7 +269,8 @@ function MigrateView({ v }: { v: MigrationView }) {
               <div className="form">
                 <div className="field">
                   <label htmlFor="mig-src">원본</label>
-                  <input id="mig-src" value={v.srcLabel + " (지금 쓰기를 받는 곳)"} readOnly />
+                  <input id="mig-src" value={v.srcLabel + (v.srcNote ? "" : " (지금 쓰기를 받는 곳)")} readOnly aria-describedby={v.srcNote ? "mig-src-note" : undefined} />
+                  {v.srcNote && <small id="mig-src-note">{v.srcNote}</small>}
                 </div>
                 <div className="field">
                   <label htmlFor="mig-target">옮겨 갈 환경</label>
@@ -326,7 +345,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const hero = r ? heroText(v, r, r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt)) : undefined;
   return page(
     <>
-      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} />
+      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<AppPick v={v} />} />
       <Wizard v={v} />
       <Notice text={v.notice} />
     </>,

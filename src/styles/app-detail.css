@@ -25,6 +25,7 @@
 .box.appd-envs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--line-soft); overflow: hidden; }
 .appd-env { background: var(--canvas); padding: var(--sp-md); display: grid; gap: var(--sp-2xs); align-content: start; min-width: 0; font-size: 13px; }
 .appd-env a { overflow-wrap: anywhere; }
+.appd-dbrole { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
 .appd-envh { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-xs); }
 .appd-envh b { font-size: 14px; color: var(--heading); }
 

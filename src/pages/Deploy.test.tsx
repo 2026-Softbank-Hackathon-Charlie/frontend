@@ -53,7 +53,8 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(screen.getByRole("link", { name: "https://notice-board.hopcharlie.dev" })).toBeInTheDocument();
     expect(screen.getByText("플랫폼 기본값을 쓰는 항목")).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("온프레미스 k3s"));
+    // eks and gke start checked, onprem does not (the database pair)
+    expect(screen.getByLabelText("온프레미스 k3s")).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "배포 시작" }));
     expect(await screen.findByRole("heading", { level: 1, name: "notice-board 배포" })).toBeInTheDocument();
     expect(window.location.hash).toMatch(/^#deploy-dep_/);
@@ -441,6 +442,45 @@ describe("GitHub deploy screens (platform API)", () => {
     await user.click(within(box).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(window.location.hash).toBe("#apps"));
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url)).toEqual(["/v1/apps/moimroom"]);
+  });
+
+  it("shows which environment takes the traffic and each database's role for an app with a database pair", async () => {
+    const paired: ApiApp = {
+      ...app,
+      deploy: {
+        ...app.deploy!,
+        environments: ["eks", "gke"],
+        status: [{ env: "eks", status: "healthy" }, { env: "gke", status: "healthy" }],
+        dbTopology: { primary: "gke", replica: "eks" },
+      },
+    };
+    setup("#app-moimroom");
+    // after a migration the gateway sends the writes to eks, the database born replica
+    const calls = live((c, u) => {
+      if (u.pathname === "/v1/apps/moimroom" && c.method === "GET") return json(200, paired);
+      if (u.pathname === "/v1/apps/moimroom/deployments") return json(200, { deployments: [] });
+      if (u.pathname === "/v1/traffic") return json(200, { writeBackend: "eks" });
+      return undefined;
+    });
+    const cell = (name: string) => screen.getByText(name, { selector: ".appd-envh b" }).closest(".appd-env") as HTMLElement;
+    await waitFor(() => expect(within(cell("AWS EKS")).getByText("트래픽 받는 중")).toBeInTheDocument());
+    expect(within(cell("AWS EKS")).getByText("DB primary")).toBeInTheDocument();
+    expect(within(cell("GCP GKE")).getByText("대기")).toBeInTheDocument();
+    expect(within(cell("GCP GKE")).getByText("DB replica(읽기 전용)")).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/v1/traffic?app=moimroom")).toBe(true);
+  });
+
+  it("shows no traffic or database role for an app without a database pair", async () => {
+    setup("#app-moimroom");
+    const calls = live((c, u) => {
+      if (u.pathname === "/v1/apps/moimroom" && c.method === "GET") return json(200, app);
+      if (u.pathname === "/v1/apps/moimroom/deployments") return json(200, { deployments: [] });
+      return undefined;
+    });
+    expect(await screen.findByText("기본 인스턴스(moimroom) 환경별 상태")).toBeInTheDocument();
+    expect(screen.queryByText(/^DB (primary|replica)/)).toBeNull();
+    expect(screen.queryByText("트래픽 받는 중")).toBeNull();
+    expect(calls.some((c) => c.url.startsWith("/v1/traffic"))).toBe(false);
   });
 
   /** The app page, with the app and two deployments (main healthy, dev failed). */

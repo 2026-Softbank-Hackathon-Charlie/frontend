@@ -5,6 +5,10 @@
  * mg- class so it touches no other page.
  */
 
+/* the app picker in the page head (live) */
+.mg-apppick { display: flex; align-items: center; gap: var(--sp-xs); font-size: 13px; font-weight: 500; color: var(--heading); }
+.mg-apppick select { width: auto; min-width: 12ch; }
+
 /*
  * ---------- approval: main column and a decision column ----------
  * In the DOM (and on narrow screens): what changed, the decision, the folded details. Wide screens put the

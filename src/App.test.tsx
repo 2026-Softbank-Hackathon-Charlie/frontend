@@ -124,7 +124,7 @@ describe("HopCharlie console (simulation)", () => {
     await user.click(screen.getAllByRole("link", { name: "새 앱 배포" })[0]);
     const start = await screen.findByRole("button", { name: "배포 시작" });
     expect(start).toBeEnabled();
-    for (const name of ["AWS EKS", "GCP GKE", "온프레미스 k3s"]) await user.click(screen.getByLabelText(name));
+    for (const name of ["AWS EKS", "GCP GKE"]) await user.click(screen.getByLabelText(name)); // onprem starts unchecked
     expect(start).toBeDisabled();
   });
 
@@ -181,6 +181,74 @@ describe("HopCharlie console (platform API)", () => {
       return json(404, { error: { code: "not_found", message: "no" } });
     };
   }
+
+  // moim is registered in eks and gke with a database pair born primary in gke; shop's Plan waits for approval
+  const moim = {
+    name: "moim",
+    namespace: "moim",
+    database: { name: "app", user: "app", schemas: [] },
+    environments: [{ env: "eks", cnpgCluster: "moim", dbHost: "a" }, { env: "gke", cnpgCluster: "moim", dbHost: "b" }],
+    deploy: {
+      repo: "org/moim",
+      branch: "main",
+      environments: ["eks", "gke"],
+      autoDeploy: true,
+      spec: { name: "moim", services: [], resources: [] },
+      specCommit: "c0ffee",
+      createdAt: "2026-11-06T00:00:00Z",
+      createdBy: "operator",
+      status: [],
+      instances: [],
+      dbTopology: { primary: "gke", replica: "eks" },
+    },
+  };
+  const trafficTo = (writeBackend: string) =>
+    json(200, { writeBackend, readWeights: { [writeBackend]: 100 }, writesHeld: false, heldWrites: 0, maxHold: "30s", inFlight: { reads: 0, writes: 0 }, backends: [], stats: {}, totals: {}, updatedAt: "2026-11-06T00:00:00Z" });
+  function twoApps(traffic: () => Response) {
+    let calls: FakeCall[] = [];
+    calls = installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/apps") return json(200, { apps: [{ name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: [{ env: "eks", cnpgCluster: "shop-db-eks", dbHost: "a" }, { env: "gke", cnpgCluster: "shop-db-gke", dbHost: "b" }] }, moim] });
+      if (u.pathname === "/v1/traffic") return traffic();
+      return route(() => calls)(c);
+    });
+    return () => calls;
+  }
+
+  it("migrates the app named in the hash from where the gateway sends its writes, without another app's Plan", async () => {
+    const calls = twoApps(() => trafficTo("eks"));
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app?app=moim";
+    expect(await screen.findByRole("heading", { level: 1, name: "moim 이전" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("원본")).toHaveValue("AWS EKS (지금 쓰기를 받는 곳)"));
+    expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("gke");
+    expect(screen.getByRole("combobox", { name: "이전할 앱" })).toHaveValue("moim");
+    // shop's pending Plan is not this app's
+    expect(screen.queryByText(/Plan pln_1/)).toBeNull();
+    expect(calls().some((c) => c.url === "/v1/traffic?app=moim")).toBe(true);
+  });
+
+  it("falls back to the environment the database was born primary in when the gateway does not answer", async () => {
+    twoApps(() => json(502, { error: { code: "gateway_unavailable", message: "no" } }));
+    storeSession();
+    setup("", "live");
+    window.location.hash = "#migrate-app?app=moim";
+    await waitFor(() => expect(screen.getByLabelText("원본")).toHaveValue("GCP GKE"));
+    expect(screen.getByText(/게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 DB를 처음 primary로 만든 환경을 원본으로 잡았습니다/)).toBeInTheDocument();
+    expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("eks");
+  });
+
+  it("picks up the other app's Plan when the operator switches to it", async () => {
+    twoApps(() => trafficTo("gke"));
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-app?app=moim";
+    await waitFor(() => expect(screen.getByLabelText("원본")).toHaveValue("GCP GKE (지금 쓰기를 받는 곳)"));
+    await user.selectOptions(screen.getByRole("combobox", { name: "이전할 앱" }), "shop");
+    expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
+    expect(window.location.hash).toBe("#migrate-app?app=shop");
+  });
 
   async function openApproval(plan = basePlan) {
     let calls: FakeCall[] = [];
