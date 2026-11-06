@@ -343,6 +343,41 @@ export interface paths {
      */
     get: operations["getSecurityOCSF"];
   };
+  "/v1/security/controls": {
+    /**
+     * @description The platform's control catalog and every evaluation of it, from the
+     * same collection and cache as `GET /v1/security` (ADR 0029). Each
+     * control is one check with its condition, the asset it evaluates, its
+     * official references (exact or partial) and what it does not
+     * establish. Each evaluation is pass, fail, unknown or not_applicable
+     * for one asset.
+     *
+     * A source that answered is not a pass, and no findings are not a pass:
+     * a control passes only on an asset the check read. Assets of a source
+     * that could not be read are one `unknown` evaluation with asset `*`.
+     * `coverage` counts by environment and domain, with not_applicable
+     * left out of the denominator, and says which domains have no control
+     * in an environment yet. There is no overall score. Error codes as for
+     * `/v1/security`.
+     */
+    get: operations["getSecurityControls"];
+  };
+  "/v1/security/vulnerabilities": {
+    /**
+     * @description Package vulnerabilities of image digests and the running containers
+     * that use them (ADR 0029). Scans run outside the request (CI or a
+     * worker); this endpoint only reads stored results and the clusters'
+     * running images, from the same collection and cache as
+     * `GET /v1/security`.
+     *
+     * `scanner.status` not_configured means no scan results are connected:
+     * empty `scans` and `vulnerabilities` then mean "not scanned", not "no
+     * vulnerabilities". A running container whose digest has no succeeded
+     * scan is counted in `summary.notScannedContainers`. Error codes as for
+     * `/v1/security`.
+     */
+    get: operations["getSecurityVulnerabilities"];
+  };
   "/v1/agent/sessions": {
     get: operations["listAgentSessions"];
     /**
@@ -1696,6 +1731,398 @@ export interface components {
        * @description when the source reported it, or when it was read
        */
       observedAt: string;
+      kind?: components["schemas"]["SecurityFindingKind"];
+      /**
+       * @description The control of the platform's catalog (`GET /v1/security/controls`)
+       * whose check produced the finding. Absent for vendor detections and
+       * vendor posture findings that are passed through (GuardDuty,
+       * Security Hub) and for audit denials, which no catalog control
+       * evaluates.
+       *
+       * @example HC-IDN-03
+       */
+      controlId?: string;
+      severityBasis?: components["schemas"]["SecuritySeverityBasis"];
+    };
+    /**
+     * @description Set on every finding by servers that implement ADR 0029.
+     * - configuration: a setting checked against a control.
+     * - threat: a detection of activity (GuardDuty, Security Hub threat types).
+     * - governance: the platform's own rules about its requests and records (audit denials, unrecorded bucket keys, server settings).
+     * - vulnerability: a package vulnerability in an image; these are listed by `GET /v1/security/vulnerabilities`, not in `findings`.
+     *
+     * @enum {string}
+     */
+    SecurityFindingKind: "configuration" | "threat" | "governance" | "vulnerability";
+    /**
+     * @description Who decided the normalised `severity`.
+     * - vendor: the vendor's own label or score, either of the finding (GuardDuty, Security Hub) or of the vendor control the check matches exactly (e.g. AWS Security Hub IAM.5).
+     * - cvss: the CVSS base score of an advisory (vulnerabilities only).
+     * - platform_policy: a rule of the platform's versioned security policy (`policy`). It is not an official rating, even where it uses the same level as a related vendor control the check only partly matches.
+     *
+     * @enum {string}
+     */
+    SecuritySeverityBasisType: "vendor" | "cvss" | "platform_policy";
+    /**
+     * @description Where a severity came from (ADR 0029). The source's own value is kept
+     * as given and never overwritten; `severity` is the platform's
+     * normalised label for sorting and filtering.
+     */
+    SecuritySeverityBasis: {
+      type: components["schemas"]["SecuritySeverityBasisType"];
+      /**
+       * @description who issued the source value, or HopCharlie for platform_policy
+       * @example AWS Security Hub CSPM
+       */
+      issuer: string;
+      /**
+       * @description the source's label or value exactly as given
+       * @example HIGH
+       */
+      sourceSeverity?: string;
+      /**
+       * Format: double
+       * @description the source's numeric score (GuardDuty 1.0-10.0, a CVSS base score)
+       * @example 8
+       */
+      sourceScore?: number;
+      /** @description the vendor's own finding id or ARN */
+      sourceFindingId?: string;
+      /** @description the official page of the vendor control or advisory the value comes from */
+      sourceUrl?: string;
+      /**
+       * @description the version of the platform's control catalog and mapping rules that produced `severity`
+       * @example hopcharlie-security-policy/2026-11-06.1
+       */
+      policy: string;
+      /** @description why this basis applies, e.g. which vendor control matches exactly or why a platform rule was used */
+      reason?: string;
+    };
+    /**
+     * @description The five areas of the common controls. A domain is a grouping, not a
+     * check: it is never a unit of a pass rate.
+     * - identity: least privilege and strong authentication.
+     * - data: encryption and data exposure.
+     * - logging: audit logs and threat monitoring.
+     * - policy: secure configuration of workloads and network.
+     * - vulnerability: vulnerability management of running images.
+     *
+     * @enum {string}
+     */
+    SecurityControlDomain: "identity" | "data" | "logging" | "policy" | "vulnerability";
+    /**
+     * @description - pass: the check read the asset and its condition holds.
+     * - fail: the check read the asset and its condition does not hold; `findingIds` name the findings.
+     * - unknown: the asset could not be read (no answer, denied, not connected). It is never counted as pass.
+     * - not_applicable: the condition does not apply to the asset (e.g. MFA for a user with no console password). Not part of the denominator.
+     *
+     * @enum {string}
+     */
+    SecurityControlResult: "pass" | "fail" | "unknown" | "not_applicable";
+    /**
+     * @description - exact: the check reads the same condition, scope and exceptions as the referenced control.
+     * - partial: the check covers part of it (fewer conditions, another scope, other exceptions); passing it does not mean passing the referenced control.
+     *
+     * @enum {string}
+     */
+    SecurityControlRelation: "exact" | "partial";
+    SecurityControlReference: {
+      /**
+       * @description NIST SP 800-53, AWS Security Hub CSPM, Kubernetes Pod Security Standards or CIS Kubernetes Benchmark
+       * @example AWS Security Hub CSPM
+       */
+      framework: string;
+      /** @example control reference as of 2026-11-06 */
+      version: string;
+      /** @example IAM.5 */
+      id: string;
+      title?: string;
+      /** @example https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html#iam-5 */
+      url: string;
+      relation: components["schemas"]["SecurityControlRelation"];
+      /**
+       * @description the referenced control's own severity, when its publisher gives one
+       * @example Medium
+       */
+      severity?: string;
+      /** @description what differs, for a partial match */
+      note?: string;
+    };
+    /** @description One control of the platform's catalog, checked by one check. */
+    SecurityControl: {
+      /** @example HC-IDN-03 */
+      id: string;
+      title: string;
+      domain: components["schemas"]["SecurityControlDomain"];
+      /**
+       * @description the `check` of the findings it produces
+       * @example aws.user-mfa
+       */
+      check: string;
+      /**
+       * @description the source that evaluates it
+       * @example aws-iam
+       */
+      source: string;
+      /**
+       * @description what one evaluation is about
+       * @example IAM user with a console password
+       */
+      asset: string;
+      /** @description when an asset passes */
+      condition: string;
+      /**
+       * @description The closest relation among `references`; unmapped when there is none and the control is the platform's own rule.
+       * @enum {string}
+       */
+      mapping: "exact" | "partial" | "unmapped";
+      references: components["schemas"]["SecurityControlReference"][];
+      /**
+       * @description the severity of a failing asset's finding, or `varies` when it depends on the finding (see severityBasis.reason)
+       * @example medium
+       */
+      failSeverity: string;
+      severityBasis: components["schemas"]["SecuritySeverityBasis"];
+      /** @description What the check does not establish. */
+      limitations: string[];
+    };
+    /** @description One control evaluated on one asset of one environment. */
+    SecurityControlEvaluation: {
+      /** @description stable across collections: a hash of environment, control and asset */
+      id: string;
+      controlId: string;
+      environment: string;
+      source: string;
+      /**
+       * @description the asset, or `*` when the whole source could not be read
+       * @example arn:aws:iam::123456789012:user/alice
+       */
+      asset: string;
+      result: components["schemas"]["SecurityControlResult"];
+      /** @description the evidence read, or why the result is unknown or not applicable */
+      reason: string;
+      /** Format: date-time */
+      evaluatedAt: string;
+      /** @description The findings of a failing evaluation. */
+      findingIds: string[];
+    };
+    /**
+     * @description Evaluations by result. `applicable` is pass + fail + unknown and is the
+     * denominator; not_applicable is left out of it. `evaluated` is pass +
+     * fail.
+     */
+    SecurityControlCounts: {
+      applicable: number;
+      evaluated: number;
+      pass: number;
+      fail: number;
+      unknown: number;
+      notApplicable: number;
+    };
+    /** @description The evaluations of one environment and domain. */
+    SecurityControlCoverage: {
+      environment: string;
+      domain: components["schemas"]["SecurityControlDomain"];
+      /**
+       * @description - evaluated: at least one catalog control of the domain applies to the environment and was evaluated.
+       * - not_connected: controls apply but their source is not connected or could not be read; every evaluation is unknown.
+       * - unsupported: no catalog control of the domain applies to this environment yet; `reason` says what is not checked. It is not a pass.
+       *
+       * @enum {string}
+       */
+      state: "evaluated" | "not_connected" | "unsupported";
+      reason?: string;
+      counts: components["schemas"]["SecurityControlCounts"];
+    };
+    SecurityControlReport: {
+      /**
+       * Format: date-time
+       * @description when the sources were read (as `SecurityReport.generatedAt`)
+       */
+      generatedAt: string;
+      /** @example hopcharlie-security-policy/2026-11-06.1 */
+      policyVersion: string;
+      controls: components["schemas"]["SecurityControl"][];
+      /** @description By environment (in the order of the sources), then control, then asset. */
+      evaluations: components["schemas"]["SecurityControlEvaluation"][];
+      /** @description One row per environment and domain, in the order of the sources and of the domain enum. */
+      coverage: components["schemas"]["SecurityControlCoverage"][];
+    };
+    /**
+     * @description The normalised severity of a package vulnerability. `unknown` means no
+     * source gave a severity or score; it is not low and not none.
+     * `negligible` is a distribution's own label below low.
+     *
+     * @enum {string}
+     */
+    SecurityVulnerabilitySeverity: "critical" | "high" | "medium" | "low" | "negligible" | "unknown";
+    /** @description One CVSS score of an advisory as its source gave it. Versions are not converted into each other. */
+    SecurityCVSS: {
+      /**
+       * @description who published the score (NVD, a CNA, a distribution)
+       * @example nvd@nist.gov
+       */
+      source: string;
+      /** @example 3.1 */
+      version: string;
+      /** @example CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H */
+      vector: string;
+      /**
+       * Format: double
+       * @example 9.8
+       */
+      baseScore: number;
+    };
+    SecurityPackage: {
+      /** @example openssl */
+      name: string;
+      /**
+       * @description the installed version
+       * @example 3.0.13-1~deb12u1
+       */
+      version: string;
+      /**
+       * @description the package ecosystem: deb, apk, rpm, go-module, npm, python, java-archive, ...
+       * @example deb
+       */
+      type: string;
+      /** @example pkg:deb/debian/openssl@3.0.13-1~deb12u1?distro=debian-12 */
+      purl?: string;
+      /** @example debian-12 */
+      distro?: string;
+    };
+    /** @description One scan of one image digest by the platform's scanner (ADR 0029). */
+    SecurityImageScan: {
+      id: string;
+      /**
+       * @description the reference that was scanned
+       * @example registry.example/app@sha256:4c2e...
+       */
+      image?: string;
+      /**
+       * @description the manifest digest that was scanned (for a multi-arch index, the platform manifest)
+       * @example sha256:4c2e...
+       */
+      digest: string;
+      /** @example linux/amd64 */
+      platform?: string;
+      /**
+       * @description - succeeded: the scan finished; zero vulnerabilities means none were matched with this database, not that the image is safe.
+       * - failed: the scan did not finish; `message` says why. Its image has no result.
+       * - unsupported: the scanner cannot read this image (e.g. no package database).
+       *
+       * @enum {string}
+       */
+      status: "succeeded" | "failed" | "unsupported";
+      scanner: {
+        /** @example grype */
+        name: string;
+        version: string;
+      };
+      database?: {
+        /**
+         * Format: date-time
+         * @description when the vulnerability database was built
+         */
+        builtAt?: string;
+        schemaVersion?: string;
+      };
+      /** Format: date-time */
+      startedAt?: string;
+      /** Format: date-time */
+      finishedAt?: string;
+      /** @description packages in the image's SBOM */
+      packages?: number;
+      /** @description hash of the scanner's original result kept by the platform */
+      resultSha256?: string;
+      message?: string;
+    };
+    /** @description One advisory matched to one package of one scanned image digest. */
+    SecurityVulnerability: {
+      /** @description stable: a hash of digest, advisory and the package's purl or name, version and type */
+      id: string;
+      scanId: string;
+      digest: string;
+      /**
+       * @description the advisory id: a CVE, or a GHSA or distribution id where there is no CVE
+       * @example CVE-2024-6387
+       */
+      advisory: string;
+      aliases: string[];
+      package: components["schemas"]["SecurityPackage"];
+      /** @description empty when the source names no fixed version; that does not mean there is no fix */
+      fixedVersions: string[];
+      /** @enum {string} */
+      fixState: "fixed" | "not_fixed" | "wont_fix" | "unknown";
+      severity: components["schemas"]["SecurityVulnerabilitySeverity"];
+      severityBasis: components["schemas"]["SecuritySeverityBasis"];
+      cvss: components["schemas"]["SecurityCVSS"][];
+      urls: string[];
+    };
+    /**
+     * @description One container of a running workload and the image it runs, read from
+     * the cluster (ADR 0029). The tag in `image` is for display; the digest
+     * identifies the image.
+     */
+    SecurityRunningImage: {
+      environment: string;
+      namespace: string;
+      /** @example Deployment/web */
+      workload: string;
+      container: string;
+      /** @description the app, from the label app.kubernetes.io/part-of that the platform's app chart sets; absent when the pod lacks the chart's labels */
+      app?: string;
+      /** @description the app instance (ADR 0015), from the label app.kubernetes.io/instance when it equals the namespace; absent otherwise */
+      instance?: string;
+      /** @description the image the pod spec names */
+      image: string;
+      /** @description the digest the kubelet reports in the container status; absent when the runtime gave none */
+      digest?: string;
+      /** @description the latest scan of `digest` */
+      scanId?: string;
+      /**
+       * @description - scanned: a succeeded scan of the digest exists.
+       * - scan_failed: the latest scan of the digest failed or was unsupported.
+       * - not_scanned: no scan of the digest exists.
+       * - unknown_digest: the runtime reported no digest, so no scan can be matched.
+       *
+       * @enum {string}
+       */
+      scanState: "scanned" | "scan_failed" | "not_scanned" | "unknown_digest";
+    };
+    SecurityScannerState: {
+      /**
+       * @description - connected: the platform reads scan results.
+       * - not_configured: no scanner results are connected; `scans` and `vulnerabilities` are empty and this means "not scanned", not "no vulnerabilities".
+       * - error: results could not be read; `message` says why.
+       *
+       * @enum {string}
+       */
+      status: "connected" | "not_configured" | "error";
+      message?: string;
+    };
+    /**
+     * @description Separate counts, each with its own unit: distinct advisories, distinct
+     * scanned digests, running containers of a scanned digest with at least
+     * one vulnerability, and advisory-package-digest occurrences.
+     */
+    SecurityVulnerabilitySummary: {
+      advisories: number;
+      images: number;
+      affectedContainers: number;
+      occurrences: number;
+      /** @description running containers whose digest has no succeeded scan (not_scanned, scan_failed or unknown_digest) */
+      notScannedContainers: number;
+    };
+    SecurityVulnerabilityReport: {
+      /** Format: date-time */
+      generatedAt: string;
+      scanner: components["schemas"]["SecurityScannerState"];
+      scans: components["schemas"]["SecurityImageScan"][];
+      vulnerabilities: components["schemas"]["SecurityVulnerability"][];
+      /** @description Containers of running pods outside system namespaces, by environment, namespace, workload and container. An environment whose cluster could not be read has none; see `sources` of `GET /v1/security`. */
+      runningImages: components["schemas"]["SecurityRunningImage"][];
+      summary: components["schemas"]["SecurityVulnerabilitySummary"];
     };
     SecuritySource: {
       /** @example aws-guardduty */
@@ -3637,6 +4064,75 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["SecurityOCSFExport"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description The platform's control catalog and every evaluation of it, from the
+   * same collection and cache as `GET /v1/security` (ADR 0029). Each
+   * control is one check with its condition, the asset it evaluates, its
+   * official references (exact or partial) and what it does not
+   * establish. Each evaluation is pass, fail, unknown or not_applicable
+   * for one asset.
+   *
+   * A source that answered is not a pass, and no findings are not a pass:
+   * a control passes only on an asset the check read. Assets of a source
+   * that could not be read are one `unknown` evaluation with asset `*`.
+   * `coverage` counts by environment and domain, with not_applicable
+   * left out of the denominator, and says which domains have no control
+   * in an environment yet. There is no overall score. Error codes as for
+   * `/v1/security`.
+   */
+  getSecurityControls: {
+    parameters: {
+      query?: {
+        environment?: string;
+        refresh?: boolean;
+      };
+    };
+    responses: {
+      /** @description Controls, evaluations and coverage. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityControlReport"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Package vulnerabilities of image digests and the running containers
+   * that use them (ADR 0029). Scans run outside the request (CI or a
+   * worker); this endpoint only reads stored results and the clusters'
+   * running images, from the same collection and cache as
+   * `GET /v1/security`.
+   *
+   * `scanner.status` not_configured means no scan results are connected:
+   * empty `scans` and `vulnerabilities` then mean "not scanned", not "no
+   * vulnerabilities". A running container whose digest has no succeeded
+   * scan is counted in `summary.notScannedContainers`. Error codes as for
+   * `/v1/security`.
+   */
+  getSecurityVulnerabilities: {
+    parameters: {
+      query?: {
+        environment?: string;
+        refresh?: boolean;
+      };
+    };
+    responses: {
+      /** @description Scans, vulnerabilities and running images. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SecurityVulnerabilityReport"];
         };
       };
       400: components["responses"]["BadRequest"];

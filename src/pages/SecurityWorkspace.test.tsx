@@ -90,7 +90,11 @@ describe("shared security workspace", () => {
     expect(screen.getAllByText("미연동")).toHaveLength(4);
   });
   it("shares all five tabs in live mode without filling unsupported capabilities from fixtures", async () => {
-    installFetch(() => json(200, {
+    installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
+      generatedAt: "2026-11-06T00:00:00Z", scanner: { status: "not_configured", message: "스캐너 미연결." }, scans: [], vulnerabilities: [],
+      runningImages: [{ environment: "gke", namespace: "shop", workload: "Deployment/web", container: "app", image: "ghcr.io/x/app:v1", scanState: "unknown_digest" }],
+      summary: { advisories: 0, images: 0, affectedContainers: 0, occurrences: 0, notScannedContainers: 1 },
+    }) : call.url.includes("/v1/security/controls") ? json(404, { error: { code: "not_found", message: "no route" } }) : json(200, {
       generatedAt: "2026-11-06T00:00:00Z", sources: [], storageKeys: [], findings: [],
       summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
     }));
@@ -98,9 +102,30 @@ describe("shared security workspace", () => {
     startSession(fakeSession());
     render(<RoutedSecurity />);
     expect(within(screen.getByRole("navigation", { name: "보안 메뉴" })).getAllByRole("link")).toHaveLength(5);
-    expect(await screen.findByText("취약점 데이터 연동 준비 중")).toBeInTheDocument();
+    expect(await screen.findByText("취약점 결과 없음")).toBeInTheDocument();
+    expect(screen.getByText(/컨테이너 1개.*0건이 아닙니다/)).toBeInTheDocument();
     expect(screen.queryByText("데모 보안 데이터")).not.toBeInTheDocument();
     expect(screen.queryByText("CVE-2021-44228")).not.toBeInTheDocument();
+  });
+
+  it("shows live control evaluations with their asset and policy version", async () => {
+    installFetch((call) => call.url.includes("/v1/security/controls") ? json(200, {
+      generatedAt: "2026-11-06T00:00:00Z", policyVersion: "hopcharlie-security-policy/2026-11-06.1", coverage: [],
+      controls: [{ id: "HC-IDN-03", title: "IAM 사용자 MFA", domain: "identity", check: "aws.user-mfa", source: "aws-iam", asset: "IAM user", condition: "c", mapping: "exact", failSeverity: "medium", limitations: [],
+        references: [{ framework: "AWS Security Hub CSPM", version: "2026-11-06", id: "IAM.5", url: "https://docs.aws.amazon.com/x", relation: "exact", severity: "Medium" }],
+        severityBasis: { type: "vendor", issuer: "AWS Security Hub CSPM", policy: "hopcharlie-security-policy/2026-11-06.1" } }],
+      evaluations: [{ id: "e1", controlId: "HC-IDN-03", environment: "aws-account", source: "aws-iam", asset: "user/bob", result: "fail", reason: "no MFA", evaluatedAt: "2026-11-06T00:00:00Z", findingIds: [] }],
+    }) : call.url.includes("/v1/security/vulnerabilities") ? json(503, { error: { code: "security_not_configured", message: "off" } }) : json(200, {
+      generatedAt: "2026-11-06T00:00:00Z", sources: [], storageKeys: [], findings: [],
+      summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
+    }));
+    window.history.replaceState(null, "", "/#security/controls");
+    startSession(fakeSession());
+    render(<RoutedSecurity />);
+    expect(await screen.findByRole("link", { name: "IAM 사용자 MFA" })).toBeInTheDocument();
+    expect(screen.getByText("user/bob")).toBeInTheDocument();
+    expect(screen.getByText(/정책 hopcharlie-security-policy\/2026-11-06.1/)).toBeInTheDocument();
+    expect(screen.queryByText("데모 보안 데이터")).not.toBeInTheDocument();
   });
 
   it("continues to read the existing API report at the live security root", async () => {

@@ -114,3 +114,83 @@ describe("live security report adapter", () => {
     expect(data.sources[1].scannerVersion).toBeUndefined();
   });
 });
+
+describe("live posture mapping", () => {
+  const generatedAt = "2026-11-06T09:00:00Z";
+  const control = {
+    id: "HC-IDN-03", title: "IAM user MFA", domain: "identity" as const, check: "aws.user-mfa", source: "aws-iam", asset: "IAM user", condition: "console users have MFA",
+    mapping: "exact" as const, failSeverity: "medium", limitations: ["fixture limitation"],
+    references: [{ framework: "AWS Security Hub CSPM", version: "2026-11-06", id: "IAM.5", url: "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html#iam-5", relation: "exact" as const, severity: "Medium" }],
+    severityBasis: { type: "vendor" as const, issuer: "AWS Security Hub CSPM", policy: "hopcharlie-security-policy/2026-11-06.1", sourceSeverity: "Medium" },
+  };
+  const evaluation = (id: string, asset: string, result: "pass" | "fail" | "unknown" | "not_applicable", controlId = "HC-IDN-03") => ({
+    id, controlId, environment: "aws-account", source: "aws-iam", asset, result, reason: "fixture " + result, evaluatedAt: generatedAt, findingIds: [],
+  });
+  const digest = "sha256:" + "1".repeat(64);
+  const images = [
+    { environment: "gke", namespace: "shop", workload: "Deployment/web", container: "app", app: "shop", image: "ghcr.io/x/app:v1", digest, scanState: "scanned" as const, scanId: "scan1" },
+    { environment: "eks", namespace: "shop", workload: "Deployment/web", container: "app", image: "ghcr.io/x/app:v1", scanState: "unknown_digest" as const },
+  ];
+  const summary = { advisories: 0, images: 0, affectedContainers: 0, occurrences: 0, notScannedContainers: 2 };
+
+  it("leaves controls and vulnerabilities unavailable, with the reason, until their APIs answer", () => {
+    const d = securityData(undefined, { controlsError: "404 not_found" });
+    expect(d.controls).toBeNull();
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.unavailable?.controls).toContain("404");
+    expect(d.unavailable?.vulnerabilities).toBeTruthy();
+  });
+
+  it("treats a response outside the contract as unavailable, not empty", () => {
+    const d = securityData(undefined, { controls: {} as never, vulnerabilities: { generatedAt } as never });
+    expect(d.controls).toBeNull();
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.unavailable?.controls).toContain("계약 형식");
+    expect(d.unavailable?.vulnerabilities).toContain("계약 형식");
+  });
+
+  it("maps every evaluation with its control, asset and reference relation", () => {
+    const d = securityData(undefined, { controls: { generatedAt, policyVersion: "hopcharlie-security-policy/2026-11-06.1", controls: [control], coverage: [],
+      evaluations: [evaluation("e1", "user/alice", "pass"), evaluation("e2", "user/bob", "fail"), evaluation("e3", "*", "unknown"), evaluation("orphan", "x", "fail", "HC-NOPE")] } });
+    expect(d.controls?.map((c) => [c.id, c.status, c.asset])).toEqual([["e1", "pass", "user/alice"], ["e2", "fail", "user/bob"], ["e3", "unknown", "*"]]);
+    expect(d.controls?.[0].controlId).toBe("HC-IDN-03 · AWS Security Hub CSPM IAM.5");
+    expect(d.controls?.[2].evidence).toContain("전체 자산");
+    expect(d.policyVersion).toBe("hopcharlie-security-policy/2026-11-06.1");
+  });
+
+  it("does not turn a missing scanner into zero vulnerabilities", () => {
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "not_configured", message: "no scanner" }, scans: [], vulnerabilities: [], runningImages: images, summary } });
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.unavailable?.vulnerabilities).toContain("컨테이너 2개");
+    expect(d.unavailable?.vulnerabilities).toContain("0건이 아닙니다");
+    expect(d.sources.find((s) => s.id === "platform/image-scan")?.status).toBe("not_configured");
+  });
+
+  it("links a scanned vulnerability to the running containers of its digest", () => {
+    const basis = { type: "vendor" as const, issuer: "Grype", policy: "hopcharlie-security-policy/2026-11-06.1", sourceSeverity: "Negligible" };
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, scans: [], runningImages: images, summary,
+      vulnerabilities: [{ id: "v1", scanId: "scan1", digest, advisory: "CVE-2026-0001", aliases: [], package: { name: "openssl", version: "3.0.13", type: "deb" },
+        fixedVersions: [], fixState: "not_fixed", severity: "negligible", severityBasis: basis, cvss: [], urls: [] }] } });
+    const v = d.vulnerabilities?.[0];
+    expect(v?.severity).toBe("low");
+    expect(v?.cvss).toBeNull();
+    expect(v?.kev).toBeNull();
+    expect(v?.fixedVersion).toBeNull();
+    expect(v?.occurrences).toEqual([{ environment: "gke", app: "shop", workload: "Deployment/web/app", namespace: "shop", running: true }]);
+    expect(v?.scoreSource).toContain("Negligible");
+  });
+
+  it("keeps a finding's severity basis and source URL", () => {
+    const report: SecurityReport = {
+      generatedAt, summary: { bySeverity: { total: 1, critical: 0, high: 0, medium: 1, low: 0, info: 0 }, byEnvironment: {} }, sources: [], storageKeys: [], findings: [{
+        id: "f1", source: "aws-iam", provider: "aws", environment: "aws-account", check: "aws.user-mfa", category: "identity", severity: "medium",
+        title: "t", resource: "user/bob", detail: "d", recommendation: "r", observedAt: generatedAt, kind: "configuration", controlId: "HC-IDN-03",
+        severityBasis: { type: "vendor", issuer: "AWS Security Hub CSPM", policy: "hopcharlie-security-policy/2026-11-06.1", sourceSeverity: "Medium", sourceUrl: "https://docs.aws.amazon.com/x" },
+      }],
+    };
+    const f = securityData(report).findings[0];
+    expect(f.basisUrl).toBe("https://docs.aws.amazon.com/x");
+    expect(f.controlId).toBe("HC-IDN-03");
+    expect(f.severityBasis).toContain("벤더 등급");
+  });
+});

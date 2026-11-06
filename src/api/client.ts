@@ -46,8 +46,10 @@ import type {
   RollbackRequest,
   Run,
   RunList,
+  SecurityControlReport,
   SecurityReport,
   SecuritySeverity,
+  SecurityVulnerabilityReport,
   Session,
   StartMigrationRequest,
   StartMigrationResponse,
@@ -390,6 +392,16 @@ export type SecurityQuery = {
 /** The filters apply to the findings and to every count. 503 security_not_configured when the server has no collectors. */
 export const getSecurity = (q: SecurityQuery = {}, o?: RequestOptions) =>
   request<SecurityReport>("GET", "/v1/security", { ...o, query: q });
+
+export type SecurityPostureQuery = Omit<SecurityQuery, "severity">;
+
+/** The HopCharlie control catalog, its evaluations and per-domain coverage. Older servers answer 404. */
+export const getSecurityControls = (q: SecurityPostureQuery = {}, o?: RequestOptions) =>
+  request<SecurityControlReport>("GET", "/v1/security/controls", { ...o, query: q });
+
+/** Running images, their scan state and stored scan results. The server never scans in this call. */
+export const getSecurityVulnerabilities = (q: SecurityPostureQuery = {}, o?: RequestOptions) =>
+  request<SecurityVulnerabilityReport>("GET", "/v1/security/vulnerabilities", { ...o, query: q });
 
 // --- agent activity ---
 
