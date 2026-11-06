@@ -71,9 +71,39 @@ describe("shared security workspace", () => {
     const noScan = screen.getAllByText("(검사 시각 미확인)")[0];
     expect(noScan.closest("small")).toHaveAttribute("title", "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.");
     expect(screen.getAllByText(/^수집 \d/)[0].tagName).toBe("B");
+    expect(screen.getAllByText(/^수집 \d/)[0]).toHaveClass("sp-collected");
     expect(screen.queryByText("검사 미확인")).not.toBeInTheDocument();
     expect(screen.getByText("수집 실패")).toBeInTheDocument();
     expect(screen.queryByText("수집 완료")).not.toBeInTheDocument();
+  });
+
+  it("keeps a GHSA-only row out of the KEV-unknown filter and says CVE 없음 once", async () => {
+    const vuln = (id: string, advisory: string, exploitation: object) => ({
+      id, scanId: "s1", digest: "sha256:a", advisory, aliases: [], fixedVersions: [], fixState: "unknown", severity: "high",
+      severityBasis: { type: "vendor", issuer: "x", policy: "p1", reason: "y" }, cvss: [], urls: [], package: { name: "pkg-" + id, version: "1.0", type: "deb" }, exploitation,
+    });
+    installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
+      generatedAt: "2026-11-07T00:00:00Z", scanner: { status: "connected" }, scans: [], runningImages: [{ environment: "eks", namespace: "shop", workload: "Deployment/web", container: "web", app: "shop", image: "r/web:v1", digest: "sha256:a", scanState: "scanned" }],
+      summary: { advisories: 2, images: 1, affectedContainers: 0, occurrences: 2, notScannedContainers: 0 },
+      vulnerabilities: [
+        vuln("g1", "GHSA-aaaa-bbbb-cccc", { kev: { state: "no_cve" }, epss: { state: "no_cve" } }),
+        vuln("c1", "CVE-2026-0001", { cve: "CVE-2026-0001", kev: { state: "unknown" }, epss: { state: "unknown" } }),
+      ],
+      exploitSources: [{ name: "cisa-kev", state: "idle", message: "no CVE" }],
+    }) : call.url.includes("/v1/security/controls") ? json(503, { error: { code: "security_not_configured", message: "off" } }) : json(200, {
+      generatedAt: "2026-11-07T00:00:00Z", sources: [], storageKeys: [], findings: [],
+      summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} },
+    }));
+    window.history.replaceState(null, "", "/#security/vulnerabilities");
+    startSession(fakeSession());
+    const user = userEvent.setup();
+    render(<RoutedSecurity />);
+    const list = await screen.findByRole("region", { name: "취약점 목록" });
+    const ghsaRow = (await within(list).findByRole("link", { name: "GHSA-aaaa-bbbb-cccc" })).closest("tr")!;
+    expect(within(ghsaRow).getAllByText("CVE 없음")).toHaveLength(1);
+    await user.selectOptions(screen.getByLabelText("악용 근거"), "unknown");
+    expect(within(list).queryByRole("link", { name: "GHSA-aaaa-bbbb-cccc" })).not.toBeInTheDocument();
+    expect(within(list).getByRole("link", { name: "CVE-2026-0001" })).toBeInTheDocument();
   });
 
   it("shows loading and retry without presenting an empty successful report", () => {

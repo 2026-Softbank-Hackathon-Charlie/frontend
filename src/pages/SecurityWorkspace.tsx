@@ -35,7 +35,7 @@ const unique = (values: string[]) => [...new Set(values)];
 const NO_SCAN_TIME = "이 출처는 자체 검사를 언제 했는지 알려주지 않습니다. 수집 시각은 플랫폼이 결과를 가져온 시각입니다.";
 
 function ScanTimes({ collected, scanned }: { collected: string | null; scanned: string | null }) {
-  return <><b className="block">수집 {date(collected)}</b>{scanned
+  return <><b className="block sp-collected">수집 {date(collected)}</b>{scanned
     ? <small className="block">검사 {date(scanned)}</small>
     : <small className="block sp-no-scan" title={NO_SCAN_TIME}><span>(검사 시각 미확인)</span> <span aria-label={NO_SCAN_TIME} role="img">ⓘ</span></small>}</>;
 }
@@ -144,12 +144,12 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const vulnerabilities = filterVulnerabilities(data.vulnerabilities ?? [], environment, app);
   const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (app === "all" || f.app === app));
   const sources = data.sources.filter((s) => environment === "all" || s.environment === environment);
-  const missingSources = sources.filter((s) => s.status !== "ok");
+  const missingSources = sources.filter((s) => s.status !== "ok" && s.status !== "idle");
   const counts = controlCounts(controls);
   const summary = summarizeVulnerabilities(vulnerabilities);
   const apps = data.apps;
   const activeControls = controls.filter((c) => matches(controlSearch, c.title, c.controlId) && (controlStatus === "all" || c.status === controlStatus) && (domain === "all" || c.domain === domain));
-  const activeVulnerabilities = vulnerabilities.filter((v) => matches(vulnSearch, v.advisory, v.package, v.installedVersion) && (vulnSeverity === "all" || v.severity === vulnSeverity) && (vulnKev === "all" || (vulnKev === "yes" ? v.kev === true : v.kev === null)));
+  const activeVulnerabilities = vulnerabilities.filter((v) => matches(vulnSearch, v.advisory, v.package, v.installedVersion) && (vulnSeverity === "all" || v.severity === vulnSeverity) && (vulnKev === "all" || (vulnKev === "yes" ? v.kev === true : v.kev === null && v.kevState !== "no_cve")));
   const vulnerabilityGroups = sortByPriority(groupVulnerabilities(activeVulnerabilities));
   const selectedControl = tab === "controls" ? controls.find((c) => c.id === itemId) : undefined;
   const selectedVulnerability = tab === "vulnerabilities" ? vulnerabilities.find((v) => v.id === itemId) : undefined;
@@ -227,7 +227,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
           td(<><Severity value={v.severity} /><small className="block">{v.cvss === null ? "CVSS 미확인" : `CVSS ${v.cvssVersion} · ${v.cvss.toFixed(1)}`}</small></>),
           td(<><a className="sp-row-link m" href={detailHref("vulnerabilities", v.id)}>{v.advisory}</a><small className="block">{unique(group.map((x) => `${x.package} ${x.installedVersion}`)).join(", ")}</small>{priorityReasons(group).length > 0 && <small className="block sp-reasons">{priorityReasons(group).join(" · ")}</small>}</>),
           td(<><b>이미지 {s.images}개 · 실행 확인 {s.workloads}개</b>{unknownWorkloads(group) > 0 && <small className="block">실행 미확인 {unknownWorkloads(group)}개</small>}<small className="block">{unique(group.flatMap((x) => x.occurrences.map((o) => envLabel(o.environment)))).join(" · ")}</small></>),
-          td(<><Chip kind={v.kev === true ? "warn" : ""}>{kevLabel(v)}</Chip>{v.ransomware && <Chip kind="bad">랜섬웨어 사용</Chip>}<small className="block">{epssLabel(v, data.mode === "demo")}</small></>),
+          td(<><Chip kind={v.kev === true ? "warn" : ""}>{kevLabel(v)}</Chip>{v.ransomware && <Chip kind="bad">랜섬웨어 사용</Chip>}{v.epssState !== "no_cve" && <small className="block">{epssLabel(v, data.mode === "demo")}</small>}</>),
           td(<>{v.fixedVersion ? <Chip kind="ok">수정 버전 제공</Chip> : <Chip>미확인</Chip>}<small className="block">{unique(group.map((x) => x.fixedVersion ?? "버전 확인 필요")).join(", ")}</small></>),
         ];
       })} /> : <Empty reset={() => { setVulnSearch(""); setVulnSeverity("all"); setVulnKev("all"); }}>현재 필터에 해당하는 취약점이 없습니다.</Empty>}</section>
