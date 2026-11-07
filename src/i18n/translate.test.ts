@@ -28,6 +28,8 @@ test("joined lists go item by item, and runtime-built text falls back to known w
   expect(tr("서비스 1개, 앱")).toBe("サービス 1件, アプリ");
   expect(tr("AWS EKS 저장")).toBe("AWS EKS 保存");
   expect(tr("저장소")).toBeNull(); // 저장 inside a longer word stays
+  const t = makeTranslator({ "· 생성": "· 生成", "생성 전": "作成前" });
+  expect(t("Postgres · CNPG · 생성 전")).toBe("Postgres · CNPG · 作成前");
 });
 
 test("a pattern with little Korean of its own does not cut into a word", () => {
@@ -35,6 +37,24 @@ test("a pattern with little Korean of its own does not cut into a word", () => {
   expect(t("5분")).toBe("5分");
   expect(t("부분")).toBeNull();
   expect(t("조회하기")).toBeNull();
+});
+
+test("read-only input values and a same-origin iframe are translated and restored", async () => {
+  document.body.innerHTML = `<div id="r"><input readonly value="저장"><input value="저장"><iframe></iframe></div>`;
+  const root = document.getElementById("r")!;
+  const [ro, rw] = root.querySelectorAll("input");
+  const f = root.querySelector("iframe")!;
+  f.contentDocument!.body.innerHTML = "<p>저장</p>";
+  const stop = translateDom(root, tr);
+  f.dispatchEvent(new Event("load"));
+  const shown = () => Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.get!.call(ro);
+  expect(shown()).toBe("保存");
+  expect(ro.value).toBe("저장"); // what React reads
+  expect(rw.value).toBe("저장");
+  expect(f.contentDocument!.querySelector("p")!.textContent).toBe("保存");
+  stop();
+  expect(ro.value).toBe("저장");
+  expect(f.contentDocument!.querySelector("p")!.textContent).toBe("저장");
 });
 
 test("the DOM layer translates new and changed text and restores the Korean on stop", async () => {
