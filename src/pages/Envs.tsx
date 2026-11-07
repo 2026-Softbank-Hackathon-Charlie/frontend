@@ -8,6 +8,7 @@ import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
 import { targetReadShare } from "../sim/mig";
 import { useSim } from "../sim/store";
+import { OnpremEnrollmentEntry } from "../components/OnpremEnrollment";
 
 export function Envs() {
   return useLive() ? <LiveEnvs /> : <SimEnvs />;
@@ -36,17 +37,18 @@ function LiveEnvs() {
   ) : apps.error && !apps.data ? (
     <span className="hint">앱 목록을 읽지 못해 앱을 지정하지 않은 기본 게이트웨이를 보여 줍니다. 등록된 앱의 트래픽과 다를 수 있습니다.</span>
   ) : null;
-  return <EnvsView envs={envs} traffic={traffic} scope={scope} />;
+  return <EnvsView envs={envs} traffic={traffic} scope={scope} enrollment={<OnpremEnrollmentEntry onReady={envs.reload} />} />;
 }
 
 type ReadResult<T> = Pick<Resource<T>, "data" | "error" | "reload">;
 
 /** Both modes render the platform contract. Only the source of observations differs. */
-function EnvsView({ envs, traffic, scope, demo = false }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; scope?: ReactNode; demo?: boolean }) {
+function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; scope?: ReactNode; demo?: boolean; enrollment?: ReactNode }) {
   const t = traffic.data;
   return (
     <div className="page">
       <PageHead icon="server" title="환경" sub={demo ? "클러스터와 트래픽 게이트웨이 상태입니다." : "플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다."} />
+      {enrollment}
       {demo && <p className="hint">시연용 데이터입니다. 정상·부분 조회·연결 실패·백업 실패는 상태 표시를 설명하는 가상 사례이며 실제 클러스터 점검 결과가 아닙니다.</p>}
       <section className="sec">
         <h2>대상 클러스터</h2>
