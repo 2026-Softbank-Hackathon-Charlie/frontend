@@ -20,6 +20,17 @@ export function envName(name: string, envs?: Environment[]): string {
   return k ? ENV[k].name : name;
 }
 
+/** An environment's label after its provider logo (AWS, GCP) or a server icon for on-prem; no icon for an unknown name. */
+export function EnvLabel({ env, label }: { env: string; label: string }) {
+  const k = envKeyOf(env);
+  return (
+    <span className="icon-label">
+      {k === "onprem" ? <Icon name="server" size={16} /> : k && <img className="icon env-logo" src={"/env/" + k + ".svg"} alt="" width={20} height={16} />}
+      <span>{label}</span>
+    </span>
+  );
+}
+
 function envShort(name: string): string {
   const k = envKeyOf(name);
   return k ? ENV[k].short : name;

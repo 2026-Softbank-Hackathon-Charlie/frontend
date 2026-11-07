@@ -22,6 +22,7 @@ button, input, select { font: inherit; color: inherit; }
 .icon { display: inline-block; flex: none; vertical-align: -0.125em; }
 .icon-label { display: inline-flex; align-items: center; gap: var(--sp-xs); min-width: 0; }
 .icon-label > span { min-width: 0; }
+.env-logo { object-fit: contain; } /* the provider logos are wider than tall */
 
 /* Shell: grouped side menu on a grey rail, slim top bar with the section path and the mode notice. */
 .layout { display: flex; min-height: 100vh; min-height: 100dvh; }
