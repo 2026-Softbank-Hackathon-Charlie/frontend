@@ -11,6 +11,8 @@ export interface OnpremEnrollment {
   id: string;
   environment: string;
   status: OnpremEnrollmentStatus;
+  /** Optional on older servers; describes the actual registration worker stage. */
+  stage?: string;
   createdAt: string;
   expiresAt: string;
   updatedAt: string;
