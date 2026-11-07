@@ -516,14 +516,17 @@ export const deleteAppInstance = (name: string, instance: string, o?: RequestOpt
 /**
  * Add an environment of this server to a registered app (ADR 0037) and queue a deployment of the default instance
  * (trigger environment) to all of the app's environments, without a build. 409 environment_exists,
- * deployment_in_progress, migration_in_progress, nothing_to_redeploy, db_pair_unavailable, app_not_registered;
- * 404 env_not_found; 503 storage_not_configured, sealing_not_configured. Role operator.
+ * deployment_in_progress, migration_in_progress, nothing_to_redeploy, db_pair_unavailable, app_not_registered,
+ * environment_cleanup_pending (a removed environment Argo CD is still deleting), app_changed; 404 env_not_found;
+ * 502/503 environment_cleanup_unknown; 503 storage_not_configured, sealing_not_configured. Sending it again for an
+ * environment whose deployment failed deploys it again (202). Role operator.
  */
 export const addAppEnvironment = (name: string, req: AppEnvironmentAddRequest, o?: RequestOptions) =>
   request<AppEnvironmentAdded>("POST", `/v1/apps/${seg(name)}/environments`, { ...o, body: req });
 /**
  * Take an environment out of a registered app with its namespaces and data there (ADR 0037). 409
- * primary_environment, write_backend, deployment_in_progress, migration_in_progress; 502 github_unreachable,
+ * primary_environment, write_backend, environment_has_files, deployment_in_progress, migration_in_progress,
+ * app_changed; 502 github_unreachable,
  * gateway_unreachable; 503 github_not_configured. Role operator.
  */
 export const removeAppEnvironment = (name: string, env: string, o?: RequestOptions) =>

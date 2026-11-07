@@ -256,6 +256,9 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const [removeEnvError, setRemoveEnvError] = useState("");
   /** what the last finished action did, when it stays on this page */
   const [done, setDone] = useState("");
+  /** the environments taken out on this page; Argo CD may still be deleting them when one is added again */
+  const [removedEnvs, setRemovedEnvs] = useState<string[]>([]);
+  const migWarnId = useId();
   // Once opened, the instances and secrets tabs stay mounted (hidden on the other tabs): an open form, a staged change, the
   // redeploy offer and an answer that arrives meanwhile all outlive a tab switch, as on the one long page before.
   const [kept, setKept] = useState<AppTab[]>([]);
@@ -278,8 +281,28 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const roles = d?.dbTopology ? dbRoles(d.dbTopology, m.writeBackend) : undefined;
   // ADR 0037: a pair whose replica is not one of the app's environments yet; a server from before it sends no replicaPresent
   const peerMissing = d?.dbTopology?.replicaPresent === false;
-  // why the pair cannot be migrated now; the 이전 button waits for readiness.ready
+  // why the pair cannot be migrated now; a warning beside 이전, which stays a link: the migration page and the
+  // platform's start check again, and an unknown or passing problem must not hide the way there
   const blocked = readinessBlock(d?.dbTopology?.readiness);
+  const readiness = d?.dbTopology?.readiness;
+  // the platform refuses an environment change while a deployment of the app is not finished
+  const envBusyWhy = running ? "배포가 진행 중이라 끝난 뒤 환경을 더하거나 뺄 수 있습니다" : "";
+  /** Why `env` cannot be taken out, or "" when it can (the first environment has no button). */
+  const removeWhy = (env: string): string => {
+    if (env === m.writeBackend) return "지금 쓰기를 받는 환경이라 뺄 수 없습니다";
+    if (readiness?.environments.find((e) => e.env === env)?.role === "primary" || roles?.[env]?.role === "primary") return "지금 DB primary가 있는 환경이라 뺄 수 없습니다";
+    return envBusyWhy;
+  };
+  /**
+   * Adding `env` again would deploy it again (202): the default instance's newest deployment that got there (one that
+   * stopped before, such as a failed build, is passed over) is not healthy there, or none got there. Not while one runs.
+   */
+  const addFailed = (env: string): boolean => {
+    if (!m.deployments || running) return false;
+    const at = (x: Deployment) => x.environments.find((e) => e.env === env)?.status;
+    const got = deps.find((x) => (x.instance || a.name) === a.name && at(x) !== undefined && at(x) !== "pending");
+    return !got || at(got) !== "healthy";
+  };
   const tabHref = (t: string) => "#app-" + a.name + (t === "overview" ? "" : "/" + t);
 
   /** Deploys `branch` into its instance; without one, the default instance. */
@@ -320,9 +343,23 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
       const err = await m.removeEnvironment(env);
       if (err) setRemoveEnvError(err);
       else {
+        setRemovedEnvs((l) => [...l, env]);
         setRemovingEnv("");
         setDone(envName(env) + " 환경을 뺐습니다. Argo CD가 그 환경의 네임스페이스와 DB, 파일을 지우고 있습니다.");
       }
+    } finally {
+      setBusy("");
+    }
+  }
+  /** Adds `env` again after its deployment there failed; the server deploys it again (202). */
+  async function retryAddEnv(env: string) {
+    setBusy("add-env");
+    setMsg("");
+    setDone("");
+    try {
+      const r = await m.addEnvironment(env);
+      if ("deploymentId" in r) navigate("#deploy-" + r.deploymentId);
+      else if ("error" in r) setMsg(r.error);
     } finally {
       setBusy("");
     }
@@ -348,23 +385,24 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
         </button>
       )}
       {d && (
-        <button type="button" className="btn ghost" disabled={!!busy || addingEnv} onClick={() => setAddingEnv(true)}>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={!!busy || addingEnv || !!envBusyWhy}
+          title={envBusyWhy || undefined}
+          aria-describedby={envBusyWhy ? "appd-running" : undefined}
+          onClick={() => setAddingEnv(true)}
+        >
           <Icon name="plus" size={16} />
           환경 추가
         </button>
       )}
-      {a.environments.length > 0 &&
-        (blocked ? (
-          <button type="button" className="btn ghost" disabled title={blocked} aria-describedby="appd-dbpair-why">
-            <Icon name="arrow-right-left" size={16} />
-            이전
-          </button>
-        ) : (
-          <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
-            <Icon name="arrow-right-left" size={16} />
-            이전
-          </a>
-        ))}
+      {a.environments.length > 0 && (
+        <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)} aria-describedby={blocked ? migWarnId : undefined}>
+          <Icon name="arrow-right-left" size={16} />
+          이전
+        </a>
+      )}
       {d && (
         <MoreMenu>
           <button type="button" disabled={!!busy || confirming} onClick={() => setConfirming(true)}>
@@ -480,7 +518,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
             </Card>
           </div>
         </div>
-        {d.dbTopology && <DBPair t={d.dbTopology} envs={d.environments} blocked={blocked} />}
+        {d.dbTopology && <DBPair t={d.dbTopology} envs={d.environments} />}
         {migration}
       </>
     );
@@ -515,6 +553,14 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   return (
     <div className="page appd-page">
       <AppHead name={a.name} source={d ? "GitHub" : "파일 앱"} line={line} acts={acts} />
+      {blocked && (
+        <div className="box fillbox" id={migWarnId}>
+          <div className="bb">
+            <b>이전 준비 안 됨</b>
+            <p>{blocked}</p>
+          </div>
+        </div>
+      )}
       {confirming && d && (
         <ConfirmDelete label="앱 삭제 확인" kind="앱" name={a.name} busy={!!busy} deleting={busy === "delete"} onConfirm={remove} onCancel={() => setConfirming(false)}>
           gitops 저장소에서 {m.instances.map((i) => "apps/" + i.name + "/").join(", ")}을 지우고, Argo CD가 환경 {d.environments.length}곳({d.environments.map((e) => envName(e)).join(", ")})의 앱과 DB, 버킷을 지웁니다. 데이터는 되돌릴 수 없습니다.
@@ -525,7 +571,9 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
           m={m}
           have={d.environments}
           topology={d.dbTopology}
+          removed={removedEnvs}
           busy={!!busy}
+          busyWhy={envBusyWhy}
           setBusy={(on) => setBusy(on ? "add-env" : "")}
           onCancel={() => setAddingEnv(false)}
         />
@@ -546,7 +594,10 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
             envName(removingEnv) +
             " 환경을 뺍니다. gitops 저장소에서 각 인스턴스의 " +
             removingEnv +
-            ".yaml을 지우고, Argo CD가 이 환경의 네임스페이스와 그 안의 DB 복제본, 파일(버킷)을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 환경은 그대로 두고, DB 짝 설정은 남아 나중에 같은 환경을 다시 더할 수 있습니다."}
+            // only the pair's replica is a copy of the app's database; elsewhere say no more than what goes
+            (d.dbTopology?.replica === removingEnv && roles?.[removingEnv]?.role !== "primary"
+              ? ".yaml을 지우고, Argo CD가 이 환경의 네임스페이스와 그 안의 DB 복제본, 파일(버킷)을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 환경은 그대로 두고, DB 짝 설정은 남아 나중에 같은 환경을 다시 더할 수 있습니다."
+              : ".yaml을 지우고, Argo CD가 이 환경의 네임스페이스와 그 안의 파일(버킷)을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 환경은 그대로 둡니다.")}
         </ConfirmDelete>
       )}
       {done && (
@@ -565,13 +616,14 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
       )}
       {invalid && <SpecResult check={{ data: invalid, error: undefined, loading: false, reload: () => setInvalid(undefined) }} />}
       {running && (
-        <div className="box fillbox" role="status">
+        <div className="box fillbox" role="status" id="appd-running">
           <div className="bb">
             <div className="actrow">
               <DeployChip s={running.status} />
               <span>
                 배포 {running.id}가 진행 중입니다 ({[running.instance, short(running.commit), ago(running.createdAt, m.now)].filter(Boolean).join(", ")}).
               </span>
+              {d && <span className="hint">배포가 끝나야 환경을 더하거나 뺄 수 있습니다.</span>}
               <a className="more" href={"#deploy-" + running.id}>
                 진행 보기
               </a>
@@ -600,12 +652,24 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
                 )}
                 {/* the first environment stays: the app's database was born primary there (ADR 0037) */}
                 {s.env !== d.environments[0] && (
-                  <div>
+                  <div className="actrow">
+                    {addFailed(s.env) && (
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        aria-label={envName(s.env) + " 환경 추가 다시 시도"}
+                        disabled={!!busy || !!envBusyWhy}
+                        onClick={() => retryAddEnv(s.env)}
+                      >
+                        환경 추가 다시 시도
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn ghost sm"
                       aria-label={envName(s.env) + " 환경 빼기"}
-                      disabled={!!busy || removingEnv === s.env}
+                      disabled={!!busy || removingEnv === s.env || !!removeWhy(s.env)}
+                      aria-describedby={removeWhy(s.env) ? "appd-rm-why-" + s.env : undefined}
                       onClick={() => {
                         setRemovingEnv(s.env);
                         setRemoveEnvError("");
@@ -614,6 +678,11 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
                     >
                       환경 빼기
                     </button>
+                    {removeWhy(s.env) && (
+                      <span className="hint" id={"appd-rm-why-" + s.env}>
+                        {removeWhy(s.env)}
+                      </span>
+                    )}
                   </div>
                 )}
               </EnvCell>
@@ -668,14 +737,26 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
  * The form that adds one of the server's environments to the app (ADR 0037). On success the page follows the
  * deployment that takes the app there, as after any other deploy button.
  */
-function AddEnvironment(p: { m: AppModel; have: string[]; topology?: AppDBTopology; busy: boolean; setBusy: (on: boolean) => void; onCancel: () => void }) {
-  const options: EnvOption[] = (p.m.envOptions ?? []).filter((o) => !p.have.includes(o.value));
-  // a postgres app can get only its pair's other environment (db_pair_unavailable otherwise), so that one is picked first
-  const peer = p.topology && !p.have.includes(p.topology.replica) ? p.topology.replica : "";
+function AddEnvironment(p: {
+  m: AppModel;
+  have: string[];
+  topology?: AppDBTopology;
+  /** environments taken out on this page, which Argo CD may still be deleting */
+  removed: string[];
+  busy: boolean;
+  /** why nothing can be added now (a deployment in progress), or "" */
+  busyWhy: string;
+  setBusy: (on: boolean) => void;
+  onCancel: () => void;
+}) {
+  // a postgres app with a pair can get only the pair's peer: anywhere else its database would be born a separate
+  // primary that can never be migrated, and the platform refuses it (db_pair_unavailable)
+  const options: EnvOption[] = (p.m.envOptions ?? []).filter((o) => !p.have.includes(o.value) && (!p.topology || o.value === p.topology.replica));
   const [env, setEnv] = useState("");
   const [error, setError] = useState("");
-  const picked = options.some((o) => o.value === env) ? env : ((options.find((o) => o.value === peer) ?? options[0])?.value ?? "");
+  const picked = options.some((o) => o.value === env) ? env : (options[0]?.value ?? "");
   const id = useId();
+  const justRemoved = p.removed.includes(picked);
 
   async function add() {
     p.setBusy(true);
@@ -694,23 +775,43 @@ function AddEnvironment(p: { m: AppModel; have: string[]; topology?: AppDBTopolo
       <div className="bb">
         <b>환경 추가</b>
         <p>기본 인스턴스의 마지막 정상 배포(커밋과 이미지)를 빌드 없이, 새 환경을 포함한 앱의 모든 환경에 다시 배포합니다. 새 환경은 이전하기 전까지 요청을 받지 않습니다.</p>
-        {p.topology && <p>{"postgres DB는 새 환경에서 지금 DB의 replica로 태어납니다. DB 짝의 상대 환경은 " + envName(p.topology.replica) + "입니다."}</p>}
-        {!p.m.envOptions ? (
+        {p.topology && (
+          <p>
+            {"postgres DB는 새 환경에서 지금 DB의 replica로 태어납니다. DB 짝이 " +
+              envName(p.topology.primary) +
+              "와 " +
+              envName(p.topology.replica) +
+              "로 정해져 있어 " +
+              envName(p.topology.replica) +
+              "만 더할 수 있습니다. 다른 환경에서는 DB가 따로 태어나 이전할 수 없어 플랫폼이 거절합니다."}
+          </p>
+        )}
+        {p.m.envOptionsError ? (
+          <p className="hint" role="alert">
+            {"서버의 환경 목록을 읽지 못했습니다. " + p.m.envOptionsError}
+          </p>
+        ) : !p.m.envOptions ? (
           <Skeleton />
         ) : options.length === 0 ? (
-          <p className="hint">더할 수 있는 환경이 없습니다. 서버의 환경이 모두 이 앱에 있습니다.</p>
+          <p className="hint">{p.topology ? "DB 짝의 두 환경이 모두 앱에 있어 더할 환경이 없습니다." : "더할 수 있는 환경이 없습니다. 서버의 환경이 모두 이 앱에 있습니다."}</p>
         ) : (
           <div className="field">
             <label htmlFor={id}>더할 환경</label>
-            <select id={id} value={picked} disabled={p.busy} onChange={(e) => setEnv(e.target.value)}>
+            <select id={id} value={picked} disabled={p.busy} onChange={(e) => setEnv(e.target.value)} aria-describedby={justRemoved ? id + "-removed" : undefined}>
               {options.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {p.removed.includes(o.value) ? o.label + " (정리 중일 수 있음)" : o.label}
                 </option>
               ))}
             </select>
+            {justRemoved && (
+              <small id={id + "-removed"}>
+                방금 뺀 환경입니다. Argo CD가 예전 환경을 다 지울 때까지 플랫폼이 다시 더하기를 거절하니, 그때는 잠시 뒤 다시 누르세요.
+              </small>
+            )}
           </div>
         )}
+        {p.busyWhy && <p className="hint">{p.busyWhy}</p>}
         {error && (
           <div role="alert">
             <b>환경을 더하지 못했습니다.</b>
@@ -718,7 +819,7 @@ function AddEnvironment(p: { m: AppModel; have: string[]; topology?: AppDBTopolo
           </div>
         )}
         <div className="actrow">
-          <button type="button" className="btn primary" disabled={p.busy || !picked} onClick={add}>
+          <button type="button" className="btn primary" disabled={p.busy || !picked || !!p.busyWhy} onClick={add}>
             {p.busy ? "추가하는 중" : "환경 추가"}
           </button>
           <button type="button" className="btn ghost" disabled={p.busy} onClick={p.onCancel}>
@@ -747,15 +848,14 @@ const yesNo = (v: boolean | undefined, yes: string, no: string) => (v === undefi
  * The app's database pair (ADR 0030, 0037): each environment's part in it and whether a migration can move the
  * app now. Without readiness (an older server), only whether each environment is the app's.
  */
-function DBPair({ t, envs, blocked }: { t: AppDBTopology; envs: string[]; blocked?: string }) {
+function DBPair({ t, envs }: { t: AppDBTopology; envs: string[] }) {
   const r = t.readiness;
   const rows: PairRow[] = r?.environments ?? [t.primary, t.replica].map((env) => ({ env, inApp: env === t.replica ? t.replicaPresent !== false : envs.includes(env) }));
   return (
     <Card title="DB 짝" side={r && <Chip kind={r.ready ? "ok" : "warn"}>{r.ready ? "이전 준비됨" : "이전 준비 안 됨"}</Chip>}>
       <div className="bb">
-        <p className="hint" id="appd-dbpair-why">
-          {blocked ??
-            "DB는 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 태어납니다. 이전 버튼은 두 환경이 모두 준비되었을 때 켜집니다."}
+        <p className="hint">
+          {"DB는 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 태어납니다. 두 환경이 모두 준비되면 이전할 수 있습니다."}
         </p>
       </div>
       <Table

@@ -95,8 +95,10 @@ export interface MigrationView {
   setApp?(name: string): void;
   /** the app exists and can be migrated */
   ready: boolean;
-  /** live, before a plan: why the app's database pair cannot be migrated now (deploy.dbTopology.readiness, ADR 0037); the plan buttons wait */
-  blocked?: string;
+  /** live, before a plan: what the app's database pair readiness says (deploy.dbTopology.readiness, ADR 0037) */
+  pairCheck?: PairCheck;
+  /** live: shows the app's run `id` (pairCheck.runId) instead of the setup form */
+  openRun?(id: string): void;
   plan?: PlanRecord;
   /** the engine plan the record was made from, when known */
   engine?: EnginePlan;
@@ -224,6 +226,8 @@ function usePreflight(planRef: string | null, runId: string | null, attempt: str
 }
 
 const ACTIVE = new Set(["running", "awaiting_switch"]);
+/** the run statuses the platform counts as a migration in progress (migration_in_progress) */
+const RUN_IN_PROGRESS = new Set(["running", "awaiting_switch", "halted", "interrupted"]);
 
 /*
  * The AI runner (ai-sandbox hopai) plans before any Plan exists, so its plan session has no planRef.
@@ -359,17 +363,53 @@ const READINESS_REASONS: Record<string, string> = {
   app_degraded:
     "새 환경에서 앱이 Degraded로 실패했습니다. 앱이 시작할 때 DB에 쓰는 것 같습니다(replica DB는 쓰기를 거절합니다). 이런 앱은 엔진의 cold 모드로 옮겨야 합니다",
   deploy_failed: "DB 짝 환경의 배포가 실패했습니다. 배포 이력에서 원인을 확인하고 다시 배포하세요",
+  migration_in_progress: "이 앱의 이전이 진행 중이거나 멈춰 있거나, 게이트웨이가 쓰기를 잡고 있습니다. 그 이전이 끝난 뒤 다음 이전을 할 수 있습니다",
   gateway_unreachable: "트래픽 게이트웨이를 읽지 못해 이전할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 확인합니다",
   gateway_backend_missing: "트래픽 게이트웨이에 두 환경의 백엔드가 모두 있어야 합니다. 배포가 끝나면 등록됩니다",
   cluster_unreadable: "DB 클러스터(CNPG)를 읽지 못했습니다. 잠시 뒤 다시 확인합니다",
   cluster_not_healthy: "두 DB 클러스터(CNPG) 중 정상이 아니거나 준비된 인스턴스가 모자란 곳이 있습니다",
   topology_mismatch: "두 DB의 복제 설정이 맞지 않습니다. 한쪽이 primary이고 다른 쪽이 그것을 따라야 합니다",
+  write_backend_mismatch: "게이트웨이가 쓰기를 보내는 환경과 지금 DB가 primary인 환경이 다릅니다. 원본을 잘못 고를 수 있으니 트래픽 화면에서 쓰기 대상을 확인하세요",
 };
 
 /** Why the database pair cannot be migrated now, in Korean; undefined when it is ready or the server sent no readiness (an older one). */
 export function readinessBlock(r: AppDBReadiness | undefined): string | undefined {
   if (!r || r.ready) return undefined;
   return Object.hasOwn(READINESS_REASONS, r.reason) ? READINESS_REASONS[r.reason] : "아직 이전할 수 없습니다: " + r.message;
+}
+
+/**
+ * The migration page's view of the pair's readiness. `stop` all keeps both plan buttons off, manual only the Plan
+ * without AI (the AI can pick the engine's cold mode), none only warns: the server checks again at the start.
+ * `runId` is the app's migration in progress, to open instead of planning another.
+ */
+export interface PairCheck {
+  text: string;
+  stop: "all" | "manual" | "none";
+  runId?: string;
+}
+
+/**
+ * Whether the plan buttons wait for the pair. Only what is sure to fail stops them: the peer is not the app's, its
+ * deployment is unfinished, the target's deployment failed, or a migration of the app is in progress (`activeRun`).
+ * What may pass by the start or was not read (gateway, clusters, a reason this console does not know) only warns, as
+ * a readiness that could not be read does.
+ */
+export function pairCheck(r: AppDBReadiness | undefined, target: string, activeRun: string | undefined): PairCheck | undefined {
+  if (!r || r.ready) return undefined;
+  const text = readinessBlock(r)!;
+  switch (r.reason) {
+    case "replica_missing":
+    case "deploy_pending":
+      return { text, stop: "all" };
+    case "deploy_failed":
+      return { text, stop: r.environments.find((e) => e.env === target)?.deployed === true ? "none" : "all" };
+    case "app_degraded":
+      return { text: text + ". AI 계획은 cold 모드를 고를 수 있어 실행할 수 있습니다", stop: "manual" };
+    case "migration_in_progress":
+      if (activeRun) return { text, stop: "all", runId: activeRun };
+  }
+  return { text, stop: "none" };
 }
 
 /** The app named in the page's hash, #migrate-app?app=<name>. */
@@ -501,20 +541,22 @@ export function useLiveMigration(): MigrationView {
   const topology = app?.deploy?.dbTopology;
   // GET /v1/apps has no readiness: only the app's own read looks at both clusters (ADR 0037)
   const detail = useApp(enabled && choosing && topology ? app?.name : null, 10000);
-  const blocked =
-    choosing && topology
-      ? detail.data
-        ? readinessBlock(detail.data.deploy?.dbTopology?.readiness)
-        : detail.error
-          ? undefined
-          : "DB 짝이 이전할 준비가 되었는지 확인하는 중입니다"
-      : undefined;
   const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : (currentPrimary(envs, topology, trafficFailed ? undefined : traffic.data?.writeBackend) ?? envs[0] ?? ""));
   const srcNote =
     choosing && !srcLoading && trafficFailed
       ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
       : undefined;
   const target = run?.target.env ?? plan?.summary.target.env ?? (tgt && tgt !== src ? tgt : envs.find((e) => e !== src) ?? "");
+  const myRun = ns ? runs.data?.find((r) => touches(ns, r) && RUN_IN_PROGRESS.has(r.status)) : undefined;
+  // while it loads or when it fails the buttons stay on: the platform checks the pair again at the start
+  const pair: PairCheck | undefined =
+    choosing && topology
+      ? detail.data
+        ? pairCheck(detail.data.deploy?.dbTopology?.readiness, target, myRun?.runId)
+        : detail.error
+          ? { text: "DB 짝이 이전할 준비가 되었는지 읽지 못했습니다. 계획은 만들 수 있고, 플랫폼이 시작할 때 다시 확인합니다", stop: "none" }
+          : { text: "DB 짝이 이전할 준비가 되었는지 확인하는 중입니다", stop: "none" }
+      : undefined;
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -555,7 +597,14 @@ export function useLiveMigration(): MigrationView {
       setTgt("");
     },
     ready: !!app,
-    blocked,
+    pairCheck: pair,
+    openRun: (id) => {
+      const r = runs.data?.find((x) => x.runId === id);
+      if (!r) return;
+      setDismissed(null);
+      setRunId(r.runId);
+      setPlanRef(r.planRef);
+    },
     // while a plan session is on screen, an older Plan the page picked up is not the one being written
     plan: planning ? undefined : plan,
     engine,
