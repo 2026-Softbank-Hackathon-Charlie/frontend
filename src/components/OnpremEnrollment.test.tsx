@@ -162,3 +162,13 @@ it("requires explicit k3s installation consent and sends that choice to the serv
   await issue();
   await screen.findByLabelText("일회용 등록 코드");
 });
+
+it("clears the one-time command when operator access is removed", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ enrollment: enrollment(), code: "ABCD-EFGH", installCommand: "server-command" }, 201)));
+  const view = render(<OnpremEnrollmentPanel operator pollMs={0} onClose={vi.fn()} />);
+  await issue(); await screen.findByLabelText("일회용 등록 코드");
+  view.rerender(<OnpremEnrollmentPanel operator={false} pollMs={0} onClose={vi.fn()} />);
+  expect(screen.queryByLabelText("일회용 등록 코드")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("장비에서 실행할 명령")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeDisabled();
+});

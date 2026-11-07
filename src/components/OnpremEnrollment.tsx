@@ -25,12 +25,13 @@ function failure(error: unknown) {
 
 /** No enrollment codes are generated or persisted by the console. */
 export function OnpremEnrollmentEntry({ onReady }: { onReady?: () => void }) {
-  const operator = useAuth().session?.principal.role === "operator";
+  const session = useAuth().session;
+  const operator = session?.principal.role === "operator";
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
     <button ref={trigger} type="button" className="btn primary" onClick={() => setOpen(true)}>온프렘 연결</button>
-    {open && <OnpremEnrollmentPanel operator={operator} onReady={onReady} onClose={() => { setOpen(false); trigger.current?.focus(); }} />}
+    {open && <OnpremEnrollmentPanel key={session?.principal.name ?? "anonymous"} operator={operator} onReady={onReady} onClose={() => { setOpen(false); trigger.current?.focus(); }} />}
   </>;
 }
 
@@ -49,13 +50,16 @@ export function OnpremEnrollmentPanel({ operator, onClose, onReady, pollMs = 500
   const completed = useRef<string | undefined>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(true);
+  const allowed = useRef(operator);
+  allowed.current = operator;
   const expires = enrollment ? Date.parse(enrollment.expiresAt) : NaN;
   const expired = !!enrollment && Number.isFinite(expires) && now >= expires && enrollment.status === "pending";
-  const canInstall = enrollment?.status === "pending" && !expired && !error && !!issued;
+  const canInstall = operator && enrollment?.status === "pending" && !expired && !error && !!issued;
   const done = enrollment?.status === "ready" && CHECKS.every(([id]) => enrollment.checks.some((c) => c.id === id && c.status === "passed"));
   const validName = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/.test(environment);
 
   useEffect(() => { mounted.current = true; heading.current?.focus(); return () => { mounted.current = false; activeId.current = undefined; }; }, []);
+  useEffect(() => { if (!operator) { setIssued(undefined); setEnrollment(undefined); activeId.current = undefined; } }, [operator]);
   useEffect(() => {
     if (!enrollment || enrollment.status !== "pending") return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -92,7 +96,7 @@ export function OnpremEnrollmentPanel({ operator, onClose, onReady, pollMs = 500
       }
       activeId.current = undefined; setIssued(undefined);
       const result = await createOnpremEnrollment({ environment, installK3s });
-      if (!mounted.current) return;
+      if (!mounted.current || !allowed.current) return;
       if (!validEnrollment(result.enrollment)) throw new Error("서버의 등록 응답을 확인할 수 없습니다.");
       activeId.current = result.enrollment.id; setEnrollment(result.enrollment); setNow(Date.now());
       if (result.enrollment.status === "pending" && typeof result.code === "string" && result.code && typeof result.installCommand === "string" && result.installCommand) setIssued({ code: result.code, installCommand: result.installCommand });
