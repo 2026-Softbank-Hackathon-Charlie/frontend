@@ -1,6 +1,6 @@
 import { at, fakeAgentSession, fakeRun } from "../api/fakes";
-import type { AgentEvent, PlanRecord, Run, RunEvent, TrafficState } from "../api/types";
-import { buildMapSnapshot, currentOf } from "./mapSnapshot";
+import type { AgentEvent, AIActivity, PlanRecord, Run, RunEvent, TrafficState } from "../api/types";
+import { aiFacts, buildMapSnapshot, currentOf } from "./mapSnapshot";
 import type { MigrationView } from "./migration";
 
 const noop = () => {};
@@ -97,6 +97,46 @@ describe("migration map snapshot: one map from the setup to the end of the run",
       capacity: { status: "pass", summary: "ok", items: [] },
     } }));
     expect(s.validations[0]).toMatchObject({ status: "결과 미수신", tone: "idle" });
+  });
+
+  describe("what the AI runner really did (GET /v1/ai-activity)", () => {
+    const activity = (p: Partial<AIActivity["summary"]> = {}): AIActivity => ({
+      since: at(0),
+      events: [],
+      summary: { modelCalls: 2, model: "claude-sonnet-5-5", tokensIn: 14949, tokensOut: 2578, tools: { get_app: 1, node_capacity: 1, "engine.verify": 1 }, blocked: 9, rehearsals: 1, lastEvent: at(5), ...p },
+    });
+
+    it("is null without the activity: demo mode, no log store or a 502 shows no numbers, not zeros", () => {
+      expect(aiFacts(undefined)).toBeNull();
+      expect(snap(view()).ai).toBeNull();
+    });
+
+    it("carries the model, the calls, the tokens, the distinct tools and the refused checks", () => {
+      expect(aiFacts(activity(), 60)).toEqual({
+        minutes: 60,
+        model: "claude-sonnet-5-5",
+        calls: 2,
+        tokensIn: 14949,
+        tokensOut: 2578,
+        tools: 3,
+        blocked: 9,
+        rehearsals: 1,
+        lastEvent: at(5),
+      });
+      expect(buildMapSnapshot(view(), { now: Date.parse(at(30)), ai: activity(), aiMinutes: 120 }).ai?.minutes).toBe(120);
+    });
+
+    it("keeps a quiet hour as zeros that were read, with no model and no last event", () => {
+      const quiet = activity({ modelCalls: 0, model: undefined, tokensIn: 0, tokensOut: 0, tools: {}, blocked: 0, rehearsals: 0, lastEvent: undefined });
+      expect(aiFacts(quiet)).toMatchObject({ calls: 0, model: "", tools: 0, lastEvent: "" });
+    });
+
+    it("does not change what the map draws for the run", () => {
+      const v = view({ stage: "ai", sessions: [fakeAgentSession({ kind: "plan" })] });
+      const a = buildMapSnapshot(v, { now: Date.parse(at(30)) });
+      const b = buildMapSnapshot(v, { now: Date.parse(at(30)), ai: activity() });
+      expect({ ...b, ai: null }).toEqual(a);
+    });
   });
 
   it("before a plan, nothing is at work and the target is only a candidate", () => {
