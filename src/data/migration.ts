@@ -484,6 +484,14 @@ function appOfHash(): string {
   return q ? (new URLSearchParams(q).get("app") ?? "") : "";
 }
 
+/** A recommendation is a preselection hint, never an execution instruction. */
+function recommendationOfHash(): { app: string; source: string; target: string } | undefined {
+  const query = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+  const app = query.get("app"), source = query.get("source"), target = query.get("target");
+  const name = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  return app && source && target && [app, source, target].every(value => name.test(value)) && source !== target ? { app, source, target } : undefined;
+}
+
 /** The AI runner the platform starts as a Job: whether the server has one, its latest run for the app, and start. */
 export interface AIRunView {
   available: boolean;
@@ -507,6 +515,7 @@ export function useLiveMigration(): MigrationView {
   const runs = useRuns(enabled ? 5000 : 0);
   const [appName, setAppName] = useState<string>(appOfHash);
   const [tgt, setTgt] = useState<string>("");
+  const [recommendation, setRecommendation] = useState(recommendationOfHash);
   const [planRef, setPlanRef] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [engine, setEngine] = useState<EnginePlan | undefined>();
@@ -655,7 +664,16 @@ export function useLiveMigration(): MigrationView {
       ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
       : undefined;
   const targets = migrationTargets(envs, environments.data, src);
-  const target = run?.target.env ?? currentAI?.target ?? plan?.summary.target.env ?? (targets.some((e) => e.value === tgt) ? tgt : targets.find((e) => e.registered)?.value ?? targets[0]?.value ?? "");
+  const recommendationForApp = choosing && recommendation?.app === app?.name ? recommendation : undefined;
+  const recommendedTarget = observedSource === src && recommendationForApp?.source === src && targets.some(e => e.value === recommendationForApp.target && e.registered) ? recommendationForApp.target : undefined;
+  const recommendationNote = recommendationForApp && !srcLoading && src
+    ? recommendationForApp.source !== src
+      ? "추천 이후 원본 환경이 바뀌었습니다. 현재 원본을 기준으로 대상을 다시 선택하세요."
+      : !envs.includes(recommendationForApp.target)
+        ? "추천 대상이 현재 앱에 등록되어 있지 않습니다. 환경 준비 상태를 확인하고 대상을 선택하세요."
+        : undefined
+    : undefined;
+  const target = run?.target.env ?? currentAI?.target ?? plan?.summary.target.env ?? (targets.some((e) => e.value === tgt) ? tgt : recommendedTarget ?? targets.find((e) => e.registered)?.value ?? targets[0]?.value ?? "");
   const preparation = choosing && app
     ? envs.length < 2
       ? "이 앱은 이전할 환경이 두 곳 이상 필요합니다. 앱 상세에서 다른 환경을 추가하고 배포 상태를 확인하세요."
@@ -701,18 +719,19 @@ export function useLiveMigration(): MigrationView {
     src,
     tgt: target,
     srcLabel: srcLoading ? "확인 중" : src ? envLabel(src) : "미확인",
-    srcNote,
+    srcNote: recommendationNote ?? srcNote,
     tgtLabel: targets.find((e) => e.value === target)?.label ?? envLabel(target),
     targets,
     targetSetup: choosing && target ? { registered: envs.includes(target), addHref: app?.deploy ? "#app-" + encodeURIComponent(app.name) : undefined, status: environments.data?.find((e) => e.name === target)?.status } : undefined,
     targetsError: environments.error ? "전체 환경 목록을 읽지 못했습니다. 이미 앱에 등록된 환경만 표시할 수 있습니다. " + errorText(environments.error) : undefined,
     preparation,
-    setTarget: setTgt,
+    setTarget: (value) => { setRecommendation(undefined); setTgt(value); },
     apps: list.map((a) => ({ value: a.name, label: a.name })),
     gkeDemoApp,
     setApp: (name) => {
       if (name === app?.name) return;
       setAppName(name);
+      setRecommendation(undefined);
       window.history.replaceState(null, "", "#migrate-app?app=" + encodeURIComponent(name));
       clear();
       setTgt("");

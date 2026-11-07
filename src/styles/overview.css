@@ -14,6 +14,20 @@
 .ov-now .txt b { font-weight: 500; color: var(--heading); }
 .ov-now .txt span { font-size: 13px; color: var(--muted); }
 
+.ov-recommendations { border-top: 1px solid var(--line-soft); padding: var(--sp-md); }
+.ov-rec-heading, .ov-rec-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-xs) var(--sp-md); }
+.ov-rec-heading { justify-content: space-between; }
+.ov-rec-heading h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.ov-rec-meta { font-size: 12px; margin-top: var(--sp-xs); }
+.ov-rec-list > li { padding: var(--sp-md) 0; align-items: flex-start; }
+.ov-rec-route { font-weight: 400; }
+.ov-rec-evidence, .ov-rec-method, .ov-rec-more { font-size: 12px; margin-top: var(--sp-xs); }
+.ov-rec-evidence summary, .ov-rec-method summary, .ov-rec-more summary { color: var(--muted); cursor: pointer; }
+.ov-rec-evidence ul { padding-left: 16px; }
+.ov-rec-evidence ul > li { display: list-item; border: 0; padding: 3px 0; overflow-wrap: anywhere; }
+.ov-rec-evidence p, .ov-rec-method p { margin: var(--sp-xs) 0; }
+.ov-rec-method { border-top: 1px solid var(--line-soft); padding-top: var(--sp-xs); }
+
 /* clusters */
 .envcards { display: flex; flex-wrap: wrap; gap: var(--sp-md); }
 .envcard { flex: 1 1 240px; padding: var(--sp-md) var(--sp-lg); display: grid; gap: var(--sp-sm); align-content: start; }
