@@ -171,11 +171,12 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .pt-req{fill:var(--st-info)}
 .pt-err{fill:var(--st-crit)}
 .pt-row{fill:var(--st-ok)}
-.pt-obj{fill:var(--sb-canvas);stroke:var(--st-ok);stroke-width:2}
+.pt-obj{fill:var(--sb-canvas);stroke:var(--st-ok);stroke-width:2.5px;stroke-linejoin:round;stroke-linecap:round}
 .pt-snap{fill:var(--st-warn)}
 .pt-x{fill:var(--st-warn)}
-/* the dots share their line's color: bigger, with a ring in the surface color, they stand out on it */
-.pt-req,.pt-err,.pt-row,.pt-snap,.pt-x{r:4.5px;stroke:var(--sb-canvas);stroke-width:2px}
+/* the rabbits share their line's color, with an outline in the surface color so they stand out on it.
+   The outline is painted under the fill (paint-order), so only the outer edge shows. */
+.pt-req,.pt-err,.pt-row,.pt-snap,.pt-x{stroke:var(--sb-canvas);stroke-width:3px;stroke-linejoin:round;paint-order:stroke}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--sb-text-muted);margin-top:8px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%}
@@ -282,6 +283,16 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 
     <div class="mapwrap">
       <svg class="map" id="map" viewBox="0 0 1020 500" role="img" aria-label="이주 지도">
+        <defs>
+          <!-- the particles: a rabbit (one path, so its outline has no inner seams) and a carrot, both facing right in a 24x24 box -->
+          <symbol id="pt-rabbit" viewBox="0 0 24 24">
+            <path d="M3.5 15a7.5 4.6 0 1 0 15 0a7.5 4.6 0 1 0-15 0zM15.1 11.5a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0-6.8 0zM16.3 5.5a1.3 3.6 0 1 0 2.6 0a1.3 3.6 0 1 0-2.6 0zM19.2 6a1.2 3.2 0 1 0 2.4 0a1.2 3.2 0 1 0-2.4 0zM1.1 13.2a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0zM10.4 19.4a3.6 1.5 0 1 0 7.2 0a3.6 1.5 0 1 0-7.2 0z"/>
+          </symbol>
+          <symbol id="pt-carrot" viewBox="0 0 24 24">
+            <path d="M7 8.5L21 12L7 15.5Q5.2 12 7 8.5z"/>
+            <path d="M6 12L2 9M6 12H1.5M6 12L2 15" fill="none"/>
+          </symbol>
+        </defs>
         <g id="gLanes"></g>
         <g id="gEdges"></g>
         <g id="gParticles"></g>
@@ -637,11 +648,18 @@ setRunOpen(RUN.open);
 
 /* ---------- particles: the original's loop, fed by the snapshot ---------- */
 let parts=[], pool=[], acc={};
+const PT=26;  // rabbit size in map units (the map is 1020 wide and shrinks with the page, so this reads as roughly 14-26px)
+const HOP=80; // px of line per hop
+const HOP_H=7; // hop height
 function resetParticles(){ parts=[]; pool=[]; acc={}; $('gParticles').replaceChildren(); }
 function spawn(path, cls, speed, shape){
   if (!path) return;
   let e = pool.find(p=>p.shape===shape && !p.used);
-  if (!e){ e={shape, used:false, el: shape==='sq'? el('rect',{width:6,height:6,rx:1},$('gParticles')) : el('circle',{r:3},$('gParticles'))}; pool.push(e); }
+  if (!e){
+    const g=el('g',{},$('gParticles'));
+    el('use',{href: shape==='sq'?'#pt-carrot':'#pt-rabbit', x:-PT/2, y:-PT/2, width:PT, height:PT}, g);
+    e={shape, used:false, el:g}; pool.push(e);
+  }
   e.used=true; e.el.setAttribute('class',cls); e.el.style.display='';
   parts.push({ e, path, len:path.getTotalLength(), d:0, speed });
 }
@@ -653,7 +671,7 @@ function flow(key, rate, dt, path, cls, speed, shape){
 function stepParticles(dt){
   const s=SNAP;
   if (s && motion && !s.stale && routes[s.src]){
-    const R=7, V=240, T=s.tgt, S=s.src;
+    const R=3.5, V=240, T=s.tgt, S=s.src; // a rabbit is much bigger than the dot was: fewer of them fit on a line
     if (s.share !== undefined && s.share !== null){
       const wT=s.share/100, wS=1-wT;
       flow('s.db', R*wS*0.75, dt, routes[S].db, 'pt-req', V);
@@ -663,7 +681,7 @@ function stepParticles(dt){
       flow('t.st', R*wT*0.25, dt, routes[T].st, errCls, V);
       if (s.cross) flow('x', 3.5*wT+0.3, dt, routes.cross, 'pt-x', 120);
     }
-    if (s.sync.mode==='copy'){ flow('row', 9, dt, routes.fwd, 'pt-row', 300); if (s.sync.files) flow('obj', 4, dt, routes.fwd, 'pt-obj', 220, 'sq'); }
+    if (s.sync.mode==='copy'){ flow('row', 4, dt, routes.fwd, 'pt-row', 300); if (s.sync.files) flow('obj', 2.5, dt, routes.fwd, 'pt-obj', 220, 'sq'); }
     if (s.sync.mode==='cdc'){ flow('row', 2.2, dt, routes.fwd, 'pt-row', 220); if (s.sync.files) flow('obj', 0.6, dt, routes.fwd, 'pt-obj', 200, 'sq'); }
     if (s.activity==='probe'){ flow('probe.s', 1.5, dt, routes[S].inner, 'pt-snap', 180); flow('probe.t', 1.5, dt, routes[T].inner, 'pt-snap', 180); }
     if (s.activity==='sandbox') flow('smoke', 3, dt, routes[T].inner, 'pt-snap', 200);
@@ -671,9 +689,13 @@ function stepParticles(dt){
   for (let k=parts.length-1;k>=0;k--){
     const p=parts[k]; p.d+=p.speed*dt;
     if (p.d>=p.len || !p.path.isConnected){ p.e.used=false; p.e.el.style.display='none'; parts.splice(k,1); continue; }
-    const pt=p.path.getPointAtLength(p.d);
-    if (p.e.shape==='sq'){ p.e.el.setAttribute('x',pt.x-3); p.e.el.setAttribute('y',pt.y-3); }
-    else { p.e.el.setAttribute('cx',pt.x); p.e.el.setAttribute('cy',pt.y); }
+    // face the way the line runs (mirrored when it runs left), tilt along it, and hop: one hop every HOP px of the line
+    const pt=p.path.getPointAtLength(p.d), nx=p.path.getPointAtLength(Math.min(p.len,p.d+4));
+    const dx=nx.x-pt.x, dy=nx.y-pt.y;
+    if (Math.abs(dx)>0.05) p.dir=dx<0?-1:1; else if (!p.dir) p.dir=1;
+    const tilt=Math.max(-35,Math.min(35,Math.atan2(dy,Math.abs(dx)||0.001)*180/Math.PI));
+    const hop=p.e.shape==='sq' ? 0 : -Math.abs(Math.sin(p.d/HOP*Math.PI))*HOP_H;
+    p.e.el.setAttribute('transform','translate('+pt.x.toFixed(1)+' '+(pt.y+hop).toFixed(1)+') scale('+p.dir+' 1) rotate('+tilt.toFixed(0)+')');
   }
 }
 let last=performance.now();
