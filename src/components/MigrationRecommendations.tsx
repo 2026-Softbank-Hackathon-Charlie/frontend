@@ -6,10 +6,21 @@ import { Chip, Skeleton } from "./ui";
 
 const date = (value: string) => new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false });
 const LABEL = { move: "이전 추천", stay: "현재 환경 유지", insufficient: "추가 확인" } as const;
+const MISSING_LABEL = new Map([
+  ["comparable_total_cost_estimates", "총비용 견적"],
+  ["capacity_preflight_required", "대상 자원 여유"],
+  ["data_policy_preflight_required", "데이터 반출 정책"],
+  ["current_environment_unobserved", "현재 실행 위치"],
+  ["target_environment_unregistered", "등록 이전 대상"],
+  ["environment_readiness_unknown", "환경 준비 상태"],
+  ["migration_in_progress", "진행 중인 이전"],
+  ["destination_country_restricted", "대상 국가 보관 제한"],
+]);
 
 function RecommendationRow({ item, stale }: { item: MigrationRecommendation; stale: boolean }) {
   const href = stale ? undefined : recommendationHref(item);
   const go = item.action === "move" ? "이전하기" : "이전 조건 확인";
+  const missing = [...new Set(item.missing.map(code => MISSING_LABEL.get(code) ?? "추가 확인 필요"))];
   return <li>
     <Chip kind={item.action === "move" ? "run" : "neu"}>{LABEL[item.action]}</Chip>
     <div className="txt">
@@ -18,7 +29,7 @@ function RecommendationRow({ item, stale }: { item: MigrationRecommendation; sta
       {item.reasons.length > 0 && <span>{item.reasons.join(" · ")}</span>}
       {item.estimatedMonthlySavingsUsd !== null && <small>입력 총비용 견적 기준 월 약 ${item.estimatedMonthlySavingsUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} 차이</small>}
       {(item.sources.length > 0 || item.missing.length > 0) && <details className="ov-rec-evidence"><summary>판단 근거</summary>
-        {item.missing.length > 0 && <p>확인 필요: {item.missing.join(" · ")}</p>}
+        {missing.length > 0 && <p>확인 필요: {missing.join(" · ")}</p>}
         <ul>{item.sources.map((source, i) => <li key={source.title + i}>
           {sourceUrl(source.url) ? <a href={sourceUrl(source.url)} target="_blank" rel="noreferrer">{source.title} ↗</a> : source.title}
           {source.observedAt && <time dateTime={source.observedAt}> · {date(source.observedAt)} KST</time>}
@@ -56,7 +67,7 @@ export function MigrationRecommendations() {
       {ready ? report.recommendations.length ? <>
         <ul className="ov-now ov-rec-list">{report.recommendations.slice(0, 3).map(item => <RecommendationRow key={item.id} item={item} stale={stale} />)}</ul>
         {report.recommendations.length > 3 && <details className="ov-rec-more"><summary>다른 앱 {report.recommendations.length - 3}개</summary><ul className="ov-now ov-rec-list">{report.recommendations.slice(3).map(item => <RecommendationRow key={item.id} item={item} stale={stale} />)}</ul></details>}
-      </> : <p className="hint">추천할 등록 앱이 없습니다.</p>
+      </> : <p className="hint">지금 표시할 추천이 없습니다.</p>
         : <p role="status" className="hint">{waiting ? "AI가 이전 조건을 비교하고 있습니다." : report.status === "not_configured" ? "이전 추천 AI가 아직 연결되지 않았습니다." : "AI 추천을 완료하지 못했습니다. 잠시 후 다시 확인하세요."}</p>}
       <details className="ov-rec-method"><summary>추천 기준</summary><p className="hint">{report.ai.model ? "샌드박스 AI · " + report.ai.model : "AI 모델 미확인"} · 요금·배치 조건의 수신 시점 기준입니다. 이전 화면에서 준비 상태를 다시 확인합니다.</p></details>
     </>}

@@ -32,6 +32,27 @@ it("labels measured savings as an entered total-cost estimate", async () => {
   expect(screen.queryByText(/공시 요금 기준 월 약/)).not.toBeInTheDocument();
 });
 
+it("does not equate an empty AI selection with having no registered apps", async () => {
+  const response = report(); response.recommendations = [];
+  installFetch(() => json(200, response));
+  render(<MigrationRecommendations />); await flush();
+  expect(screen.getByText("지금 표시할 추천이 없습니다.")).toBeInTheDocument();
+  expect(screen.queryByText("추천할 등록 앱이 없습니다.")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /이전/ })).not.toBeInTheDocument();
+});
+
+it("renders missing evidence as concise product labels and keeps unknown codes out of the UI", async () => {
+  const response = report();
+  const codes = ["comparable_total_cost_estimates", "capacity_preflight_required", "data_policy_preflight_required", "current_environment_unobserved", "target_environment_unregistered", "environment_readiness_unknown", "migration_in_progress", "destination_country_restricted", "future_internal_code", "toString"];
+  response.recommendations[0].missing = codes;
+  installFetch(() => json(200, response));
+  render(<MigrationRecommendations />); await flush();
+  const evidence = screen.getByText("판단 근거").closest("details")!;
+  for (const label of ["총비용 견적", "대상 자원 여유", "데이터 반출 정책", "현재 실행 위치", "등록 이전 대상", "환경 준비 상태", "진행 중인 이전", "대상 국가 보관 제한", "추가 확인 필요"]) expect(evidence).toHaveTextContent(label);
+  for (const code of codes) expect(evidence).not.toHaveTextContent(code);
+  expect(evidence.textContent!.match(/추가 확인 필요/g)).toHaveLength(1);
+});
+
 it("reuses the same session cache on reentry and unlocks refresh without polling", async () => {
   const calls = installFetch(() => json(200, report()));
   const first = render(<MigrationRecommendations />); await flush(); first.unmount();

@@ -1,0 +1,41 @@
+/* Onboarding owns its step layout; the migration map has a separate progress UI. */
+.onboard-page .onboard-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-sm); list-style: none; padding: 0; margin: 0; }
+.onboard-page .onboard-steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: var(--sp-sm); min-width: 0; min-height: 76px; padding: var(--sp-sm) var(--sp-md); border: 1px solid var(--card-line); border-radius: var(--r-control); background: var(--canvas); }
+.onboard-page .step-number { display: grid; place-items: center; width: 28px; height: 28px; font-size: 13px; font-weight: 700; border-radius: 50%; background: var(--fill); color: var(--muted); }
+.onboard-page .step-text { min-width: 0; display: grid; gap: 2px; overflow-wrap: anywhere; word-break: normal; }
+.onboard-page .step-text b { font-size: 13px; font-weight: 500; color: var(--heading); line-height: 1.4; }
+.onboard-page .step-text small { font-size: 12px; color: var(--muted); }
+.onboard-page .onboard-steps .cur { border-color: var(--run); background: var(--run-bg); }
+.onboard-page .cur .step-number { color: var(--run); background: var(--canvas); }
+.onboard-page .cur .step-text small { color: var(--run); }
+.onboard-page .done .step-number { color: var(--ok); background: var(--ok-bg); }
+.onboard-page .done .step-text small { color: var(--ok); }
+.onboard-page .bh h2 { font-size: 16px; font-weight: 500; line-height: 1.4; }
+.onboard-page h1, .onboard-page .bh h2 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+:root[lang="ja"] .onboard-page { word-break: normal; }
+.onboard-page .onboard-unavailable .bb { display: grid; gap: var(--sp-lg); }
+.onboard-page .onboard-unavailable p { max-width: 70ch; }
+.onboard-page .onboard-note { padding: var(--sp-sm) var(--sp-md); background: var(--fill); border-radius: var(--r-control); }
+.onboard-page .form { max-width: none; }
+.onboard-page .split > *, .onboard-page .form > *, .onboard-page .two > * { min-width: 0; }
+.onboard-page input, .onboard-page select { width: 100%; max-width: 100%; min-width: 0; }
+.onboard-page > .actrow { padding-top: var(--sp-xs); }
+.onboard-page .diff { max-width: 100%; overflow-x: auto; }
+.onboard-page .diff > div { width: max-content; min-width: 100%; }
+.onboard-page .diff:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.onboard-page .code { max-width: 100%; overflow-x: auto; }
+.onboard-page .diff, .onboard-page .scroll { scrollbar-width: thin; overscroll-behavior-inline: contain; }
+.onboard-page .diff::-webkit-scrollbar, .onboard-page .scroll::-webkit-scrollbar { display: block; height: 6px; }
+@media (min-width: 1100px) { .onboard-page .form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .onboard-page .onboard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .onboard-page .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .onboard-page > .actrow, .onboard-page .onboard-unavailable .actrow { flex-direction: column; align-items: stretch; }
+  .onboard-page > .actrow .btn, .onboard-page .onboard-unavailable .btn { justify-content: center; }
+  /* Keep the language control in the footer flow instead of covering form/actions. */
+  body:has(.onboard-page) .lang-fab { position: static; display: flex; width: max-content; margin: 0 var(--sp-md) var(--sp-md) auto; }
+}
+@media (max-width: 440px) {
+  .onboard-page .onboard-steps li { padding: var(--sp-sm); gap: var(--sp-xs); }
+  .onboard-page .two { grid-template-columns: minmax(0, 1fr); }
+}
