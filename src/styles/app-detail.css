@@ -28,6 +28,7 @@
 .appd-dbrole { display: flex; align-items: center; gap: var(--sp-xs); flex-wrap: wrap; }
 .appd-envh { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-xs); }
 .appd-envh b { font-size: 14px; color: var(--heading); }
+.appd-env-traffic { display: flex; margin-inline-start: auto; fill: var(--warn-bar); stroke: var(--warn); }
 
 /* tabs and the overview's two columns */
 .appd-tabs { display: grid; gap: var(--sp-lg); min-width: 0; }

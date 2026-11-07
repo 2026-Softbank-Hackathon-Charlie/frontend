@@ -156,11 +156,20 @@ function EnvStrip({ title, children }: { title: string; children: ReactNode }) {
     </section>
   );
 }
-function EnvCell({ env, chip, children }: { env: string; chip: ReactNode; children: ReactNode }) {
+const ACTIVE_TRAFFIC = "트래픽 받는 중";
+
+function EnvCell({ env, chip, activeTraffic, children }: { env: string; chip: ReactNode; activeTraffic?: boolean; children: ReactNode }) {
   return (
     <div className="appd-env">
       <div className="appd-envh">
         <b><EnvLabel env={env} label={envName(env)} /></b>
+        {activeTraffic && (
+          <span className="appd-env-traffic" title={ACTIVE_TRAFFIC} aria-hidden="true">
+            <svg className="icon" width={16} height={16} viewBox="0 0 24 24" strokeWidth={1.5} strokeLinejoin="round" focusable="false">
+              <polygon points="12 2 15 8.2 21.5 8.9 16.8 13.5 17.9 20.1 12 17 6.1 20.1 7.2 13.5 2.5 8.9 9 8.2" />
+            </svg>
+          </span>
+        )}
         {chip}
       </div>
       {children}
@@ -172,7 +181,7 @@ function EnvCell({ env, chip, children }: { env: string; chip: ReactNode; childr
 function DBRoleLine({ r }: { r: DBRole }) {
   return (
     <span className="appd-dbrole">
-      {r.traffic && <Chip kind={r.traffic === "active" ? "ok" : "neu"}>{r.traffic === "active" ? "트래픽 받는 중" : "대기"}</Chip>}
+      {r.traffic && <Chip kind={r.traffic === "active" ? "ok" : "neu"}>{r.traffic === "active" ? ACTIVE_TRAFFIC : "대기"}</Chip>}
       <span className="hint">DB {r.role === "unknown" ? "역할 미확인" : r.role === "primary" ? "primary" : "replica(읽기 전용)"}{r.traffic || r.observed || r.role === "unknown" ? "" : ", 처음 만든 역할"}</span>
     </span>
   );
@@ -639,7 +648,12 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
         <>
           <EnvStrip title={def + " 환경별 상태"}>
             {d.status.map((s) => (
-              <EnvCell key={s.env} env={s.env} chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}>
+              <EnvCell
+                key={s.env}
+                env={s.env}
+                activeTraffic={roles?.[s.env]?.traffic === "active"}
+                chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}
+              >
                 <span className="hint">{[s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "Argo CD 상태 없음"}</span>
                 {(s.commit || s.updatedAt) && (
                   <span className="hint">

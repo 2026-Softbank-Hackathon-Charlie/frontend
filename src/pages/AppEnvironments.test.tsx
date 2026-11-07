@@ -142,14 +142,19 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(form).toHaveTextContent("최대 세 환경");
   });
 
-  it("shows the onprem primary from readiness and refuses three-member removal", async () => {
+  it("marks the traffic receiver separately from the onprem primary and refuses three-member removal", async () => {
     const envs = ["gke","eks","onprem"];
     const three = appIn(envs,{ primary:"gke",replica:"eks",replicaPresent:true,readiness:{ready:true,reason:"ready",message:"ready",environments:envs.map((env) => ({env,inApp:true,deployed:true,gatewayBackend:true,healthy:true,role:env === "onprem" ? "primary" as const : "replica" as const}))} });
     setup("#app-moimroom","live");
-    live(three,(_c,u) => u.pathname === "/v1/traffic" ? traffic("onprem",envs) : undefined);
+    live(three,(_c,u) => u.pathname === "/v1/traffic" ? traffic("eks",envs) : undefined);
     const group = (await screen.findByRole("heading",{name:"DB 복제 그룹"})).closest("section") as HTMLElement;
     expect(within(group).getAllByRole("row")).toHaveLength(4);
-    await waitFor(() => expect(screen.getByText("DB primary")).toBeInTheDocument());
+    expect((await screen.findByText("DB primary")).closest(".appd-env")).toHaveTextContent("온프레미스");
+    const star = await screen.findByTitle("트래픽 받는 중");
+    expect(star.closest(".appd-envh")).toHaveTextContent("AWS EKS");
+    expect(star.nextElementSibling).toHaveTextContent("정상");
+    expect(star).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("트래픽 받는 중")).toBeInTheDocument();
     expect(screen.getByRole("button",{name:/AWS EKS 환경 빼기/})).toBeDisabled();
   });
 
