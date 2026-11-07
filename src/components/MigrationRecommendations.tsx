@@ -56,7 +56,7 @@ export function MigrationRecommendations() {
       {ready ? report.recommendations.length ? <>
         <ul className="ov-now ov-rec-list">{report.recommendations.slice(0, 3).map(item => <RecommendationRow key={item.id} item={item} stale={stale} />)}</ul>
         {report.recommendations.length > 3 && <details className="ov-rec-more"><summary>다른 앱 {report.recommendations.length - 3}개</summary><ul className="ov-now ov-rec-list">{report.recommendations.slice(3).map(item => <RecommendationRow key={item.id} item={item} stale={stale} />)}</ul></details>}
-      </> : <p className="hint">추천할 등록 앱이 없습니다.</p>
+      </> : <p className="hint">지금 표시할 추천이 없습니다.</p>
         : <p role="status" className="hint">{waiting ? "AI가 이전 조건을 비교하고 있습니다." : report.status === "not_configured" ? "이전 추천 AI가 아직 연결되지 않았습니다." : "AI 추천을 완료하지 못했습니다. 잠시 후 다시 확인하세요."}</p>}
       <details className="ov-rec-method"><summary>추천 기준</summary><p className="hint">{report.ai.model ? "샌드박스 AI · " + report.ai.model : "AI 모델 미확인"} · 요금·배치 조건의 수신 시점 기준입니다. 이전 화면에서 준비 상태를 다시 확인합니다.</p></details>
     </>}

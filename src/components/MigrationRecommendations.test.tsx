@@ -32,6 +32,15 @@ it("labels measured savings as an entered total-cost estimate", async () => {
   expect(screen.queryByText(/공시 요금 기준 월 약/)).not.toBeInTheDocument();
 });
 
+it("does not equate an empty AI selection with having no registered apps", async () => {
+  const response = report(); response.recommendations = [];
+  installFetch(() => json(200, response));
+  render(<MigrationRecommendations />); await flush();
+  expect(screen.getByText("지금 표시할 추천이 없습니다.")).toBeInTheDocument();
+  expect(screen.queryByText("추천할 등록 앱이 없습니다.")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /이전/ })).not.toBeInTheDocument();
+});
+
 it("reuses the same session cache on reentry and unlocks refresh without polling", async () => {
   const calls = installFetch(() => json(200, report()));
   const first = render(<MigrationRecommendations />); await flush(); first.unmount();
