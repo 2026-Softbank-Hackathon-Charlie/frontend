@@ -7,7 +7,8 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
-import { EmptyShop } from "../components/shared";
+import { EmptyShop, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
+import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
@@ -86,6 +87,10 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <Chip kind="warn">승인 대기</Chip>
                   ) : v.stage === "ai" ? (
                     <Chip kind="run">AI 작업 중</Chip>
+                  ) : v.lastRun ? (
+                    <Chip kind={RESULT_KIND[v.lastRun.status] ?? ""}>
+                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", " + envName(v.lastRun.source.env) + " → " + envName(v.lastRun.target.env) + ", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, v.now ?? Date.now())}
+                    </Chip>
                   ) : (
                     <Chip>이전 전</Chip>
                   ),
