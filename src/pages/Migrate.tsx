@@ -15,6 +15,7 @@ import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
+import { canaryStepVerdict, canaryVerdict } from "../data/canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
@@ -1201,11 +1202,10 @@ export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, event
   const canary: Group["items"] = c
     ? c.options.weights.map((w, i) => {
         const s = c.steps[i];
-        const g = s?.gate;
-        // verdict is new; older runs only have gate.passed.
-        const verdict = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
-        const label = w + "%" + (verdict === "ok" ? " 통과" : verdict === "inconclusive" ? " (요청 부족, 다음 단계로)" : verdict === "failed" ? " 실패" : s && active ? " 관찰 중" : "");
-        const itemSt: ItemSt = !s ? "wait" : !g ? (active ? "run" : "wait") : verdict === "failed" ? "bad" : verdict === "inconclusive" ? "neu" : "ok";
+        const verdict = canaryStepVerdict(s);
+        const observing = s && r.status === "running" && r.phase === "canary" && !s.endedAt;
+        const label = w + "%" + (verdict === "ok" ? " 통과" : verdict === "inconclusive" ? " (요청 부족, 다음 단계로)" : verdict === "failed" ? " 실패" : observing ? " 관찰 중" : s ? " 게이트 판정 기록 부족" : "");
+        const itemSt: ItemSt = verdict === "failed" ? "bad" : verdict === "inconclusive" ? "neu" : verdict === "ok" ? "ok" : observing ? "run" : s ? "neu" : "wait";
         return { label, st: itemSt };
       })
     : [{ label: "게이트웨이를 거치지 않아 건너뜀", st: cur > 1 ? "ok" : "wait" }];
@@ -1255,11 +1255,14 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
 }
 
 /** The run's headline for its status and phase. Only the cutover and verify say the target was asked to promote. */
-function heroText(v: MigrationView, r: Run, el: number): [string, string] {
+export function heroText(v: Pick<MigrationView, "srcLabel" | "tgtLabel" | "plan">, r: Run, el: number): [string, string] {
   const back = "실패하면 " + v.srcLabel + "로 자동 원복합니다(rolled_back).";
   const promoted = r.engine.promoteRequested ? v.tgtLabel + " 승격을 요청했습니다. 지금부터 실패하면 원복하지 않고 멈춥니다(halted)." : "대상 승격 전입니다. " + back;
   const noun = r.rollbackOf ? "롤백" : "이전";
   const why = r.statusReason ? " 이유: " + r.statusReason : "";
+  const canary = canaryVerdict(r);
+  const failedCanary = canary?.state === "fail" ? "읽기 카나리 " + canary.label + (canary.reason ? ": " + canary.reason : "") + ". " : "";
+  const failureWhy = canary?.state === "fail" && canary.reason === r.statusReason ? "" : why;
   switch (r.status) {
     case "running":
       if (r.phase === "sync") return ["데이터를 맞추고 있습니다", v.srcLabel + (v.plan?.summary.files === false ? "의 데이터를 " : "의 데이터와 파일을 ") + v.tgtLabel + "로 복사하고 변경분을 따라잡습니다. " + back];
@@ -1275,7 +1278,7 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
     case "awaiting_switch":
       return [
         "데이터가 맞춰졌습니다. 전환할 수 있습니다.",
-        (r.canary?.passed ? "읽기 카나리 게이트를 모두 통과했습니다. " : "") + "전환하면 쓰기를 잠시 붙잡고(상한 " + (v.plan?.summary.maxDowntime ?? "30s") + ") " + v.tgtLabel + "를 승격한 뒤 쓰기 트래픽을 옮깁니다.",
+        (canary ? "읽기 카나리 " + canary.label + ". " : "") + "전환하면 쓰기를 잠시 붙잡고(상한 " + (v.plan?.summary.maxDowntime ?? "30s") + ") " + v.tgtLabel + "를 승격한 뒤 쓰기 트래픽을 옮깁니다.",
       ];
     case "succeeded": {
       const o = r.observe;
@@ -1299,7 +1302,7 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
       ];
     }
     case "rolled_back":
-      return [noun + "하지 못하고 " + v.srcLabel + "로 원복했습니다.", "원본이 다시 트래픽을 받고, 잃은 데이터는 없습니다." + why];
+      return [noun + "하지 못하고 " + v.srcLabel + "로 원복했습니다.", failedCanary + "원본이 다시 트래픽을 받고, 잃은 데이터는 없습니다." + failureWhy];
     case "halted":
       return [
         "대상 승격 뒤에 멈췄습니다. 운영자가 판단해야 합니다.",
@@ -1312,7 +1315,7 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
           why,
       ];
     case "failed":
-      return [noun + "이 실패했습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
+      return [noun + "이 실패했습니다. 이어서 실행할 수 있습니다.", failedCanary + "되돌릴 수 없는 단계 전에 멈췄습니다." + failureWhy];
     case "aborted":
       return [noun + "을 중단했습니다. 이어서 실행할 수 있습니다.", "되돌릴 수 없는 단계 전에 멈췄습니다." + why];
     case "interrupted":
@@ -1403,24 +1406,26 @@ function RunSessions({ v }: { v: MigrationView }) {
 
 export function CanaryBox({ r }: { r: Run }) {
   const c = r.canary;
-  if (!c) return null;
+  const verdict = canaryVerdict(r);
+  if (!c || !verdict) return null;
+  const kinds = { done: "ok", fail: "bad", warn: "warn", cur: "run", todo: "" } as const;
   return (
     <div className="box">
       <div className="bh">
         <b>읽기 카나리</b>
-        {c.passed ? <Chip kind="ok">게이트 모두 통과</Chip> : c.steps.length ? <Chip kind="run">진행 중</Chip> : <Chip>동기화 뒤 시작</Chip>}
+        <Chip kind={kinds[verdict.state]}>{verdict.label}</Chip>
+        {r.status === "awaiting_switch" && <Chip>전환 승인 가능</Chip>}
       </div>
       <Table
         head={["단계", "대상으로 보낸 읽기", "게이트", "요청", "오류율", "p95"]}
         rows={c.options.weights.map((w, i) => {
           const s = c.steps[i];
           const g = s?.gate;
-          // verdict is new; older runs only have gate.passed.
-          const v = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
-          let chip = s ? <Chip kind="run">관찰 중</Chip> : <Chip>대기</Chip>;
-          if (g && v === "ok") chip = <Chip kind="ok">통과</Chip>;
-          else if (g && v === "inconclusive") chip = <Chip>판단 보류: 요청 부족, 다음 단계로</Chip>;
-          else if (g) chip = <Chip kind="bad">{"실패: " + g.reason}</Chip>;
+          const v = canaryStepVerdict(s);
+          let chip = s ? (r.status === "running" && r.phase === "canary" && !s.endedAt ? <Chip kind="run">관찰 중</Chip> : <Chip>게이트 판정 기록 부족</Chip>) : <Chip>대기</Chip>;
+          if (v === "ok") chip = <Chip kind="ok">통과</Chip>;
+          else if (v === "inconclusive") chip = <Chip>판단 보류: 요청 부족, 다음 단계로</Chip>;
+          else if (v === "failed") chip = <Chip kind="bad">{g?.reason ? "실패: " + g.reason : "실패"}</Chip>;
           return [
             td(i + 1 + "단계", "nw"),
             td(w + "%", "num"),

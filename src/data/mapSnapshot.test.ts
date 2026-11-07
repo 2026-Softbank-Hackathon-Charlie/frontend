@@ -321,6 +321,7 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     const c: Run["canary"] = { options: { weights: [10] }, steps: [{ weight: 10, startedAt: at(1), endedAt: at(2), verdict: "failed", gate: { passed: false, reason: "p95 too high", requests: 40, errorRate: 0, p95Millis: 900 } }] };
     const s = snap(view({ stage: "run", run: run({ status: "rolled_back", phase: "done", canary: c }) }));
     expect(s.phases.find((x) => x.key === "canary-0")!.st).toBe("fail");
+    expect(s.actions.map((a) => a.key)).not.toContain("switch");
     expect(s.phases.at(-1)!.key).toBe("rb");
   });
 
@@ -334,6 +335,17 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(p.lines.map(([, cls]) => cls)).toEqual(["w"]);
     expect(s.events.at(-1)!.cls).toBe("w");
     expect(s.phases[s.cur].key).toBe("canary-1");
+
+    const complete: Run["canary"] = { ...c, passed: true, steps: [c.steps[0], { ...c.steps[1], verdict: "ok" }] };
+    const waiting = snap(view({ stage: "run", run: run({ status: "awaiting_switch", phase: "awaiting_switch", canary: complete }) }));
+    expect(waiting.detail.checks).toContainEqual(["카나리 게이트", "통과 1단계 · 판단 보류 1단계", "wa", "판단 보류"]);
+    expect(waiting.actions.map((a) => a.key)).toContain("switch");
+  });
+
+  it("shows a recorded failure even when its canary metrics are missing", () => {
+    const canary: Run["canary"] = { options: { weights: [10] }, steps: [{ weight: 10, startedAt: at(1), verdict: "failed" }] };
+    const s = snap(view({ stage: "run", run: run({ status: "rolled_back", phase: "done", canary }) }));
+    expect(s.detail.checks).toContainEqual(["게이트 판정", "실패", "no", "실패"]);
   });
 
   it("does not leave a step running on an ended run, and moves no data", () => {

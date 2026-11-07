@@ -1,4 +1,5 @@
 import type { Run, RunResult } from "../api/types";
+import { canaryVerdict } from "../data/canaryVerdict";
 import { fmt } from "../sim/format";
 import { envName } from "./shared";
 import { Chip } from "./ui";
@@ -51,7 +52,7 @@ export function RunDecisionPanel({ r }: { r: Run }) {
     ["개별 쓰기 대조", writeResult],
   ];
   const stages = [
-    ["읽기 카나리", canary?.passed === true ? "통과" : canary?.passed === false ? "미통과" : "기록 없음"],
+    ["읽기 카나리", canaryVerdict(r)?.label ?? "기록 없음"],
     ["쓰기 보류", stepLabel(engine.steps.fence)],
     ["DB 역할 전환", stepLabel(engine.steps.switchover)],
     ["경로 전환", stepLabel(engine.steps.cutover)],
