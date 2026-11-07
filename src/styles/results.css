@@ -2,14 +2,22 @@
 .results-filters { display: flex; align-items: end; gap: var(--sp-md); flex-wrap: wrap; }
 .results-filters label { display: grid; gap: var(--sp-2xs); font-size: 13px; }
 .results-filters input, .results-filters select { padding: 8px 10px; border: 1px solid var(--line-soft); background: var(--canvas); border-radius: 2px; max-width: 100%; }
-.result-list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sp-md); }
-.result-card { display: grid; gap: var(--sp-md); padding: var(--sp-lg); min-width: 0; }
+.result-list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sp-sm); }
+.result-card { display: grid; gap: var(--sp-sm); padding: var(--sp-md); min-width: 0; }
 .result-card header { display: flex; align-items: start; justify-content: space-between; gap: var(--sp-md); }
-.result-card h2 { font-size: 18px; margin-bottom: 4px; }
-.result-card header p { font-size: 14px; }
-.result-metrics { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); margin: 0; gap: var(--sp-md); padding: var(--sp-md) 0; border-block: 1px solid var(--line-soft); }
+.result-card h2 { font-size: 16px; margin-bottom: 2px; }
+.result-card header p { font-size: 13px; }
+.result-card > .hint { font-size: 12px; overflow-wrap: anywhere; }
+.result-status { display: flex; flex-wrap: wrap; gap: var(--sp-xs); justify-content: flex-end; }
+.result-metrics { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); margin: 0; gap: var(--sp-sm); padding: var(--sp-sm) 0; border-block: 1px solid var(--line-soft); }
 .result-metrics dt, .result-details dt { color: var(--muted); font-size: 12px; }
-.result-metrics dd { margin: 4px 0 0; font-size: 18px; font-variant-numeric: tabular-nums; }
+.result-metrics dd { margin: 2px 0 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+.result-toggle { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-sm); width: 100%; padding: 2px 0; min-height: 32px; border: 0; background: transparent; color: var(--muted); font-size: 12px; text-align: left; cursor: pointer; }
+.result-toggle:hover { color: var(--heading); }
+.result-chevron { font-size: 20px; line-height: 1; }
+.result-toggle[aria-expanded="true"] .result-chevron { transform: rotate(180deg); }
+.result-expanded { display: grid; gap: var(--sp-sm); min-width: 0; }
+.result-expanded[hidden] { display: none; }
 .result-card summary { cursor: pointer; font-size: 13px; }
 .result-details { display: grid; grid-template-columns: 80px minmax(0,1fr); gap: 8px; font-size: 13px; }
 .result-details dd { margin: 0; overflow-wrap: anywhere; }

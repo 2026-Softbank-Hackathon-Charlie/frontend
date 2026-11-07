@@ -55,7 +55,7 @@ it("keeps synthetic evidence out of a live execution with the same ID", async ()
   render(<Routes />);
 
   expect(await screen.findByRole("heading", { name: "moimroom-mig" })).toBeInTheDocument();
-  await user.click(screen.getByText("실행 상세", { selector: "summary" }));
+  await user.click(screen.getByRole("button", { name: /실행 상세$/ }));
   expect(screen.getByRole("region", { name: "전환 판단" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /보안 비교 예시/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "보안 비교" })).not.toBeInTheDocument();

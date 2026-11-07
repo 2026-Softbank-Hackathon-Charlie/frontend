@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { fakeRun } from "../api/fakes";
 import type { RunResult } from "../api/types";
 import type { WriteVerificationRecord } from "../components/WriteVerification";
@@ -6,8 +7,54 @@ import { MigrationResults } from "./Routes";
 
 const result = (writeVerification?: WriteVerificationRecord, rest: RunResult = {}): RunResult & { writeVerification?: WriteVerificationRecord } => ({ ...rest, writeVerification });
 
+it("keeps six summary metrics visible and folds the rest behind an accessible control", () => {
+  const run = fakeRun({ status: "failed", runId: "compact-run", result: result({ status: "failed" }, { durationMillis: 30000, downtimeMillis: 2500, failedRequests: 2, missingRows: 1, missingFiles: 3 }) });
+  render(<MigrationResults runs={[run]} />);
+  expect(screen.getByText("실패 요청").nextElementSibling).toHaveTextContent("2건");
+  expect(screen.getByText("행 누락").nextElementSibling).toHaveTextContent("1건");
+  expect(screen.getByText("쓰기 누락").nextElementSibling).toHaveTextContent("미측정");
+  expect(screen.queryByRole("region", { name: "쓰기 기록 검증" })).not.toBeInTheDocument();
+  const toggle = screen.getByRole("button", { name: /compact-run.*실행 상세/ });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const body = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+  expect(body).not.toBeVisible();
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(body).toBeVisible();
+  expect(screen.getByRole("region", { name: "쓰기 기록 검증" })).toBeVisible();
+  fireEvent.click(toggle);
+  expect(body).not.toBeVisible();
+});
+
+it("retains each run's expanded state independently across refreshed run objects", () => {
+  const a = fakeRun({ status: "succeeded", runId: "run-a" });
+  const b = fakeRun({ status: "succeeded", runId: "run-b" });
+  const { rerender } = render(<MigrationResults runs={[a, b]} />);
+  const first = screen.getByRole("button", { name: /run-a.*실행 상세/ });
+  const second = screen.getByRole("button", { name: /run-b.*실행 상세/ });
+  fireEvent.click(first);
+  const detailsId = first.getAttribute("aria-controls");
+  rerender(<MigrationResults runs={[{ ...a, result: { missingRows: 4 } }, { ...b }]} />);
+  expect(screen.getByRole("button", { name: /run-a.*실행 상세/ })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: /run-a.*실행 상세/ })).toHaveAttribute("aria-controls", detailsId);
+  expect(second).toHaveAttribute("aria-expanded", "false");
+});
+
+it("opens and closes details with the keyboard without changing the selected run", async () => {
+  const user = userEvent.setup();
+  render(<MigrationResults runs={[fakeRun({ status: "succeeded", runId: "keyboard-run" })]} />);
+  const toggle = screen.getByRole("button", { name: /keyboard-run.*실행 상세/ });
+  toggle.focus();
+  await user.keyboard("{Enter}");
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await user.keyboard(" ");
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(toggle).toHaveFocus();
+});
+
 it("explains the absent write measurement without replacing it with zero", () => {
   render(<MigrationResults runs={[fakeRun({ status: "succeeded", result: result({ status: "not_configured", reason: "written_records_not_configured" }, { verified: true, missingRows: 0 }) })]} />);
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   const panel = screen.getByRole("region", { name: "쓰기 기록 검증" });
   expect(within(panel).getByText("쓰기 기록 미연결")).toBeInTheDocument();
   expect(within(panel).getByText(/쓰기 누락을 측정하지 않았습니다/)).toBeInTheDocument();
@@ -21,6 +68,7 @@ it("explains the absent write measurement without replacing it with zero", () =>
 it("updates the same run from unverified collection to measured evidence", () => {
   const run = fakeRun({ status: "succeeded", result: result({ status: "not_reached", collectedRecords: 4, scope: "application_commits", coverage: "reservation_inserts" }) });
   const { rerender } = render(<MigrationResults runs={[run]} />);
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   expect(screen.getByText("쓰기 검증 미실행")).toBeInTheDocument();
   rerender(<MigrationResults runs={[{ ...run, result: result({ status: "measured", collectedRecords: 4, checked: 4, missing: 0, scope: "application_commits", coverage: "reservation_inserts", latestAt: "2026-11-07T06:00:00Z" }, { missingWrites: 0 }) }]} />);
   expect(screen.getByText("쓰기 검증 완료")).toBeInTheDocument();
@@ -31,6 +79,7 @@ it("updates the same run from unverified collection to measured evidence", () =>
 
 it("retains old measured results and does not show partial failures as success", () => {
   const { rerender } = render(<MigrationResults runs={[fakeRun({ status: "succeeded", result: { missingWrites: 0 } })]} />);
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   expect(screen.getByText("쓰기 검증 결과 있음")).toBeInTheDocument();
   rerender(<MigrationResults runs={[fakeRun({ status: "failed", result: result({ status: "failed", checked: 2, missing: 0, collectedRecords: 6, reason: "written_verification_incomplete" }, { missingWrites: 0 }) })]} />);
   expect(screen.getByText("쓰기 검증 오류")).toBeInTheDocument();
@@ -48,7 +97,7 @@ it("shows confirmed cutover evidence at the top of a successful run's details", 
     result: result({ status: "not_configured" }, { requests: 529, failedRequests: 0, downtimeMillis: 20733, missingRows: 0, missingFiles: 0 }),
   });
   render(<MigrationResults runs={[run]} />);
-  fireEvent.click(screen.getByText("실행 상세", { selector: "summary" }));
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   const panel = within(screen.getByRole("region", { name: "전환 판단" }));
   expect(panel.getByText("GCP GKE 쓰기 전환 완료")).toBeInTheDocument();
   expect(panel.getByText("0 / 529")).toBeInTheDocument();
@@ -68,7 +117,7 @@ it("shows the recovery checklist and suppresses invalid counters in a halted swi
     result: { requests: -721, failedRequests: 0 },
   });
   render(<MigrationResults runs={[run]} />);
-  fireEvent.click(screen.getByText("실행 상세", { selector: "summary" }));
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   const panel = within(screen.getByRole("region", { name: "전환 판단" }));
   expect(panel.getByText("DB 역할 전환에서 중단")).toBeInTheDocument();
   expect(panel.getByText(reason)).toBeInTheDocument();
@@ -88,7 +137,7 @@ it("keeps a post-cutover observation violation visible on a succeeded run", () =
     engine: { ...base.engine, trafficOnTarget: true, writesHeld: false },
     observe: { options: {}, steps: [], passed: false },
   })]} />);
-  fireEvent.click(screen.getByText("실행 상세", { selector: "summary" }));
+  fireEvent.click(screen.getByRole("button", { name: /실행 상세$/ }));
   const panel = within(screen.getByRole("region", { name: "전환 판단" }));
   expect(panel.getByText("전환 후 관찰 위반")).toBeInTheDocument();
   expect(panel.queryByText(/쓰기 전환 완료/)).not.toBeInTheDocument();

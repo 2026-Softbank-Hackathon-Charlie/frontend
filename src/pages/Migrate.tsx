@@ -168,31 +168,6 @@ function Num({ label, value, note, ok, children }: { label: string; value: React
   );
 }
 
-const WIZ = ["AI 계획", "리허설", "승인", "실행"];
-function wizStep(v: MigrationView): number {
-  if (v.stage === "ai") return v.plan ? 2 : 1;
-  if (v.stage === "review") return 3;
-  if (v.run && !["running", "awaiting_switch"].includes(v.run.status)) return 5;
-  return 4;
-}
-
-function Wizard({ v }: { v: MigrationView }) {
-  const cur = wizStep(v);
-  return (
-    <ol className="wiz">
-      {WIZ.map((l, i) => {
-        const n = i + 1;
-        return (
-          <li key={l} className={n < cur ? "done" : n === cur ? "cur" : ""}>
-            <span className="n">{n}</span>
-            <span>{l}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 function Notice({ text }: { text: string }) {
   if (!text) return null;
   return (
@@ -387,7 +362,6 @@ function MigrateView({ v }: { v: MigrationView }) {
   return page(
     <>
       <PageHead icon="arrow-right-left" title={title} sub={<><EnvRoute source={v.src} target={v.tgt} sourceLabel={v.srcLabel} targetLabel={v.tgtLabel} />{where}</>} acts={<HeadActs v={v} />} />
-      <Wizard v={v} />
       <Notice text={v.notice} />
       {r && <RunDecisionPanel r={r} />}
     </>,
