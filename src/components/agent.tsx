@@ -39,16 +39,25 @@ export function eventText(e: AgentEvent): string {
   switch (e.type) {
     case "tool_call":
       return "도구 호출 " + (e.tool ?? "") + " " + short(e.input);
-    case "tool_result":
-      return (e.tool ?? "도구") + " 결과" + (e.status ? " (" + e.status + ")" : "") + ": " + short(e.output);
+    case "tool_result": {
+      // an isolation probe meant to get through (the sandbox's own pods, its DNS) answers "open"
+      const command = (e.input as { command?: string } | undefined)?.command;
+      if (e.status === "expected" && command) return "예상대로 허용됨: " + short(command) + (e.output === "open" || !e.output ? "" : " (" + short(e.output) + ")");
+      const out = short(e.output);
+      return (e.tool ?? "도구") + " 결과" + (e.status ? " (" + e.status + ")" : "") + (out ? ": " + out : "");
+    }
     case "blocked":
       return "차단됨: " + short((e.input as { command?: string } | undefined)?.command ?? e.tool) + " (" + short(e.output) + ")";
     case "decision":
       return "결정: " + short(e.output);
     case "error":
       return "오류: " + short(e.output);
-    default:
+    default: {
+      // a rehearsal opens with the plan it runs
+      const plan = e.tool === "plan" && typeof e.output === "object" ? (e.output as { planId?: string; planRef?: string } | null) : null;
+      if (plan?.planId) return "대상 Plan: " + plan.planId + (plan.planRef ? " (" + plan.planRef + ")" : "");
       return short(e.output);
+    }
   }
 }
 
