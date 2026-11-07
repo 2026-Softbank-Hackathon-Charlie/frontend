@@ -59,9 +59,10 @@ describe("HopCharlie console (simulation)", () => {
     await user.click(await screen.findByRole("button", { name: "가져오기 완료 상태로 건너뛰기" }));
     expect(await screen.findByRole("heading", { level: 1, name: "moimroom 이전" })).toBeInTheDocument();
 
-    const first = screen.getByTitle("이주 지도");
+    expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
     await user.click(screen.getByRole("button", { name: "AI 계획·리허설 실행" }));
+    const first = screen.getByTitle("이주 지도");
     ticks(sim, AI_END);
     expect(screen.getByText(/revision 2\)을 승인할까요\?/)).toBeInTheDocument();
     expect(screen.getAllByText("kubectl get secrets -n moimroom").length).toBeGreaterThan(0);
@@ -82,7 +83,7 @@ describe("HopCharlie console (simulation)", () => {
     ticks(sim, 68);
     expect(screen.getByText("이전 리포트")).toBeInTheDocument();
     expect(sim.state.mig.run?.status).toBe("succeeded");
-    // the same map element stayed on the page from the setup to the end
+    // The accepted execution keeps the same map element until the end.
     expect(frame).toBe(first);
 
     await user.click(screen.getAllByRole("link", { name: "이전 결과" })[0]);
