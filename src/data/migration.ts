@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   abortMigration,
+  ApiError,
   approvePlan,
   draftPlan,
   getAgentSession,
@@ -17,17 +18,23 @@ import {
   submitPlan,
   switchMigration,
 } from "../api/client";
-import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useRun, useRuns, useTraffic } from "../api/hooks";
-import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
+import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useEnvironments, useRun, useRuns, useTraffic } from "../api/hooks";
+import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, EnginePlan, Environment, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, iso, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
+import { isDatabaselessApp, migrationEnvironments } from "./migrationMembership";
 import { AUDIT_PAGE, latestPreflight, latestPreflightOfApp, preflightOf, searchAudit, type PastPreflight, type PreflightView } from "./preflight";
 
 export interface EnvOption {
   value: string;
   label: string;
+}
+
+export interface MigrationTargetOption extends EnvOption {
+  /** false is a discoverable platform environment that this app has not been added to. */
+  registered?: boolean;
 }
 
 /**
@@ -87,9 +94,14 @@ export interface MigrationView {
   /** live, before a plan: why the source is not the gateway's write backend (the gateway did not answer) */
   srcNote?: string;
   tgtLabel: string;
-  targets: EnvOption[];
+  targets: MigrationTargetOption[];
+  /** The setup screen distinguishes a cluster existing from this app having a database there. */
+  targetSetup?: { registered: boolean; addHref?: string; status?: Environment["status"] };
+  targetsError?: string;
+  /** Missing deployment/DB preparation blocks planning while keeping this app selectable. */
+  preparation?: string;
   setTarget(v: string): void;
-  /** live: the apps that can be migrated (two or more environments), to pick one */
+  /** live: registered apps and configured file apps, including ones still needing migration preparation */
   apps?: EnvOption[];
   gkeDemoApp?: string;
   setApp?(name: string): void;
@@ -357,9 +369,18 @@ function envLabel(name: string): string {
   return k ? ENV[k].name : name;
 }
 
-/** Apps with two or more environments, the only ones a migration can move. */
+/** Registered app members stay visible even when platform discovery is temporarily unavailable. */
+export function migrationTargets(members: string[], environments: Environment[] | undefined, source: string): MigrationTargetOption[] {
+  const options = new Map<string, MigrationTargetOption>(members.map((value) => [value, { value, label: envLabel(value), registered: true }]));
+  for (const environment of environments ?? []) {
+    options.set(environment.name, { value: environment.name, label: environment.displayName || environment.name, registered: members.includes(environment.name) });
+  }
+  return [...options.values()].filter((option) => option.value !== source);
+}
+
+/** Registered apps stay selectable even when they still need an environment or database setup. */
 export function migratableApps(list: App[]): App[] {
-  return list.filter((a) => a.environments.length >= 2);
+  return list.filter((a) => a.environments.length > 0 || !!a.deploy);
 }
 
 /** Whether a run or plan moves the database in `ns`, as source or target (the namespace may differ per environment). */
@@ -474,6 +495,7 @@ export interface AIRunView {
 export function useLiveMigration(): MigrationView {
   const enabled = true;
   const apps = useApps();
+  const environments = useEnvironments(10000);
   const plans = usePlans(enabled ? 3000 : 0, enabled);
   const runs = useRuns(enabled ? 5000 : 0);
   const [appName, setAppName] = useState<string>(appOfHash);
@@ -541,7 +563,9 @@ export function useLiveMigration(): MigrationView {
   const watch = useRun(enabled ? runId : null, revived.epoch);
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
   const aiRuns = useAIRuns(app?.name, 5000);
-  const envs = app?.environments.map((e) => e.env) ?? [];
+  const envs = app ? migrationEnvironments(app) : [];
+  const databaseEnvs = app?.environments.map((e) => e.env) ?? [];
+  const databaseless = !!app && isDatabaselessApp(app);
   const gkeDemoApp =
     app?.name === "moimroom" && !envs.includes("gke")
       ? list.find(
@@ -588,8 +612,8 @@ export function useLiveMigration(): MigrationView {
   const stored = useStoredSessionEvents(enabled ? sessionList : [], follow);
 
   // Before a plan: the source is where the gateway sends the app's writes now, so a second migration starts where the
-  // first one left the database. Without the gateway's answer (no gateway scope, gateway down), the environment the
-  // database was born primary in, else the first environment.
+  // first one left the database. A DB app may fall back to its configured database role with a visible note.
+  // A database-free app has no DB role to fall back to: it requires an observed gateway backend.
   const choosing = !run && !plan;
   const traffic = useTraffic(5000, undefined, app?.name, enabled && choosing && !!app);
   const trafficFailed = !!traffic.error;
@@ -597,12 +621,27 @@ export function useLiveMigration(): MigrationView {
   const topology = app?.deploy?.dbTopology;
   // GET /v1/apps has no readiness: only the app's own read looks at both clusters (ADR 0037)
   const detail = useApp(enabled && choosing && topology ? app?.name : null, 10000);
-  const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : (currentPrimary(envs, topology, trafficFailed ? undefined : traffic.data?.writeBackend) ?? envs[0] ?? ""));
+  // A database-free migration is a traffic move: only an observed member backend establishes its source.
+  const observedSource = trafficFailed ? undefined : traffic.data?.writeBackend;
+  const chosenSource = databaseless ? (observedSource && envs.includes(observedSource) ? observedSource : "") : (currentPrimary(databaseEnvs, topology, observedSource) ?? databaseEnvs[0] ?? "");
+  const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : chosenSource);
   const srcNote =
-    choosing && !srcLoading && trafficFailed
+    choosing && databaseless && !srcLoading && !chosenSource
+      ? "DB가 없는 앱의 현재 쓰기 대상을 게이트웨이에서 확인하지 못했습니다. 원본을 추정하지 않으며 확인 전에는 계획을 만들 수 없습니다."
+      : choosing && !databaseless && !srcLoading && trafficFailed && databaseEnvs.length > 0
       ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
       : undefined;
-  const target = run?.target.env ?? plan?.summary.target.env ?? (tgt && tgt !== src ? tgt : envs.find((e) => e !== src) ?? "");
+  const targets = migrationTargets(envs, environments.data, src);
+  const target = run?.target.env ?? plan?.summary.target.env ?? (targets.some((e) => e.value === tgt) ? tgt : targets.find((e) => e.registered)?.value ?? targets[0]?.value ?? "");
+  const preparation = choosing && app
+    ? envs.length < 2
+      ? "이 앱은 이전할 환경이 두 곳 이상 필요합니다. 앱 상세에서 다른 환경을 추가하고 배포 상태를 확인하세요."
+      : !databaseless && (databaseEnvs.length < 2 || (envs.includes(target) && !databaseEnvs.includes(target)))
+        ? "DB 이전 환경 정보가 준비되지 않았습니다. 앱의 환경 추가와 DB 복제 준비 상태를 확인하세요. 배포 환경만으로 DB가 준비됐다고 판단하지 않습니다."
+        : databaseless && !app.deploy?.spec.services.some((service) => service.public)
+          ? "DB가 없는 앱의 이전에는 공개 HTTP 서비스와 앱별 게이트웨이가 필요합니다. 앱 설정을 확인하세요."
+          : undefined
+    : undefined;
   const myRun = ns ? runs.data?.find((r) => touches(ns, r) && runInProgress(r)) : undefined;
   // while it loads or when it fails the buttons stay on: the platform checks the pair again at the start
   const pair: PairCheck | undefined =
@@ -638,10 +677,13 @@ export function useLiveMigration(): MigrationView {
     stage,
     src,
     tgt: target,
-    srcLabel: srcLoading ? "확인 중" : envLabel(src),
+    srcLabel: srcLoading ? "확인 중" : src ? envLabel(src) : "미확인",
     srcNote,
-    tgtLabel: envLabel(target),
-    targets: envs.filter((e) => e !== src).map((e) => ({ value: e, label: envLabel(e) })),
+    tgtLabel: targets.find((e) => e.value === target)?.label ?? envLabel(target),
+    targets,
+    targetSetup: choosing && target ? { registered: envs.includes(target), addHref: app?.deploy ? "#app-" + encodeURIComponent(app.name) : undefined, status: environments.data?.find((e) => e.name === target)?.status } : undefined,
+    targetsError: environments.error ? "전체 환경 목록을 읽지 못했습니다. 이미 앱에 등록된 환경만 표시할 수 있습니다. " + errorText(environments.error) : undefined,
+    preparation,
     setTarget: setTgt,
     apps: list.map((a) => ({ value: a.name, label: a.name })),
     gkeDemoApp,
@@ -685,6 +727,7 @@ export function useLiveMigration(): MigrationView {
       start: () =>
         act(async () => {
           if (!app) return;
+          if (!src || src === target || !envs.includes(target) || preparation) throw new ApiError(409, "app_environment_required", preparation ?? "이전 대상 환경을 앱에 먼저 추가하고 원본 상태를 확인하세요.");
           setAppName(app.name);
           await startAIRun({ app: app.name, source: src, target });
           aiRuns.reload();
@@ -693,6 +736,7 @@ export function useLiveMigration(): MigrationView {
     makePlan: () =>
       act(async () => {
         if (!app) return;
+        if (!src || src === target || !envs.includes(target) || preparation) throw new ApiError(409, "app_environment_required", preparation ?? "이전 대상 환경을 앱에 먼저 추가하고 원본 상태를 확인하세요.");
         setAppName(app.name);
         const draft = await draftPlan({ app: app.name, source: src, target });
         setEngine(draft);

@@ -9,6 +9,7 @@ import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
 import { dbRoles, readinessBlock, type DBRole, type EnvOption } from "../data/migration";
+import { migrationEntryLabel } from "../data/migrationMembership";
 import { useLive } from "../data/live";
 import { useLiveSecrets, useSimSecrets, type SecretsModel } from "../data/secrets";
 import { navigate, type AppTab } from "../router";
@@ -401,10 +402,10 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
           환경 추가
         </button>
       )}
-      {a.environments.length > 0 && (
+      {(a.environments.length > 0 || !!d) && (
         <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)} aria-describedby={blocked ? migWarnId : undefined}>
           <Icon name="arrow-right-left" size={16} />
-          이전
+          {migrationEntryLabel(a)}
         </a>
       )}
       {d && (

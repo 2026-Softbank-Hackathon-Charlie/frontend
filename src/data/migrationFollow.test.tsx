@@ -11,6 +11,7 @@ const app = { name: "shop", namespace: "shop", database: { name: "app", user: "a
 vi.mock("../api/hooks", async (orig) => ({
   ...(await orig<typeof import("../api/hooks")>()),
   useApps: () => res([app]),
+  useEnvironments: () => res(undefined),
   useRuns: () => res(lists.runs),
   useRun: (id: string | null) => {
     watched.push(id);
