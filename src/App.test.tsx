@@ -229,6 +229,38 @@ describe("HopCharlie console (platform API)", () => {
     expect(calls().some((c) => c.url === "/v1/traffic?app=moim")).toBe(true);
   });
 
+  it.each(["gke", "onprem"])("offers the GKE rehearsal shortcut for the registered %s target only", async (demoTarget) => {
+    const eks = moim.environments[0];
+    const onprem = { env: "onprem", cnpgCluster: "moimroom-db-onprem", dbHost: "c" };
+    const production = { ...moim, name: "moimroom", namespace: "moimroom", deploy: undefined, environments: [eks, onprem] };
+    const demo = { ...moim, name: "moimroom-mig", namespace: "moimroom-mig", deploy: undefined, environments: [eks, demoTarget === "gke" ? moim.environments[1] : onprem] };
+    let calls: FakeCall[] = [];
+    calls = installFetch((c) => {
+      const url = new URL(c.url, "http://x");
+      if (url.pathname === "/v1/apps") return json(200, { apps: [production, demo] });
+      if (url.pathname === "/v1/traffic") return trafficTo("eks");
+      return route(() => calls)(c);
+    });
+    storeSession();
+    const { user } = setup("#migrate-app?app=moimroom", "live");
+
+    await waitFor(() => expect(screen.getByLabelText("원본")).toHaveValue("AWS EKS (지금 쓰기를 받는 곳)"));
+    expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("onprem");
+    const name = "시연용 moimroom-mig 열기";
+    if (demoTarget === "onprem") {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+      return;
+    }
+
+    await user.click(screen.getByRole("button", { name }));
+    expect(await screen.findByRole("heading", { level: 1, name: "moimroom-mig 이전" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("gke"));
+    expect(screen.getByRole("combobox", { name: "이전할 앱" })).toHaveValue("moimroom-mig");
+    expect(window.location.hash).toBe("#migrate-app?app=moimroom-mig");
+    expect(calls.every((c) => c.method === "GET")).toBe(true);
+  });
+
+
   it("falls back to the environment the database was born primary in when the gateway does not answer", async () => {
     twoApps(() => json(502, { error: { code: "gateway_unavailable", message: "no" } }));
     storeSession();

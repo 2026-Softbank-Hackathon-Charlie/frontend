@@ -91,6 +91,7 @@ export interface MigrationView {
   setTarget(v: string): void;
   /** live: the apps that can be migrated (two or more environments), to pick one */
   apps?: EnvOption[];
+  gkeDemoApp?: string;
   setApp?(name: string): void;
   /** the app exists and can be migrated */
   ready: boolean;
@@ -423,6 +424,14 @@ export function useLiveMigration(): MigrationView {
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
   const aiRuns = useAIRuns(app?.name, 5000);
   const envs = app?.environments.map((e) => e.env) ?? [];
+  const gkeDemoApp =
+    app?.name === "moimroom" && !envs.includes("gke")
+      ? list.find(
+          (candidate) =>
+            candidate.name === "moimroom-mig" &&
+            ["eks", "gke"].every((env) => candidate.environments.some((instance) => instance.env === env)),
+        )?.name
+      : undefined;
   const sessions = useAgentSessions(enabled && planRef ? 3000 : 0, planRef ? { planRef } : {});
   // Without a run: the newest sessions, to show a plan hopai is writing for this app as it happens.
   const recent = useAgentSessions(enabled && !runId ? 3000 : 0, { limit: 20 });
@@ -505,6 +514,7 @@ export function useLiveMigration(): MigrationView {
     targets: envs.filter((e) => e !== src).map((e) => ({ value: e, label: envLabel(e) })),
     setTarget: setTgt,
     apps: list.map((a) => ({ value: a.name, label: a.name })),
+    gkeDemoApp,
     setApp: (name) => {
       if (name === app?.name) return;
       setAppName(name);
