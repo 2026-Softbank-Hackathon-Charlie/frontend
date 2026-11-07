@@ -65,6 +65,7 @@ import type {
   TrafficState,
   WrittenRecordStats,
 } from "./types";
+import type { OnpremEnrollment, OnpremEnrollmentCreated, OnpremEnrollmentCreateRequest } from "./onprem";
 
 /** An API failure. `status` is 0 when no HTTP response arrived (timeout, network, CORS). */
 export class ApiError extends Error {
@@ -561,3 +562,13 @@ export const getAppSecret = (name: string, secret: string, q: { instance?: strin
   request<AppSecretValue>("GET", `/v1/apps/${seg(name)}/secrets/${seg(secret)}`, { ...o, query: { instance: q.instance || undefined } });
 /** The repositories the GitHub App installation can see, by full name. */
 export const listGitHubRepos = (o?: RequestOptions) => request<GitHubRepoList>("GET", "/v1/github/repos", o);
+
+/** Issue one short-lived on-prem enrollment. The server authorizes the operator and generates the command. */
+export const createOnpremEnrollment = (body: OnpremEnrollmentCreateRequest, o?: RequestOptions) =>
+  request<OnpremEnrollmentCreated>("POST", "/v1/onprem/enrollments", { ...o, body });
+/** Status contains no enrollment code, kubeconfig or long-lived cluster credentials. */
+export const getOnpremEnrollment = (id: string, o?: RequestOptions) =>
+  request<OnpremEnrollment>("GET", `/v1/onprem/enrollments/${seg(id)}`, o);
+/** Revocation must succeed before the console issues a replacement. */
+export const revokeOnpremEnrollment = (id: string, o?: RequestOptions) =>
+  request<OnpremEnrollment>("POST", `/v1/onprem/enrollments/${seg(id)}/revoke`, o);

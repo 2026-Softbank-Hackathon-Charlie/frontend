@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
   apps: { data: undefined as App[] | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
 }));
 vi.mock("../api/hooks", () => ({ useEnvironments: vi.fn(() => state.envs), useTraffic: vi.fn(() => state.traffic), useApps: vi.fn(() => state.apps) }));
-vi.mock("../data/live", () => ({ useLive: () => state.live, errorText: (error: { message: string }) => error.message }));
+vi.mock("../data/live", () => ({ useLive: () => state.live, useAuth: () => ({ session: { principal: { role: "operator" } } }), errorText: (error: { message: string }) => error.message }));
 
 const environment: Environment = {
   name: "eks", provider: "aws", displayName: "API EKS", region: "api-region", kubeContext: "eks", gatewayBackend: "api-backend", live: true,
@@ -41,6 +41,7 @@ describe("environment mode parity", () => {
   it("uses the same cluster and gateway fields in demo and live modes", () => {
     const demo = open();
     const demoColumns = screen.getAllByRole("columnheader").map((cell) => cell.textContent);
+    expect(screen.queryByRole("button", { name: "온프렘 연결" })).not.toBeInTheDocument();
     expect(demoColumns).toEqual(["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태", "백엔드", "상태", "요청 (1분)", "오류율", "p95"]);
     expect(screen.getByRole("heading", { name: "트래픽 게이트웨이" })).toBeInTheDocument();
     expect(useEnvironments).not.toHaveBeenCalled();
@@ -53,6 +54,7 @@ describe("environment mode parity", () => {
     open();
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(demoColumns);
     expect(screen.getByText("API EKS")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "온프렘 연결" })).toBeInTheDocument();
     expect(useEnvironments).toHaveBeenCalledWith(10_000);
     expect(useTraffic).toHaveBeenCalledWith(5_000, "1m", undefined, false);
   });
