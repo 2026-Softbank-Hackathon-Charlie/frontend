@@ -251,6 +251,7 @@ Settings → Secrets and variables → Actions → **Variables**에 다음 값�
 | `ECR_CONSOLE_REPOSITORY` | 필수. infra `terraform/platform/aws`의 `console_repository_url`. 태그 없는 전체 ECR 주소이며 현재 infra 콘솔 저장소와 같아야 합니다 |
 | `AWS_REGION` | 선택. 기본 `ap-northeast-2`, ECR과 같은 리전 |
 | `VITE_PLATFORM_URL` | 선택. 기본 `https://api.hopcharlie.dev`. 빌드에 포함되는 공개 HTTPS API 주소 |
+| `VITE_HYPERDX_URL` | 선택. 비우면 "HyperDX에서 보기" 버튼이 나오지 않음. 팀 HyperDX의 http(s) 주소(관측 스택의 로그·트레이스 화면). 기본으로는 공개 주소가 없어서(클러스터 안 Service만 있음) 시연 PC에서는 `kubectl port-forward`로 연 주소를 쓴다 |
 
 Terraform output의 소유 위치는 infra `terraform/platform/aws`입니다. 그중 `api_url`, `console_url`, `instance_id`는 기존 EC2 호스트용 값이므로 이 EKS 배포의 입력으로 쓰지 않습니다. `PLATFORM_INSTANCE_ID`와 `CONSOLE_URL` 변수는 필요하지 않습니다. 콘솔 로그인에 쓰는 관리자 계정(`PLATFORM_ADMINS`)은 플랫폼 서버 설정이라 이 workflow에서 다루지 않습니다.
 

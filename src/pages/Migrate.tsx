@@ -7,6 +7,7 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
+import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
@@ -262,7 +263,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     return page(
       <>
-        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<AppPick v={v} />} />
+        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<><HyperDXLink text={v.app} /><AppPick v={v} /></>} />
         <Notice text={v.notice} />
         <div className="split">
           <div className="box">
@@ -364,7 +365,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const hero = r ? heroText(v, r, r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt)) : undefined;
   return page(
     <>
-      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<AppPick v={v} />} />
+      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<><HyperDXLink text={v.app} /><AppPick v={v} /></>} />
       <Wizard v={v} />
       <Notice text={v.notice} />
     </>,
