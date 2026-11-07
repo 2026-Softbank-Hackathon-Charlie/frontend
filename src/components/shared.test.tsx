@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { Environment } from "../api/types";
 import ja from "../i18n/ja.json";
 import { makeTranslator } from "../i18n/translate";
-import { RoutesView, trafficText } from "./shared";
+import { EnvLabel, RoutesView, trafficText } from "./shared";
 
 describe("route result measurements", () => {
   it("shows measured zero counts even without an optional finish timestamp", () => {
@@ -61,5 +61,15 @@ describe("cluster card traffic text", () => {
       "배포 대기",
     ];
     expect(texts.filter((t) => { const out = tr(t); return out === null || /[가-힣]/.test(out); })).toEqual([]);
+  });
+});
+
+describe("environment label", () => {
+  it("puts the provider logo or a server icon before the label, and nothing for an unknown name", () => {
+    const icon = (env: string) => render(<EnvLabel env={env} label="x" />).container.querySelector("img, svg");
+    expect(icon("eks")?.getAttribute("src")).toBe("/env/aws.svg");
+    expect(icon("gke")?.getAttribute("src")).toBe("/env/gcp.svg");
+    expect(icon("onprem")?.tagName.toLowerCase()).toBe("svg");
+    expect(icon("")).toBeNull();
   });
 });

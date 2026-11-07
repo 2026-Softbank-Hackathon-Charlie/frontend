@@ -8,7 +8,7 @@ import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisio
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
-import { EmptyShop, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
+import { EmptyShop, EnvLabel, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
@@ -75,7 +75,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
             rows={[
               [
                 td(live ? <b>{v.app}</b> : <a href={"#app-" + v.app}>{v.app}</a>),
-                td(v.srcLabel),
+                td(<EnvLabel env={v.src} label={v.srcLabel} />),
                 td(
                   v.run ? (
                     <RunStatusChip r={v.run} />
@@ -282,12 +282,15 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     // the database pair's readiness (ADR 0037): only a sure refusal stops the buttons; app_degraded leaves the AI, which can pick cold mode
     const pc = v.pairCheck;
-    const stopAI = pc?.stop === "all";
-    const stopManual = pc?.stop === "all" || pc?.stop === "manual";
+    const needsEnvironment = v.targetSetup?.registered === false;
+    const stopAI = !v.src || !!v.preparation || needsEnvironment || pc?.stop === "all";
+    const stopManual = !v.src || !!v.preparation || needsEnvironment || pc?.stop === "all" || pc?.stop === "manual";
+    const blockedDescription = [pc ? "mig-blocked" : "", needsEnvironment ? "mig-target-registration" : "", v.preparation ? "mig-preparation" : "", !v.src && v.srcNote ? "mig-src-note" : ""].filter(Boolean).join(" ") || undefined;
     return page(
       <>
         <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<HeadActs v={v} />} />
         <Notice text={v.notice} />
+        {v.preparation && <div id="mig-preparation" className="box tone-warn" role="status"><div className="bb"><p>{v.preparation}</p>{!needsEnvironment && <a className="btn ghost" href={"#app-" + encodeURIComponent(v.app)}>앱 환경 추가 화면 열기</a>}</div></div>}
         <div className="split">
           <div className="box">
             <div className="bh">
@@ -297,7 +300,7 @@ function MigrateView({ v }: { v: MigrationView }) {
               <div className="form">
                 <div className="field">
                   <label htmlFor="mig-src">원본</label>
-                  <input id="mig-src" value={v.srcLabel + (v.srcNote ? "" : " (지금 쓰기를 받는 곳)")} readOnly aria-describedby={v.srcNote ? "mig-src-note" : undefined} />
+                  <input id="mig-src" value={v.srcLabel + (v.src && !v.srcNote ? " (지금 쓰기를 받는 곳)" : "")} readOnly aria-describedby={v.srcNote ? "mig-src-note" : undefined} />
                   {v.srcNote && <small id="mig-src-note">{v.srcNote}</small>}
                 </div>
                 <div className="field">
@@ -306,14 +309,26 @@ function MigrateView({ v }: { v: MigrationView }) {
                     id="mig-target"
                     value={v.tgt}
                     onChange={(e) => v.setTarget(e.target.value)}
-                    aria-describedby={gkeDemoApp && setApp ? "mig-gke-demo-note" : undefined}
+                    aria-describedby={[gkeDemoApp && setApp ? "mig-gke-demo-note" : "", v.targetSetup ? "mig-target-registration" : ""].filter(Boolean).join(" ") || undefined}
                   >
                     {v.targets.map((o) => (
                       <option key={o.value} value={o.value}>
-                        {o.label}
+                        {o.label}{o.registered === false ? " (앱 환경 추가 필요)" : ""}
                       </option>
                     ))}
                   </select>
+                  {v.targetsError && <small role="status">{v.targetsError}</small>}
+                  {v.targetSetup && <div id="mig-target-registration" aria-live="polite">
+                    {needsEnvironment && <>
+                      <p>이 앱에 등록되지 않은 환경입니다. 클러스터가 연결돼 있어도 앱과 DB가 배포된 것은 아닙니다. 이전하기 전에 앱 환경을 추가하세요.</p>
+                      {v.targetSetup.addHref ? <a className="btn sm ghost" href={v.targetSetup.addHref}>앱 환경 추가 화면 열기</a> : <p className="hint">이 앱은 파일로 관리됩니다. 운영자가 앱의 환경 설정을 추가해야 합니다.</p>}
+                      <p className="hint">앱 상세에서 환경 추가를 선택하세요. DB 복제 원본 역할과 환경 수 제한은 서버가 확인하며, 이 화면에서 자동으로 환경을 추가하거나 DB를 전환하지 않습니다.</p>
+                    </>}
+                    {v.targetSetup.status ? <>
+                      <p className="hint">클러스터 연결: {v.targetSetup.status.reachable ? "연결됨" : "연결 안 됨"} · 관측 시각 <time dateTime={v.targetSetup.status.checkedAt}>{new Date(v.targetSetup.status.checkedAt).toLocaleString("ko-KR")}</time></p>
+                      {v.targetSetup.status.error && <p className="hint">{v.targetSetup.status.error}</p>}
+                    </> : <p className="hint">클러스터 연결 상태는 미확인입니다. 앱 등록 여부와 별도로 실행 전에 다시 검사합니다.</p>}
+                  </div>}
                   {gkeDemoApp && setApp && (
                     <>
                       <small id="mig-gke-demo-note">현재 앱에는 GKE 대상이 등록되어 있지 않습니다.</small>
@@ -369,7 +384,7 @@ function MigrateView({ v }: { v: MigrationView }) {
               className="btn primary"
               disabled={v.busy || !v.tgt || v.aiRun?.running || stopAI}
               onClick={live ? v.aiRun?.start : v.makePlan}
-              aria-describedby={pc ? "mig-blocked" : undefined}
+              aria-describedby={blockedDescription}
             >
               <Icon name="bot" size={16} />
               {v.aiRun?.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
@@ -379,7 +394,7 @@ function MigrateView({ v }: { v: MigrationView }) {
               className="btn ghost"
               disabled={!live || v.busy || !v.tgt || stopManual}
               onClick={v.makePlan}
-              aria-describedby={!live ? "mig-demo-plan-why" : pc ? "mig-blocked" : undefined}
+              aria-describedby={!live ? "mig-demo-plan-why" : blockedDescription}
             >
               <Icon name="clipboard-check" size={16} />
               AI 없이 Plan 작성
@@ -393,7 +408,7 @@ function MigrateView({ v }: { v: MigrationView }) {
           </div>
         ) : (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || stopManual} onClick={v.makePlan} aria-describedby={pc ? "mig-blocked" : undefined}>
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || stopManual} onClick={v.makePlan} aria-describedby={blockedDescription}>
               <Icon name="clipboard-check" size={16} />
               Plan 작성
             </button>

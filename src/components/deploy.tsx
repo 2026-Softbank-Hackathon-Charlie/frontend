@@ -3,6 +3,7 @@ import type { SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AppInstance, AppSpec, AppSpecFieldError, Deployment, DeploymentEnvironmentStatus, DeploymentStatus, DeploymentTrigger } from "../api/types";
 import { instancesOf } from "../data/deploy";
+import { migrationEntryLabel } from "../data/migrationMembership";
 import { errorText } from "../data/live";
 import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
 import { envName } from "./shared";
@@ -383,9 +384,9 @@ export function AppsList({ apps, now, busy = {}, full, onObserve }: { apps: App[
                 관측
               </button>
             )}
-            {a.environments.length > 0 && (
+            {(a.environments.length > 0 || !!a.deploy) && (
               <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
-                이전
+                {migrationEntryLabel(a)}
               </a>
             )}
           </span>,

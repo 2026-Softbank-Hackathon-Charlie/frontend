@@ -26,7 +26,7 @@ describe("app detail mode parity", () => {
     expect(screen.getByRole("heading", { level: 1, name: "moimroom" })).toBeInTheDocument();
     expect(screen.getByText("PLATFORM_APPS_FILE에 있는 앱입니다. 클러스터 사이로 이전할 수 있습니다.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "이전 설정" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "이전" })).toHaveAttribute("href", "#migrate-app?app=moimroom");
+    expect(screen.getByRole("link", { name: "이전 준비" })).toHaveAttribute("href", "#migrate-app?app=moimroom");
     expect(screen.queryByRole("navigation", { name: "앱 정보" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "기본 브랜치 다시 배포" })).not.toBeInTheDocument();
     expect(screen.getByText("https://moimroom.hopcharlie.dev")).toBeInTheDocument();

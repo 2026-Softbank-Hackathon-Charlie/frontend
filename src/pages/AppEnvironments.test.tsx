@@ -153,7 +153,7 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(screen.getByRole("button",{name:/AWS EKS 환경 빼기/})).toBeDisabled();
   });
 
-  it("shows the missing peer, warns beside the 이전 link, and adds the pair's environment", async () => {
+  it("shows the missing peer, warns beside the 이전 준비 link, and adds the pair's environment", async () => {
     const { user } = setup("#app-moimroom", "live");
     const calls = live(single, (c, u) =>
       u.pathname === "/v1/apps/moimroom/environments" && c.method === "POST"
@@ -165,7 +165,7 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(within(pair).getByText("상대 환경 없음")).toBeInTheDocument();
     expect(screen.getByText("DB 짝 GCP GKE 환경이 아직 앱에 없습니다")).toBeInTheDocument();
     // the link stays: the warning says why the migration would wait, and is what the link describes
-    const link = within(head()).getByRole("link", { name: "이전" });
+    const link = within(head()).getByRole("link", { name: "이전 준비" });
     expect(link).toHaveAttribute("href", "#migrate-app?app=moimroom");
     expect(document.getElementById(link.getAttribute("aria-describedby")!)).toHaveTextContent(/상대 환경이 아직 앱에 없습니다/);
     // on every tab, not only the overview
@@ -173,7 +173,7 @@ describe("adding and removing an app's environment (platform API)", () => {
       window.location.hash = "#app-moimroom/deploys";
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
-    expect(document.getElementById(within(head()).getByRole("link", { name: "이전" }).getAttribute("aria-describedby")!)).toBeInTheDocument();
+    expect(document.getElementById(within(head()).getByRole("link", { name: "이전 준비" }).getAttribute("aria-describedby")!)).toBeInTheDocument();
     await act(async () => {
       window.location.hash = "#app-moimroom";
       window.dispatchEvent(new HashChangeEvent("hashchange"));
