@@ -1,6 +1,6 @@
 import type { SecuritySource, StorageKey, StorageKeyState, StorageKeyUse } from "../api/types";
 import { ms } from "./deploy";
-import { envName } from "./shared";
+import { EnvLabel, envName } from "./shared";
 import { Chip, Table, td, type ChipKind } from "./ui";
 const SRC_STATUS = { ok: ["정상", "ok"], unavailable: ["응답 없음", "bad"], not_configured: ["설정 안 됨", ""], error: ["오류", "bad"] } as const;
 const KEY_USE: Record<StorageKeyUse, string> = { current: "사용 중인 키", old: "교체 전 키(파드가 아직 쓸 수 있음)", unrecorded: "플랫폼 기록에 없는 키" };
@@ -34,7 +34,7 @@ export function SecurityStorageKeys({ keys, sources }: { keys: StorageKey[] | un
           다음 환경의 키는 확인하지 못했습니다. 목록에서 빠졌거나 &lsquo;확인 못 함&rsquo;으로 나옵니다.
           {unread.map((x) => (
             <small key={x.environment} className="block">
-              <b>{envName(x.environment)}</b> <Chip kind={SRC_STATUS[x.status]?.[1] ?? ""}>{SRC_STATUS[x.status]?.[0] ?? x.status}</Chip> {x.message}
+              <b><EnvLabel env={x.environment} label={envName(x.environment)} /></b> <Chip kind={SRC_STATUS[x.status]?.[1] ?? ""}>{SRC_STATUS[x.status]?.[0] ?? x.status}</Chip> {x.message}
             </small>
           ))}
         </div>
@@ -65,7 +65,7 @@ export function SecurityStorageKeys({ keys, sources }: { keys: StorageKey[] | un
                 ),
                 td(
                   <>
-                    {envName(k.environment)}
+                    <EnvLabel env={k.environment} label={envName(k.environment)} />
                     <small className="block">{KEY_DRIVER[k.driver] ?? k.driver}</small>
                   </>,
                   "nw",

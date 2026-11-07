@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { AppDBReadinessEnvironment, AppDBTopology, AppInstance, AppSpecValidation, Deployment } from "../api/types";
-import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
+import { ago, AppsList, appHealth, DeployChip, DeploymentEnvLabels, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
 import { AppObservationDialog } from "../components/AppObservation";
 import { AppSecrets, SecretsSummary } from "../components/secrets";
-import { envName } from "../components/shared";
+import { EnvLabel, envName } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, Table, Tabs, td } from "../components/ui";
 import { REDEPLOY_WAIT, redeployState, useLiveApp, useLiveApps, useSimApp, useSimApps, type AppModel, type AppsModel } from "../data/deploy";
@@ -157,11 +157,11 @@ function EnvStrip({ title, children }: { title: string; children: ReactNode }) {
     </section>
   );
 }
-function EnvCell({ name, chip, children }: { name: string; chip: ReactNode; children: ReactNode }) {
+function EnvCell({ env, chip, children }: { env: string; chip: ReactNode; children: ReactNode }) {
   return (
     <div className="appd-env">
       <div className="appd-envh">
-        <b>{name}</b>
+        <b><EnvLabel env={env} label={envName(env)} /></b>
         {chip}
       </div>
       {children}
@@ -439,7 +439,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
     <Card title="이전 설정">
       <Table
         head={["환경", "CNPG 클러스터", "DB 주소", "버킷"]}
-        rows={a.environments.map((e) => [td(envName(e.env)), td(e.cnpgCluster, "m"), td(e.dbHost, "m"), td(e.bucket ?? "-", "m")])}
+        rows={a.environments.map((e) => [td(<EnvLabel env={e.env} label={envName(e.env)} />), td(e.cnpgCluster, "m"), td(e.dbHost, "m"), td(e.bucket ?? "-", "m")])}
       />
     </Card>
   );
@@ -466,7 +466,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
                     <dt>커밋</dt>
                     <dd className="m">{last.ref + " " + short(last.commit)}</dd>
                     <dt>환경</dt>
-                    <dd>{last.environments.map((e) => envName(e.env)).join(", ")}</dd>
+                    <dd><DeploymentEnvLabels environments={last.environments} /></dd>
                     <dt>시간</dt>
                     <dd>
                       {ago(last.createdAt, m.now)} 시작, {isFinalDeploymentStatus(last.status) ? dur(elapsedSec(last, m.now)) + " 걸림" : "진행 중"}
@@ -545,7 +545,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
               td(<DeployChip s={x.status} />),
               td(triggerText(x), "nw"),
               td(x.ref + " " + short(x.commit), "m"),
-              td(x.environments.map((e) => envName(e.env)).join(", ")),
+              td(<DeploymentEnvLabels environments={x.environments} />),
               td(ago(x.createdAt, m.now), "nw"),
               td(isFinalDeploymentStatus(x.status) ? dur(elapsedSec(x, m.now)) : "진행 중", "num"),
             ])}
@@ -640,7 +640,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
         <>
           <EnvStrip title={def + " 환경별 상태"}>
             {d.status.map((s) => (
-              <EnvCell key={s.env} name={envName(s.env)} chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}>
+              <EnvCell key={s.env} env={s.env} chip={<Chip kind={ENV_STATUS[s.status][0]}>{ENV_STATUS[s.status][1]}</Chip>}>
                 <span className="hint">{[s.syncStatus, s.healthStatus].filter(Boolean).join(", ") || "Argo CD 상태 없음"}</span>
                 {(s.commit || s.updatedAt) && (
                   <span className="hint">
@@ -877,7 +877,7 @@ function DBPair({ t, envs }: { t: AppDBTopology; envs: string[] }) {
       <Table
         head={["환경", "DB 짝", "배포", "게이트웨이 백엔드", "DB 역할", "CNPG 상태"]}
         rows={rows.map((e) => [
-          td(envName(e.env)),
+          td(<EnvLabel env={e.env} label={envName(e.env)} />),
           td(pairChip(e), "nw"),
           td(yesNo(e.deployed, "정상", "아직"), "nw"),
           td(yesNo(e.gatewayBackend, "있음", "없음"), "nw"),
@@ -1160,12 +1160,12 @@ function FileAppDemoInfo({ id }: { id: string }) {
     <>
       <p className="hint">아래 실행 위치·리소스·변경 이력은 시연 데이터입니다. 파일 앱은 일반 모드와 같이 이전 설정을 사용하며 GitHub 배포·시크릿 탭을 제공하지 않습니다.</p>
       <EnvStrip title="시연 실행 위치">
-        <EnvCell name={ENV[a.loc].name} chip={<Chip kind="ok">정상</Chip>}>
+        <EnvCell env={a.loc} chip={<Chip kind="ok">정상</Chip>}>
           <span className="m">{"Pod " + n + "/" + n}</span>
           <span className="hint">트래픽 100%</span>
         </EnvCell>
         {a.prev && (
-          <EnvCell name={ENV[a.prev].name} chip={<Chip>축소됨, 읽기 전용</Chip>}>
+          <EnvCell env={a.prev} chip={<Chip>축소됨, 읽기 전용</Chip>}>
             <span className="hint">트래픽 0%</span>
           </EnvCell>
         )}

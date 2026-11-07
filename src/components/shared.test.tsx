@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { Environment } from "../api/types";
 import ja from "../i18n/ja.json";
 import { makeTranslator } from "../i18n/translate";
@@ -21,6 +21,9 @@ describe("route result measurements", () => {
     render(<RoutesView routes={[{ source: "eks", target: "gke" }]} />);
     expect(screen.getByText("미실행")).toBeInTheDocument();
     expect(screen.queryByText("0 / 0 / 0")).not.toBeInTheDocument();
+    const route = screen.getByText("EKS").closest("td")!;
+    expect(within(route).getByText("GKE")).toBeInTheDocument();
+    expect([...route.querySelectorAll("img")].map((icon) => icon.getAttribute("src"))).toEqual(["/env/aws.svg", "/env/gcp.svg"]);
   });
 });
 
@@ -71,5 +74,12 @@ describe("environment label", () => {
     expect(icon("gke")?.getAttribute("src")).toBe("/env/gcp.svg");
     expect(icon("onprem")?.tagName.toLowerCase()).toBe("svg");
     expect(icon("")).toBeNull();
+  });
+
+  it("uses provider metadata for custom names without adding a second accessible label", () => {
+    const { container } = render(<button><EnvLabel env="custom-staging" label="Staging" provider="gcp" /></button>);
+    expect(container.querySelector("img")).toHaveAttribute("src", "/env/gcp.svg");
+    expect(container.querySelector("img")).toHaveAttribute("alt", "");
+    expect(screen.getByRole("button", { name: "Staging" })).toBeInTheDocument();
   });
 });

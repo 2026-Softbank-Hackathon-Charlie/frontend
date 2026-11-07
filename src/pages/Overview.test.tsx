@@ -88,7 +88,7 @@ describe("overview (platform API)", () => {
     // the run in progress needs a look; a run that ended two days ago does not
     const now = screen.getByRole("heading", { name: "지금 볼 것" }).closest("section") as HTMLElement;
     expect(await within(now).findByText("shop 이전이 진행 중입니다")).toBeInTheDocument();
-    expect(within(now).getByText("GCP GKE에서 온프레미스 k3s로, 카나리 중")).toBeInTheDocument();
+    expect(within(now).getByText((_, el) => el?.textContent === "GCP GKE에서 온프레미스 k3s로, 카나리 중")).toBeInTheDocument();
     expect(within(now).queryByText("shop 이전을 마쳤습니다")).not.toBeInTheDocument();
     expect(within(now).getByText("1건")).toBeInTheDocument();
   });
@@ -131,7 +131,7 @@ describe("overview cluster cards: who takes the writes", () => {
     return calls;
   }
   const traffic = async (name: string) => {
-    const card = (await screen.findByText(name)).closest(".envcard") as HTMLElement;
+    const card = (await screen.findByText(name, { selector: ".envcard .cellh b span" })).closest(".envcard") as HTMLElement;
     return within(card).getByText("트래픽").nextElementSibling;
   };
 

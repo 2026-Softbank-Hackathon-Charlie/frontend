@@ -1,5 +1,6 @@
 import { Chip, LogBox, PageHead, Table, td, type Cell } from "../components/ui";
 import { Icon } from "../components/Icon";
+import { EnvLabel } from "../components/shared";
 import { ENV, ENV_ORDER, FINDINGS, SAMPLE, type EnvKey } from "../sim/data";
 import { chooseMode, useLive } from "../data/live";
 import { navigate } from "../router";
@@ -215,7 +216,7 @@ function Step3() {
                 <dt>네임스페이스</dt>
                 <dd className="m">sandbox-shop-7f3a</dd>
                 <dt>위치</dt>
-                <dd>{ENV[o.env].name}</dd>
+                <dd><EnvLabel env={o.env} label={ENV[o.env].name} /></dd>
                 <dt>자원 한도</dt>
                 <dd>CPU 2, 메모리 4 GiB, Pod 10개</dd>
                 <dt>네트워크</dt>

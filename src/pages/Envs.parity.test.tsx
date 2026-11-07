@@ -119,7 +119,7 @@ describe("environment mode parity", () => {
     sim.state.mig.run = run;
     open(sim);
     expect(screen.getByText("쓰기 대상").nextElementSibling).toHaveTextContent("eks");
-    expect(screen.getByText("eks 70%, gke 30%")).toBeInTheDocument();
+    expect(screen.getByText("읽기 비율").nextElementSibling).toHaveTextContent("eks 70%, gke 30%");
     expect(screen.getByText("쓰기 보류").nextElementSibling).toHaveTextContent("없음");
   });
 

@@ -2,8 +2,8 @@ import { useState } from "react";
 import { deploymentRank } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { Deployment, DeploymentEvent, DeploymentStatus } from "../api/types";
-import { DEPLOY_LABEL, DeployChip, EnvChip, ExtLink, elapsedSec, ms, short, TRIGGER_LABEL } from "../components/deploy";
-import { envName } from "../components/shared";
+import { DEPLOY_LABEL, DeployChip, DeploymentEnvLabels, EnvChip, ExtLink, elapsedSec, ms, short, TRIGGER_LABEL } from "../components/deploy";
+import { EnvLabel, envName } from "../components/shared";
 import { LoadError, LogBox, PageHead, ProgItem, Skeleton, Table, td } from "../components/ui";
 import { instancesOf, useLiveDeployment, useSimDeployment, type DeploymentModel } from "../data/deploy";
 import { useLive } from "../data/live";
@@ -86,7 +86,6 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
   // The instance's own URL. The app's URL is the default instance's, so it stands in only for that one.
   const inst = instancesOf(m.app).find((i) => i.name === instance);
   const url = (inst ? inst.url : instance === d.app ? m.app?.deploy?.url : undefined) ?? d.environments.find((e) => e.url)?.url;
-  const envNames = d.environments.map((e) => envName(e.env)).join(", ");
   const stopped = PHASES[Math.min(k, PHASES.length - 1)];
 
   const counter =
@@ -167,7 +166,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
           <div className="bb">
             <b>배포 완료: {dur(elapsed)}</b>
             <p>
-              {envNames}에서 {instance}이(가) 실행 중입니다.{" "}
+              <DeploymentEnvLabels environments={d.environments} />에서 {instance}이(가) 실행 중입니다.{" "}
               {elapsed <= GOAL_SEC ? "목표 5분 안에 끝났습니다." : "목표 5분보다 " + dur(elapsed - GOAL_SEC) + " 더 걸렸습니다."}
             </p>
             {url && (
@@ -252,7 +251,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
             <Table
               head={["환경", "상태", "Argo CD"]}
               rows={d.environments.map((e) => [
-                td(envName(e.env), "nw"),
+                td(<EnvLabel env={e.env} label={envName(e.env)} />, "nw"),
                 td(<EnvChip s={e.status} />, "nw"),
                 td(
                   <>
