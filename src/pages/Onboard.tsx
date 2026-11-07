@@ -82,6 +82,11 @@ export const FINDING_TEXT: Record<OnboardingFindingCode, string> = {
   reindex_required: "전환 뒤 다시 만들 인덱스가 있습니다",
   app_account_superuser: "앱이 DB superuser 계정으로 접속합니다",
   legacy_deploy_stopped: "원본 배포 workflow가 꺼져 있습니다",
+  db_unreadable: "DB 컨테이너에서 psql로 데이터베이스를 읽지 못했습니다",
+  pending_config: "재시작을 기다리는 설정이나 설정 파일 오류가 있습니다. 원본 연결의 reload가 그 설정까지 적용하거나 실패합니다",
+  config_not_writable: "pg_hba.conf나 postgresql.conf를 고칠 수 없습니다 (읽기 전용)",
+  collation_other_database: "다른 데이터베이스에 정렬 규칙에 기대는 인덱스가 있어 전환 뒤 다시 만들 수 없습니다",
+  vm_image_pull_failed: "VM이 플랫폼이 고정한 openssl 이미지를 받지 못했습니다",
 };
 
 const CHANGE_TEXT: Record<OnboardingLegacyChangeKind, string> = {
@@ -792,6 +797,7 @@ function Approval({ o, busy, onApprove }: { o: Onboarding; busy: string; onAppro
         <p>
           승인하면 원본 레포의 배포 workflow를 끕니다. 정리가 끝날 때까지 원본 VM에는 배포되지 않습니다. 삭제하면 위 변경을 거꾸로 되돌리지만, 머지한 PR은 남습니다.
         </p>
+        <p className="hint">Tailscale 컨테이너가 붙어 있는 동안에는 손으로 docker compose down을 해도 compose 네트워크가 지워지지 않습니다.</p>
         <div className="actrow">
           <button type="button" className="btn primary" disabled={!sha || !!busy} onClick={() => sha && onApprove(sha)}>
             <Icon name="check" size={16} />
