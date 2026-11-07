@@ -148,6 +148,37 @@ describe("pre-start checks from the audit log", () => {
     expect(preflightOf(entry({ runId: "run_1" }))).toBeUndefined();
   });
 
+  it("reads the parity record without letting it block the start", () => {
+    const recorded = (passed: boolean, results: string[]) =>
+      preflightOf(entry({ residency: "allowed", parity: { outcome: "recorded", mode: "audit", passed, results, configDigest: "cfg123" } }))!;
+    const fail = recorded(false, ["identity fail rbac_mismatch: read-own-config=fail(denied), no-secret-list=pass(denied)", "metrics-alerting unknown alert_delivery_unverified"]);
+    expect(fail.blocked).toBe(false);
+    expect(fail.parity).toMatchObject({ status: "fail", digest: "cfg123" });
+    expect(fail.parity!.items).toEqual([
+      { label: "인증, 권한", status: "fail", detail: "rbac_mismatch (read-own-config=fail(denied), no-secret-list=pass(denied))", raw: "identity fail rbac_mismatch: read-own-config=fail(denied), no-secret-list=pass(denied)" },
+      { label: "모니터링, 알림", status: "unknown", detail: "alert_delivery_unverified", raw: "metrics-alerting unknown alert_delivery_unverified" },
+    ]);
+    expect(recorded(false, ["secret unknown probe_not_configured", "audit not_applicable none"]).parity).toMatchObject({ status: "unknown", items: [{ status: "unknown" }, { status: "skip" }] });
+    expect(recorded(true, ["identity pass ok"]).parity).toMatchObject({ status: "pass", items: [{ label: "인증, 권한", status: "pass", detail: "ok" }] });
+    // all items pass but the platform did not: the summary names the baseline or the expiry, not an unchecked item
+    const allPass = (baselineStatus?: string) =>
+      preflightOf(entry({ residency: "allowed", parity: { outcome: "recorded", mode: "audit", passed: false, results: ["identity pass ok", "secret not_applicable not_required"], baselineStatus } }))!.parity!;
+    expect(allPass("not_configured")).toMatchObject({ status: "unknown", summary: expect.stringContaining("원본 기준선이 설정되지 않아") });
+    expect(allPass("expired_or_future").summary).toContain("검토 기한이 맞지 않아");
+    expect(allPass("source_scope_mismatch").summary).toContain("원본 namespace가");
+    expect(allPass("operator_reviewed").summary).toContain("유효 시간이 지나");
+    expect(allPass().summary).toContain("플랫폼이 통과로 판정하지 않았습니다");
+    expect(preflightOf(entry({ residency: "not_configured", parity: { outcome: "not_configured", mode: "audit", binding: null } }))!.parity).toMatchObject({ status: "skip", items: [] });
+    expect(preflightOf(entry({ residency: "rollback_exempt", parity: { outcome: "rollback_exempt" } }))!.parity?.status).toBe("skip");
+    expect(preflightOf(entry({ residency: "allowed", parity: { outcome: "error" } }))!.parity?.status).toBe("unknown");
+    expect(preflightOf(entry({ error: "residency_denied", residencyReasons: [] }))!.parity?.summary).toBe("이전을 시작하지 않아 검사하지 않았습니다");
+    // the rollback endpoint writes no parity record; older entries and the simulation hold none either
+    for (const residency of ["rollback_exempt", "not_configured"])
+      expect(preflightOf(entry({ fromRun: "run_1", residency, capacity: { outcome: "rollback_exempt" } }, { action: "POST /v1/migrations/{runId}/rollback" }))!.parity).toMatchObject({ status: "skip", summary: "롤백이라 검사하지 않았습니다" });
+    expect(preflightOf(entry({ fromRun: "run_1", reason: "slo", automatic: true, residency: "not_configured" }, { actor: "slo-guard" }))!.parity?.status).toBe("skip");
+    expect(preflightOf(entry({ residency: "allowed" }))!.parity).toBeUndefined();
+  });
+
   it("picks the newest start or rollback of the plan", () => {
     const entries = [
       entry({ planRef: "pln_2", residency: "allowed" }, { id: 4 }),
