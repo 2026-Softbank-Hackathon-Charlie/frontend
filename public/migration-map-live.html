@@ -510,8 +510,15 @@ function render(s){
     setNode(k+'.store', s.nodes[k+'.store'][0], s.nodes[k+'.store'][1], L.store);
   }
   const probe = s.activity === 'probe', sand = s.activity === 'sandbox';
-  setNode('claude', probe ? 'busy' : 'idle', probe ? '도구 호출 요청 → 계획' : 'claude-sonnet-5-5');
-  setNode('hopai', probe || sand ? 'busy' : 'idle', probe ? '클러스터 읽기 전용 조회' : sand ? '샌드박스 리허설' : '관리 EKS · Job');
+  const ai = s.ai || null, k = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n);
+  setNode('claude', probe ? 'busy' : 'idle', probe ? '도구 호출 요청 → 계획' : ai && ai.calls > 0 ? ai.calls + '회 · ' + k(ai.tokensIn) + '/' + k(ai.tokensOut) + ' 토큰' : ai ? '최근 ' + ai.minutes + '분 호출 없음' : 'claude-sonnet-5-5');
+  setNode('hopai', probe || sand ? 'busy' : 'idle', probe ? '클러스터 읽기 전용 조회' : sand ? '샌드박스 리허설' : ai && ai.tools > 0 ? '실행 ' + ai.tools + '종 · 차단 ' + ai.blocked : ai ? '최근 ' + ai.minutes + '분 실행 없음' : '관리 EKS · Job');
+  if (ai) {
+    // the tooltips carry what the short lines cannot: the model, the exact tokens and when it last ran
+    const last = ai.lastEvent ? ' · 마지막 ' + new Date(ai.lastEvent).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    nodes.claude.tip.textContent = 'Claude API · 최근 ' + ai.minutes + '분 · 모델 ' + (ai.model || '?') + ' ' + ai.calls + '회 · 입력 ' + ai.tokensIn.toLocaleString() + ' / 출력 ' + ai.tokensOut.toLocaleString() + ' 토큰' + last + ' (관측 로그 기준)';
+    nodes.hopai.tip.textContent = 'AI 실행기 (hopai) · 최근 ' + ai.minutes + '분 · 도구 ' + ai.tools + '종 실행, 샌드박스가 일부러 막은 점검 ' + ai.blocked + '건, 리허설 ' + ai.rehearsals + '회' + last + ' (관측 로그 기준)';
+  }
   edges['claude.up'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off')); edges['claude.down'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off'));
   for (const k of [s.src, s.tgt]) edges['ro.'+k].setAttribute('class', 'edge ro ' + (probe || (sand && k === s.tgt) ? 'on' : 'off'));
   lanesEl.ext.setAttribute('class', 'xlabel' + (probe || sand ? ' on' : ''));

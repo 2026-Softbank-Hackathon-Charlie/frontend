@@ -2,7 +2,7 @@
 // migration state at every stage, from the setup through the AI plan and rehearsal, the approval and the engine run.
 // In demo mode that state is the console's simulation, in live mode the platform (plans, AI sessions, the run over
 // SSE, the gateway). Nothing here is invented: a value the state does not hold is shown as unknown.
-import type { AgentEvent, AgentSession, Environment, Run, RunEvent, TrafficState } from "../api/types";
+import type { AgentEvent, AgentSession, AIActivity, Environment, Run, RunEvent, TrafficState } from "../api/types";
 import { blockedOf, eventText as agentText } from "../components/agent";
 import { ENV, ENV_ORDER, envKeyOf, sampleBucketName, type EnvKey } from "../sim/data";
 import { CANARY, CANARY_PRESETS, ENGINE_STEPS, statusText } from "../sim/mig";
@@ -62,6 +62,8 @@ export interface MapSnapshot {
   sync: { mode: "none" | "copy" | "cdc"; label: string; num: string; files: boolean };
   /** motion on the target before the run: the AI's read-only queries, or the sandbox rehearsal */
   activity: "none" | "probe" | "sandbox";
+  /** what the AI runner really did in the last `minutes`, from the observability logs; null when they cannot be read */
+  ai: AiFacts | null;
   /** the target's error rate, 0 to 1, for the red dots */
   errRate: number;
   errEdge: boolean;
@@ -89,12 +91,51 @@ export interface MapSnapshot {
 }
 
 export interface SnapshotContext {
+  /** GET /v1/ai-activity; absent in demo mode and while it cannot be read */
+  ai?: AIActivity;
+  /** how far back `ai` looks, in minutes */
+  aiMinutes?: number;
   traffic?: TrafficState;
   envs?: Environment[];
   /** wall clock for the durations of phases still at work */
   now: number;
   /** the run's headline and explanation (Migrate's heroText) */
   hero?: [string, string];
+}
+
+/** What the AI runner did lately, as the map shows it (from GET /v1/ai-activity). */
+export interface AiFacts {
+  /** how far back the numbers look */
+  minutes: number;
+  model: string;
+  /** answers of the model */
+  calls: number;
+  tokensIn: number;
+  tokensOut: number;
+  /** distinct tools hopai ran (the read-only ones the model asked for, the sandbox steps and the rehearsal's engine steps) */
+  tools: number;
+  /** attempts the sandbox refused on purpose (isolation checks) */
+  blocked: number;
+  rehearsals: number;
+  /** ISO time of the newest event; "" when there is none */
+  lastEvent: string;
+}
+
+/** The map's view of the AI runner's activity, or null when it could not be read (demo mode, no log store, 502). */
+export function aiFacts(a: AIActivity | undefined, minutes = 60): AiFacts | null {
+  if (!a) return null;
+  const s = a.summary;
+  return {
+    minutes,
+    model: s.model ?? "",
+    calls: s.modelCalls,
+    tokensIn: s.tokensIn,
+    tokensOut: s.tokensOut,
+    tools: Object.keys(s.tools).length,
+    blocked: s.blocked,
+    rehearsals: s.rehearsals,
+    lastEvent: s.lastEvent ?? "",
+  };
 }
 
 const LANE_NAME: Record<EnvKey, string> = { aws: "AWS", gcp: "Google Cloud", onprem: "온프레미스" };
@@ -651,6 +692,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
       files: files !== false,
     },
     activity: pre?.activity ?? "none",
+    ai: aiFacts(ctx.ai, ctx.aiMinutes),
     errRate: slo?.errorRate ?? 0,
     errEdge,
     kpi,

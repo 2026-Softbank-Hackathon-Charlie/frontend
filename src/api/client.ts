@@ -6,6 +6,7 @@
 import type {
   SourceRetentionResponse,
   AbortRequest,
+  AIActivity,
   AIRun,
   AIRunList,
   AIRunRequest,
@@ -320,6 +321,13 @@ export const draftPlan = (req: PlanDraftRequest, o?: RequestOptions) =>
  * Operator only; 409 ai_run_active while one runs for the app, 503 ai_runner_not_configured without it.
  */
 export const startAIRun = (req: AIRunRequest, o?: RequestOptions) => request<AIRun>("POST", "/v1/ai-runs", { ...o, body: req });
+/**
+ * What the AI runner (hopai) did in the last `minutes` (1 to 1440, server default 60), read from the observability
+ * stack's logs: model calls, the read-only tools it ran, the rehearsal. 503 observability_not_configured without the
+ * log store, 502 observability_unavailable when it cannot be read.
+ */
+export const getAIActivity = (minutes?: number, o?: RequestOptions) =>
+  request<AIActivity>("GET", "/v1/ai-activity" + (minutes ? "?minutes=" + minutes : ""), o);
 /** The AI runner's runs, newest first; `app` narrows to one app. */
 export const listAIRuns = (app?: string, o?: RequestOptions) =>
   request<AIRunList>("GET", "/v1/ai-runs" + (app ? "?app=" + encodeURIComponent(app) : ""), o);

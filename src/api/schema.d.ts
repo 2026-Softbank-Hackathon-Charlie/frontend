@@ -642,6 +642,21 @@ export interface paths {
      */
     post: operations["draftPlan"];
   };
+  "/v1/ai-activity": {
+    /**
+     * @description What the AI runner (hopai) did lately, read from the observability
+     * stack's ClickHouse (the HyperDX store): the model it asked, the
+     * read-only tools the model requested, the sandbox steps and rehearsal
+     * results. Only parsed fields are returned, never a raw log line. The
+     * console draws its migration map from it. Without
+     * PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
+     * `observability_not_configured`; if ClickHouse cannot be reached, 502
+     * `observability_unavailable`.
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["getAIActivity"];
+  };
   "/v1/ai-runs": {
     /**
      * @description The AI runner's runs (ai-sandbox hopai as a Kubernetes Job next to the
@@ -1382,6 +1397,46 @@ export interface components {
       createdAt: string;
       /** Format: date-time */
       finishedAt?: string;
+    };
+    AIActivityEvent: {
+      /** Format: date-time */
+      time: string;
+      /** @enum {string} */
+      kind: "model" | "tool_call" | "tool_result" | "blocked" | "rehearsal";
+      /** @description tool_call, tool_result, blocked: the tool's name */
+      tool?: string;
+      /** @description tool_result: ok or error; rehearsal: the engine's result */
+      outcome?: string;
+      model?: string;
+      /** @description model: tool_use or end_turn */
+      stopReason?: string;
+      /** @description model: the tools it asked for */
+      toolCalls?: string[];
+      tokensIn?: number;
+      tokensOut?: number;
+      /** @description rehearsal: whether it passed */
+      passed?: boolean;
+      /** @description rehearsal: how long it took */
+      seconds?: number;
+    };
+    AIActivitySummary: {
+      modelCalls: number;
+      model?: string;
+      tokensIn: number;
+      tokensOut: number;
+      tools: {
+        [key: string]: number;
+      };
+      blocked: number;
+      rehearsals: number;
+      /** Format: date-time */
+      lastEvent?: string;
+    };
+    AIActivity: {
+      /** Format: date-time */
+      since: string;
+      events: components["schemas"]["AIActivityEvent"][];
+      summary: components["schemas"]["AIActivitySummary"];
     };
     AIRunList: {
       runs: components["schemas"]["AIRun"][];
@@ -5390,6 +5445,28 @@ export interface operations {
    *
    * Roles: viewer, agent, operator.
    */
+  getAIActivity: {
+    parameters: {
+      query?: {
+        /** @description how far back to read */
+        minutes?: number;
+      };
+    };
+    responses: {
+      /** @description The events, oldest first, and their totals. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AIActivity"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
   listAIRuns: {
     parameters: {
       query?: {

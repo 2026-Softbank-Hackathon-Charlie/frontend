@@ -13,6 +13,7 @@ import {
   denyDeviceLogin,
   draftPlan,
   getAgentSession,
+  getAIActivity,
   getApp,
   getAppSecret,
   getDeployment,
@@ -129,6 +130,8 @@ describe("client requests", () => {
     await approvePlan("pln_1");
     await rejectPlan("pln_1");
     await getTraffic("30s", "moimroom");
+    await getAIActivity();
+    await getAIActivity(120);
     expect(calls.map((c) => c.url)).toEqual([
       "/v1/plans/a%2Fb",
       "/v1/traffic?window=30s",
@@ -137,6 +140,8 @@ describe("client requests", () => {
       "/v1/plans/pln_1/approve",
       "/v1/plans/pln_1/reject",
       "/v1/traffic?window=30s&app=moimroom",
+      "/v1/ai-activity",
+      "/v1/ai-activity?minutes=120",
     ]);
     // approve's body is optional; reject's is required.
     expect([calls[4].body, calls[4].headers.has("Content-Type")]).toEqual([undefined, false]);
