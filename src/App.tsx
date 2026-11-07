@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Icon, type IconName } from "./components/Icon";
 import { Chip, type ChipKind } from "./components/ui";
 import { chooseMode, logOut, useAuth, useLive } from "./data/live";
-import { isPrioritySeverity } from "./data/security";
 import { Agents } from "./pages/Agents";
 import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
 import { DeploymentPage } from "./pages/Deployment";
@@ -18,7 +17,6 @@ import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
 import { appRoute, navCurrent, navigate, useRoute } from "./router";
 import { activeDeployments } from "./sim/deploy";
-import { DEMO_SECURITY_FINDINGS, DEMO_SECURITY_VULNERABILITIES } from "./sim/securityWorkspace";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
 
@@ -44,7 +42,7 @@ function Page({ r }: { r: string }) {
 }
 
 /** One side-nav entry: route key, label and an optional status badge. */
-type NavItem = [string, string, { kind: ChipKind; text: string; title?: string } | null];
+type NavItem = [string, string, { kind: ChipKind; text: string } | null];
 
 /** Section names for the top bar, by side-nav entry. */
 const NAV_LABEL: Record<string, string> = {
@@ -79,24 +77,17 @@ function SimSideNav({ r }: { r: string }) {
       r={r}
       apps={busyApps ? { kind: "run", text: "진행 중" } : null}
       migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
-      security={highBadge([...DEMO_SECURITY_FINDINGS, ...DEMO_SECURITY_VULNERABILITIES].filter((f) => isPrioritySeverity(f.severity)).length)}
     />
   );
 }
 
-/** The demo badge includes findings and vulnerability occurrences rated high or critical. */
-function highBadge(n: number): NavItem[2] {
-  return n > 0 ? { kind: "bad", text: "발견·취약점 " + n, title: "치명·높음 발견 항목과 취약점 합계" } : null;
-}
-
-// Live mode keeps the API traffic it had before the redesign, so the side menu shows no badges there
-// (a security badge would add GET /v1/security to every console load).
+// Live navigation doesn't fetch extra data for sidebar badges.
 function LiveSideNav({ r }: { r: string }) {
-  return <SideNav r={r} apps={null} migrate={null} security={null} device />;
+  return <SideNav r={r} apps={null} migrate={null} device />;
 }
 
 /** Grouped side menu: overview, then work, results and infrastructure. Badges carry live state. */
-function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; security: NavItem[2]; device?: boolean }) {
+function SideNav({ r, apps, migrate, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; device?: boolean }) {
   const c = navCurrent(r);
   const groups: [string | null, NavItem[]][] = [
     [null, [["overview", NAV_LABEL.overview, null]]],
@@ -118,7 +109,7 @@ function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavI
       "인프라",
       [
         ["envs", NAV_LABEL.envs, null],
-        ["security", NAV_LABEL.security, security],
+        ["security", NAV_LABEL.security, null],
       ],
     ],
   ];
@@ -135,7 +126,7 @@ function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavI
             <ul>
               {items.map(([k, label, badge]) => (
                 <li key={k}>
-                  <a href={"#" + k} aria-current={k === c ? "page" : undefined} title={badge?.title}>
+                  <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
                     <span className="lbl icon-label">
                       <Icon name={NAV_ICON[k]} />
                       <span>{label}</span>

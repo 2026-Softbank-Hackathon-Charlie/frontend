@@ -55,7 +55,7 @@ describe("HopCharlie console (simulation)", () => {
 
   it("opens the exact high and critical findings counted in the overview", async () => {
     const { user } = setup();
-    expect(screen.getByRole("link", { name: "보안 발견·취약점 5" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "보안" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "치명·높음 발견 항목 2건 보기" }));
     expect(await screen.findByRole("heading", { name: "치명·높음 발견 항목" })).toBeInTheDocument();
     const table = screen.getByRole("table");
