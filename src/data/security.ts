@@ -13,6 +13,7 @@ const exceptionInfo = (e?: SecurityException): ExceptionInfo | undefined =>
 /** Active while it has not expired; the server sends only unrevoked ones. */
 export const activeException = (e?: ExceptionInfo, now = Date.now()) => !!e && Date.parse(e.expiresAt) > now;
 export type SecuritySeverity = "critical" | "high" | "medium" | "low" | "info" | "unknown";
+export const isPrioritySeverity = (severity: SecuritySeverity) => severity === "critical" || severity === "high";
 export type Domain = "identity" | "data" | "logging" | "policy" | "vulnerability";
 export interface ControlEvaluation {
   id: string; title: string; controlId: string; domain: Domain; environment: EnvId; app?: string;

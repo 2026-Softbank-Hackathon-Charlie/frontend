@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Icon, type IconName } from "./components/Icon";
 import { Chip, type ChipKind } from "./components/ui";
 import { chooseMode, logOut, useAuth, useLive } from "./data/live";
+import { isPrioritySeverity } from "./data/security";
 import { Agents } from "./pages/Agents";
 import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
 import { DeploymentPage } from "./pages/Deployment";
@@ -43,7 +44,7 @@ function Page({ r }: { r: string }) {
 }
 
 /** One side-nav entry: route key, label and an optional status badge. */
-type NavItem = [string, string, { kind: ChipKind; text: string } | null];
+type NavItem = [string, string, { kind: ChipKind; text: string; title?: string } | null];
 
 /** Section names for the top bar, by side-nav entry. */
 const NAV_LABEL: Record<string, string> = {
@@ -78,14 +79,14 @@ function SimSideNav({ r }: { r: string }) {
       r={r}
       apps={busyApps ? { kind: "run", text: "진행 중" } : null}
       migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
-      security={highBadge([...DEMO_SECURITY_FINDINGS, ...DEMO_SECURITY_VULNERABILITIES].filter((f) => f.severity === "high" || f.severity === "critical").length)}
+      security={highBadge([...DEMO_SECURITY_FINDINGS, ...DEMO_SECURITY_VULNERABILITIES].filter((f) => isPrioritySeverity(f.severity)).length)}
     />
   );
 }
 
-/** "높음 N" for findings rated high or critical; none when there are none. */
+/** The demo badge includes findings and vulnerability occurrences rated high or critical. */
 function highBadge(n: number): NavItem[2] {
-  return n > 0 ? { kind: "bad", text: "높음 " + n } : null;
+  return n > 0 ? { kind: "bad", text: "발견·취약점 " + n, title: "치명·높음 발견 항목과 취약점 합계" } : null;
 }
 
 // Live mode keeps the API traffic it had before the redesign, so the side menu shows no badges there
@@ -134,7 +135,7 @@ function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavI
             <ul>
               {items.map(([k, label, badge]) => (
                 <li key={k}>
-                  <a href={"#" + k} aria-current={k === c ? "page" : undefined}>
+                  <a href={"#" + k} aria-current={k === c ? "page" : undefined} title={badge?.title}>
                     <span className="lbl icon-label">
                       <Icon name={NAV_ICON[k]} />
                       <span>{label}</span>
