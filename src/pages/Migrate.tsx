@@ -5,7 +5,7 @@ import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
-import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
+import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
@@ -579,6 +579,7 @@ function ApproveBox({ v }: { v: MigrationView }) {
         <b>
           Plan {v.plan.ref} (revision {v.plan.revision})을 승인할까요?
         </b>
+        <PlanWriteVerification configured={s.writtenRecordsConfigured} />
         <dl className="kv">
           <dt>경로</dt>
           <dd>
@@ -724,6 +725,7 @@ function StartAgainBox({ v }: { v: MigrationView }) {
         <b>
           Plan {p.ref} (revision {p.revision})은 승인됐지만 시작하지 않았습니다.
         </b>
+        <PlanWriteVerification configured={p.summary.writtenRecordsConfigured} />
         <p className="hint">
           {blocked
             ? "시작 전 검사에서 막혔습니다. 검사 결과의 이유를 해결한 뒤(레지던시 정책이나 대상 설정 변경 등) 다시 시작하세요. 해결하지 않고 다시 시작하면 같은 이유로 막힙니다."

@@ -5,13 +5,14 @@ import { AI_END } from "../sim/mig";
 import { createSim, SimProvider } from "../sim/store";
 import { Migrate } from "./Migrate";
 
-function setup(review = false) {
+function setup(review = false, writtenConfigured?: boolean) {
   chooseMode("demo");
   const sim = createSim();
   sim.dispatch({ type: "onb-skip" });
   if (review) {
     sim.dispatch({ type: "mig-plan" });
     for (let i = 0; i < AI_END; i++) sim.tick();
+    if (sim.state.mig.plan && writtenConfigured !== undefined) sim.state.mig.plan.summary.writtenRecordsConfigured = writtenConfigured;
   }
   render(<SimProvider sim={sim} intervalMs={0}><Migrate /></SimProvider>);
   return { sim, user: userEvent.setup() };
@@ -25,6 +26,15 @@ afterEach(() => {
 });
 
 describe("migration demo follows the live controls", () => {
+  it("warns about unmeasured write loss before the approval action", () => {
+    setup(true, false);
+    const warning = screen.getByRole("region", { name: "실행 전 쓰기 검증" });
+    const approve = screen.getByRole("button", { name: "승인하고 시작" });
+    expect(warning).toHaveTextContent("이대로 시작하면 쓰기 누락은 미측정");
+    expect(warning.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(approve).toBeEnabled();
+  });
+
   it("shows the shared AI action and runs only the local rehearsal scenario", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
