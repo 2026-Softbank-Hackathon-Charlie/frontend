@@ -170,7 +170,7 @@ function DBRoleLine({ r }: { r: DBRole }) {
   return (
     <span className="appd-dbrole">
       {r.traffic && <Chip kind={r.traffic === "active" ? "ok" : "neu"}>{r.traffic === "active" ? "트래픽 받는 중" : "대기"}</Chip>}
-      <span className="hint">DB {r.role === "primary" ? "primary" : "replica(읽기 전용)"}{r.traffic ? "" : ", 처음 만든 역할"}</span>
+      <span className="hint">DB {r.role === "unknown" ? "역할 미확인" : r.role === "primary" ? "primary" : "replica(읽기 전용)"}{r.traffic || r.observed || r.role === "unknown" ? "" : ", 처음 만든 역할"}</span>
     </span>
   );
 }
@@ -278,7 +278,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const running = deps.find((x) => !isFinalDeploymentStatus(x.status));
   const def = "기본 인스턴스(" + a.name + ")";
   // the database pair's roles now, by where the gateway sends the writes (ADR 0030); none without a pair
-  const roles = d?.dbTopology ? dbRoles(d.dbTopology, m.writeBackend) : undefined;
+  const roles = d?.dbTopology ? dbRoles(d.dbTopology, m.writeBackend, d.environments) : undefined;
   // ADR 0037: a pair whose replica is not one of the app's environments yet; a server from before it sends no replicaPresent
   const peerMissing = d?.dbTopology?.replicaPresent === false;
   // why the pair cannot be migrated now; a warning beside 이전, which stays a link: the migration page and the
@@ -289,6 +289,7 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const envBusyWhy = running ? "배포가 진행 중이라 끝난 뒤 환경을 더하거나 뺄 수 있습니다" : "";
   /** Why `env` cannot be taken out, or "" when it can (the first environment has no button). */
   const removeWhy = (env: string): string => {
+    if (d?.dbTopology && d.environments.length > 2) return "세 환경 DB 그룹의 환경 제거는 아직 지원하지 않습니다";
     if (env === m.writeBackend) return "지금 쓰기를 받는 환경이라 뺄 수 없습니다";
     if (readiness?.environments.find((e) => e.env === env)?.role === "primary" || roles?.[env]?.role === "primary") return "지금 DB primary가 있는 환경이라 뺄 수 없습니다";
     return envBusyWhy;
@@ -749,9 +750,10 @@ function AddEnvironment(p: {
   setBusy: (on: boolean) => void;
   onCancel: () => void;
 }) {
-  // a postgres app with a pair can get only the pair's peer: anywhere else its database would be born a separate
-  // primary that can never be migrated, and the platform refuses it (db_pair_unavailable)
-  const options: EnvOption[] = (p.m.envOptions ?? []).filter((o) => !p.have.includes(o.value) && (!p.topology || o.value === p.topology.replica));
+  // Add the original peer first; a complete pair may then gain a third member.
+  // The server verifies DB bootstrap readiness and configured host templates.
+  const peerPresent = !!p.topology && p.have.includes(p.topology.replica);
+  const options: EnvOption[] = (p.m.envOptions ?? []).filter((o) => !p.have.includes(o.value) && (!p.topology || (p.have.length < 3 && (peerPresent || o.value === p.topology.replica))));
   const [env, setEnv] = useState("");
   const [error, setError] = useState("");
   const picked = options.some((o) => o.value === env) ? env : (options[0]?.value ?? "");
@@ -775,7 +777,7 @@ function AddEnvironment(p: {
       <div className="bb">
         <b>환경 추가</b>
         <p>기본 인스턴스의 마지막 정상 배포(커밋과 이미지)를 빌드 없이, 새 환경을 포함한 앱의 모든 환경에 다시 배포합니다. 새 환경은 이전하기 전까지 요청을 받지 않습니다.</p>
-        {p.topology && (
+        {p.topology && !peerPresent && (
           <p>
             {"postgres DB는 새 환경에서 지금 DB의 replica로 태어납니다. DB 짝이 " +
               envName(p.topology.primary) +
@@ -786,6 +788,7 @@ function AddEnvironment(p: {
               "만 더할 수 있습니다. 다른 환경에서는 DB가 따로 태어나 이전할 수 없어 플랫폼이 거절합니다."}
           </p>
         )}
+        {p.topology && peerPresent && <p>DB 복제 그룹은 최대 세 환경을 지원합니다. 세 번째 환경은 DB를 처음 primary로 만든 {envName(p.topology.primary)}에서 복제하므로, 그 환경으로 먼저 이전하고 정상 상태를 확인해야 합니다.</p>}
         {p.m.envOptionsError ? (
           <p className="hint" role="alert">
             {"서버의 환경 목록을 읽지 못했습니다. " + p.m.envOptionsError}
@@ -793,7 +796,7 @@ function AddEnvironment(p: {
         ) : !p.m.envOptions ? (
           <Skeleton />
         ) : options.length === 0 ? (
-          <p className="hint">{p.topology ? "DB 짝의 두 환경이 모두 앱에 있어 더할 환경이 없습니다." : "더할 수 있는 환경이 없습니다. 서버의 환경이 모두 이 앱에 있습니다."}</p>
+          <p className="hint">{p.topology ? "DB 복제 그룹에 더할 수 있는 환경이 없습니다." : "더할 수 있는 환경이 없습니다. 서버의 환경이 모두 이 앱에 있습니다."}</p>
         ) : (
           <div className="field">
             <label htmlFor={id}>더할 환경</label>
@@ -850,12 +853,12 @@ const yesNo = (v: boolean | undefined, yes: string, no: string) => (v === undefi
  */
 function DBPair({ t, envs }: { t: AppDBTopology; envs: string[] }) {
   const r = t.readiness;
-  const rows: PairRow[] = r?.environments ?? [t.primary, t.replica].map((env) => ({ env, inApp: env === t.replica ? t.replicaPresent !== false : envs.includes(env) }));
+  const rows: PairRow[] = r?.environments ?? (envs.length > 2 ? envs : [t.primary, t.replica]).map((env) => ({ env, inApp: env === t.replica ? t.replicaPresent !== false : envs.includes(env) }));
   return (
-    <Card title="DB 짝" side={r && <Chip kind={r.ready ? "ok" : "warn"}>{r.ready ? "이전 준비됨" : "이전 준비 안 됨"}</Chip>}>
+    <Card title={envs.length > 2 ? "DB 복제 그룹" : "DB 짝"} side={r && <Chip kind={r.ready ? "ok" : "warn"}>{r.ready ? "이전 준비됨" : "이전 준비 안 됨"}</Chip>}>
       <div className="bb">
         <p className="hint">
-          {"DB는 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 태어납니다. 두 환경이 모두 준비되면 이전할 수 있습니다."}
+          {envs.length > 2 ? "등록된 세 환경의 DB 상태입니다. DB 역할을 읽지 못하면 미확인으로 표시하며, 이전 가능한 복제 경로는 실행 전에 다시 검사합니다." : "DB는 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 태어납니다. 두 환경이 모두 준비되면 이전할 수 있습니다."}
         </p>
       </div>
       <Table

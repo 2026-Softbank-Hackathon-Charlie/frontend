@@ -110,6 +110,9 @@ const DEPLOY_ERRORS: Record<string, string> = {
 
 /** Korean texts for POST /v1/apps/{name}/environments (ADR 0037); the codes it shares with the deploy calls mean something else here. */
 const ADD_ENV_ERRORS: Record<string, string> = {
+  db_group_full: "DB 복제 그룹은 최대 세 환경을 지원합니다",
+  db_bootstrap_primary_required: "DB를 처음 primary로 만든 환경으로 먼저 이전하고 정상 상태를 확인한 뒤 다시 추가하세요",
+  db_primary_unknown: "새 복제본의 원본 DB 역할을 확인할 수 없습니다. 관리 서버의 클러스터 연결을 확인하세요",
   app_not_registered: "PLATFORM_APPS_FILE에만 있는 앱이라 환경을 더하거나 뺄 수 없습니다",
   environment_exists: "이 환경은 이미 앱에 있고, 그 환경을 담은 마지막 배포가 정상으로 끝났습니다",
   deployment_in_progress: "기본 인스턴스의 배포가 진행 중입니다(앞서 누른 환경 추가 포함). 배포가 끝난 뒤 다시 시도하세요",
@@ -128,6 +131,7 @@ const ADD_ENV_ERRORS: Record<string, string> = {
 
 /** Korean texts for DELETE /v1/apps/{name}/environments/{env} (ADR 0037). */
 const REMOVE_ENV_ERRORS: Record<string, string> = {
+  db_group_removal_unsupported: "세 환경 DB 그룹의 환경 제거는 아직 지원하지 않습니다",
   app_not_registered: ADD_ENV_ERRORS.app_not_registered,
   env_not_found: "앱의 환경이 아닙니다. 이미 빠졌을 수 있습니다",
   primary_environment: "앱의 첫 환경은 뺄 수 없습니다. DB가 primary로 태어난 곳이고, 앱은 환경을 하나 이상 가져야 합니다",

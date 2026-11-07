@@ -132,6 +132,27 @@ function live(app: ApiApp, extra: (c: FakeCall, u: URL) => Response | Promise<Re
 }
 
 describe("adding and removing an app's environment (platform API)", () => {
+  it("offers onprem after the original pair and shows all three DB members", async () => {
+    const paired = appIn(["gke", "eks"], { primary: "gke", replica: "eks", replicaPresent: true });
+    const { user } = setup("#app-moimroom", "live");
+    live(paired, (_c,u) => u.pathname === "/v1/envs" ? json(200,{ environments:[env("gke","GCP GKE"),env("eks","AWS EKS"),env("onprem","온프레미스")] }) : undefined);
+    await user.click(await screen.findByRole("button",{name:"환경 추가"}));
+    const form = screen.getByRole("group",{name:"환경 추가"});
+    await waitFor(() => expect(within(form).getByLabelText("더할 환경")).toHaveValue("onprem"));
+    expect(form).toHaveTextContent("최대 세 환경");
+  });
+
+  it("shows the onprem primary from readiness and refuses three-member removal", async () => {
+    const envs = ["gke","eks","onprem"];
+    const three = appIn(envs,{ primary:"gke",replica:"eks",replicaPresent:true,readiness:{ready:true,reason:"ready",message:"ready",environments:envs.map((env) => ({env,inApp:true,deployed:true,gatewayBackend:true,healthy:true,role:env === "onprem" ? "primary" as const : "replica" as const}))} });
+    setup("#app-moimroom","live");
+    live(three,(_c,u) => u.pathname === "/v1/traffic" ? traffic("onprem",envs) : undefined);
+    const group = (await screen.findByRole("heading",{name:"DB 복제 그룹"})).closest("section") as HTMLElement;
+    expect(within(group).getAllByRole("row")).toHaveLength(4);
+    await waitFor(() => expect(screen.getByText("DB primary")).toBeInTheDocument());
+    expect(screen.getByRole("button",{name:/AWS EKS 환경 빼기/})).toBeDisabled();
+  });
+
   it("shows the missing peer, warns beside the 이전 link, and adds the pair's environment", async () => {
     const { user } = setup("#app-moimroom", "live");
     const calls = live(single, (c, u) =>
