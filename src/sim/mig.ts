@@ -491,6 +491,7 @@ function runTick(m: MigSim): boolean {
     if (st === "succeeded" && rec.status === "running") {
       rec.status = "succeeded";
       rec.endedAt = iso(m.now);
+      if (s.id === "verify") rec.evidence = { report: verifyReport(m) };
       emit(m, "step_succeeded", s.label + " 완료", { step: s.id, data: { durationMillis: Math.round((s.e - s.s) * 1000) } });
     }
   }
@@ -567,6 +568,26 @@ function runTick(m: MigSim): boolean {
     return true;
   }
   return false;
+}
+
+// MOCK: 테이블은 moimroom의 app 스키마(internal/store/schema.sql) 다섯 개이고 행 수는 시뮬레이션 수치다.
+const SAMPLE_ROWS: [table: string, rows: number][] = [
+  ["spaces", 48],
+  ["space_photos", 212],
+  ["reservations", 3120],
+  ["reservation_slots", 9360],
+  ["reviews", 864],
+];
+
+/** The verify step's report, shaped like the engine's (pkg/verify): the reservations k6 wrote during the run are on the target too. */
+function verifyReport(m: MigSim): Record<string, unknown> {
+  const tables = SAMPLE_ROWS.map(([t, rows]) => ({ table: SAMPLE.schema + "." + t, checked: t === "reservations" ? rows + Math.round(m.ok) : rows, missing: 0 }));
+  return {
+    ok: true,
+    missingRows: 0,
+    tables,
+    files: { matching: SAMPLE.files, differences: 0, missingOnTarget: 0, ok: true },
+  };
 }
 
 function liveResult(m: MigSim): RunResult {

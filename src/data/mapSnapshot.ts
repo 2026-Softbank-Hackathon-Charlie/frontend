@@ -10,6 +10,7 @@ import { approvalBlock, PLATFORM_GATE, rehearsing, type MigrationView } from "./
 import { isAfter } from "../api/hooks";
 import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
+import { filesClean, missingOf, verifyReportOf } from "./verifyReport";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
 /** "warn": ran and went on without a verdict (a canary step with too few requests), not a failure. */
@@ -312,7 +313,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
         ? [
             ["요청 수 ≥ " + PLATFORM_GATE.minRequests, fmtN(g.requests), g.requests >= PLATFORM_GATE.minRequests ? "done" : "warn"],
             ["오류율 ≤ " + PLATFORM_GATE.maxErrorRate * 100 + "%", (g.errorRate * 100).toFixed(2) + "%", g.errorRate <= PLATFORM_GATE.maxErrorRate ? "done" : "fail"],
-            ["p95 ≤ " + PLATFORM_GATE.maxP95Millis + "ms", g.p95Millis + "ms", g.p95Millis <= PLATFORM_GATE.maxP95Millis ? "done" : "fail"],
+            ["p95 ≤ " + PLATFORM_GATE.maxP95Millis + "ms", Math.round(g.p95Millis) + "ms", g.p95Millis <= PLATFORM_GATE.maxP95Millis ? "done" : "fail"],
           ]
         : s
           ? [["게이트 판정", "관찰 중", "cur"]]
@@ -360,7 +361,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
       st: r!.phase === "observe" && active ? "cur" : o.passed === true ? "done" : o.passed === false ? "fail" : o.stoppedReason ? "skip" : "todo",
       startedAt: o.steps[0]?.startedAt,
       endedAt: o.steps.at(-1)?.endedAt,
-      checks: o.steps.map((s, i): [string, string, PhaseSt] => [i + 1 + "단계", s.gate ? (s.gate.errorRate * 100).toFixed(2) + "% · " + s.gate.p95Millis + "ms" : s.verdict, s.verdict === "ok" ? "done" : s.verdict === "violated" ? "fail" : "warn"]),
+      checks: o.steps.map((s, i): [string, string, PhaseSt] => [i + 1 + "단계", s.gate ? (s.gate.errorRate * 100).toFixed(2) + "% · " + Math.round(s.gate.p95Millis) + "ms" : s.verdict, s.verdict === "ok" ? "done" : s.verdict === "violated" ? "fail" : "warn"]),
       lines: events.filter((e) => e.kind === "observe_step" || e.kind === "observe_rollback").map(runLine),
     });
   }
@@ -441,7 +442,7 @@ function preRunNodes(v: MigrationView, files: boolean | undefined, holds: Return
 }
 
 /** During and after the run, from the record only. */
-function runNodes(r: Run, f: MapFacts, files: boolean | undefined, share: number): { src: LaneNodes; tgt: LaneNodes; srcTag: string; tag: [string, Tone] } {
+function runNodes(r: Run, f: MapFacts, files: boolean | undefined, share: number): { src: LaneNodes; tgt: LaneNodes; srcTag: string; tag: [string, Tone]; dbVerified: boolean } {
   const s = f.steps;
   const finalized = s.finalize === "succeeded";
   const rolledBack = r.status === "rolled_back";
@@ -494,6 +495,26 @@ function runNodes(r: Run, f: MapFacts, files: boolean | undefined, share: number
     if (files !== false) tgt.store = ["standby", ""];
   } else if ((r.status === "failed" || r.status === "aborted") && !f.promoted) tgt.app = ["standby", "트래픽 0%"];
 
+  // once verified, the target's DB and bucket say what the engine compared instead of the role
+  const report = !rolledBack && s.verify === "succeeded" ? verifyReportOf(r) : undefined;
+  const checked = report?.tables.filter((t) => !t.skipped && !t.error) ?? [];
+  const errors = report?.tables.filter((t) => t.error).length ?? 0;
+  const missing = missingOf(checked);
+  let dbVerified = false;
+  if (errors > 0) {
+    tgt.db = ["crit", "테이블 검증 오류 " + errors + "개"];
+    dbVerified = true;
+  } else if (checked.length && missing !== undefined) {
+    tgt.db = [missing > 0 ? "crit" : "live", "테이블 " + checked.length + "개 · 누락 " + fmtN(missing)];
+    dbVerified = true;
+  }
+  const fc = report?.files;
+  if (fc && files !== false) {
+    const clean = filesClean(fc);
+    if (clean === false) tgt.store = ["crit", "파일 차이 " + fmtN((fc.differences ?? 0) + (fc.missingOnTarget ?? 0)) + "개"];
+    else if (clean && fc.matching !== undefined) tgt.store = ["live", "파일 " + fmtN(fc.matching) + "개 일치"];
+  }
+
   const tag: [string, Tone] =
     r.status === "succeeded"
       ? r.observe?.passed === false
@@ -508,7 +529,7 @@ function runNodes(r: Run, f: MapFacts, files: boolean | undefined, share: number
             : r.status !== "running"
               ? [statusText(r.status, r.phase), "crit"]
               : [r.phase === "sync" ? "동기화 중" : r.phase === "canary" ? "카나리" : r.phase === "cutover" ? "전환 중" : r.phase === "observe" ? "전환 후 관찰" : "검증 중", "info"];
-  return { src, tgt, srcTag: shrunk ? "원본 · 축소됨" : "원본", tag };
+  return { src, tgt, srcTag: shrunk ? "원본 · 축소됨" : "원본", tag, dbVerified };
 }
 
 /* ---------- the snapshot ---------- */
@@ -585,7 +606,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
       const [st, sub] = n[part];
       const ep = role === "src" ? (r?.source ?? v.plan?.summary.source) : role === "tgt" ? (r?.target ?? v.plan?.summary.target) : undefined;
       const fallback = part === "cluster" ? cSub : part === "store" ? lanes[k].sSub : part === "db" && ep ? ep.cluster : "";
-      nodes[k + "." + part] = [st, part === "db" && ep && sub ? ep.cluster + " · " + sub : sub || fallback];
+      // a verified target DB shows the check alone: with the cluster in front the node's width cuts it off
+      const own = role === "tgt" && part === "db" && run?.dbVerified;
+      nodes[k + "." + part] = [st, part === "db" && ep && sub && !own ? ep.cluster + " · " + sub : sub || fallback];
     }
   }
   nodes.user = ["live", rps !== undefined ? fmtN(rps) + " rps" : "요청"];

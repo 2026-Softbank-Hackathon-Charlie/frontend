@@ -425,3 +425,35 @@ describe("migration map: an AI plan that has not passed its rehearsal (platform 
     expect(snap(view({ stage: "review", plan: ok })).actions.map((a) => a.key)).toEqual(["approve"]);
   });
 });
+
+describe("migration map snapshot: the verify step's evidence on the target", () => {
+  const files = { differences: 0, matching: 634, missingOnTarget: 0, ok: true };
+  const done = (report: unknown) => {
+    const steps = Object.fromEntries(["precheck", "prepare", "presync", "delta", "fence", "switchover", "start-target", "cutover", "verify", "finalize"].map((k) => [k, { status: "succeeded" as const }]));
+    if (report !== undefined) steps.verify = { status: "succeeded", evidence: { report } } as (typeof steps)["verify"];
+    return snap(view({ stage: "run", plan: plan({ status: "started" }), run: run({ status: "succeeded", phase: "done", endedAt: at(20) }, { outcome: "succeeded", steps, trafficOnTarget: true, promoteRequested: true }) }));
+  };
+
+  it("puts the table check on the target DB and the file check on its bucket in place of the role", () => {
+    const before = done(undefined);
+    expect(before.nodes["aws.db"]).toEqual(["live", "shop-db · primary · 승격됨"]);
+    const s = done({ ok: true, missingRows: 0, files, tables: [{ table: "app.spaces", checked: 48, missing: 0 }, { table: "app.reviews", checked: 864, missing: 0 }, { table: "app.audit", checked: 0, missing: 0, skipped: "no primary key" }] });
+    expect(s.nodes["aws.db"]).toEqual(["live", "테이블 2개 · 누락 0"]);
+    expect(s.nodes["aws.store"]).toEqual(["live", "파일 634개 일치"]);
+    // the source keeps its lines
+    expect(s.nodes["gcp.db"]).toEqual(before.nodes["gcp.db"]);
+  });
+
+  it("marks missing rows, a failed table and differing files", () => {
+    expect(done({ tables: [{ table: "app.spaces", checked: 48, missing: 3 }] }).nodes["aws.db"]).toEqual(["crit", "테이블 1개 · 누락 3"]);
+    expect(done({ tables: [{ table: "app.spaces", checked: 0, missing: 0, error: "permission denied" }] }).nodes["aws.db"]).toEqual(["crit", "테이블 검증 오류 1개"]);
+    expect(done({ files: { differences: 1, matching: 633, missingOnTarget: 2, ok: false } }).nodes["aws.store"]).toEqual(["crit", "파일 차이 3개"]);
+  });
+
+  it("keeps the DB line while the engine reports no tables", () => {
+    const s = done({ ok: true, missingRows: 0, files, tables: [] });
+    expect(s.nodes["aws.db"]).toEqual(["live", "shop-db · primary · 승격됨"]);
+    expect(s.nodes["aws.store"]).toEqual(["live", "파일 634개 일치"]);
+  });
+});
+

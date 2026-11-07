@@ -14,6 +14,7 @@ import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
+import { filesClean, missingOf, verifyReportOf } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
@@ -1225,6 +1226,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
       {v.preflight?.blocked && <PreflightBox p={v.preflight} />}
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
+      {ended && <VerifyBox r={r} />}
       {v.live && ended && <LiveSourceRetention runId={r.runId} />}
       {ended && <PhaseTimes r={r} m={marks} />}
       <CanaryBox r={r} />
@@ -1380,7 +1382,7 @@ function RunSessions({ v }: { v: MigrationView }) {
   );
 }
 
-function CanaryBox({ r }: { r: Run }) {
+export function CanaryBox({ r }: { r: Run }) {
   const c = r.canary;
   if (!c) return null;
   return (
@@ -1406,7 +1408,7 @@ function CanaryBox({ r }: { r: Run }) {
             td(chip),
             td(g ? fmt(g.requests) : "-", "num"),
             td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
-            td(g ? g.p95Millis + "ms" : "-", "num"),
+            td(g ? Math.round(g.p95Millis) + "ms" : "-", "num"),
           ];
         })}
       />
@@ -1449,7 +1451,7 @@ function ObserveBox({ r }: { r: Run }) {
               td(verdict(s)),
               td(g ? fmt(g.requests) : "-", "num"),
               td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
-              td(g ? g.p95Millis + "ms" : "-", "num"),
+              td(g ? Math.round(g.p95Millis) + "ms" : "-", "num"),
             ];
           })}
         />
@@ -1488,6 +1490,47 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
       </div>
       <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>
       {!x.verified && <div className="bb hint">검증이 끝나지 않았거나 문제가 있습니다.</div>}
+    </div>
+  );
+}
+
+// The verify step's evidence: what the engine compared on both sides, table by table and file by file.
+export function VerifyBox({ r }: { r: Run }) {
+  const rep = verifyReportOf(r);
+  if (!rep || (!rep.tables.length && !rep.files)) return null;
+  const missing = missingOf(rep.tables);
+  const f = rep.files;
+  const fOk = f && filesClean(f);
+  const bad = (missing !== undefined && missing > 0) || fOk === false || rep.tables.some((t) => t.error);
+  const n = (k: number | undefined, unit: string) => (k === undefined ? "-" : fmt(k) + unit);
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>데이터 검증</b>
+        {bad ? <Chip kind="bad">차이 있음</Chip> : rep.ok ? <Chip kind="ok">손실 없음</Chip> : null}
+        <span className="hint">검증 단계가 원본과 대상을 직접 비교한 결과</span>
+      </div>
+      {rep.tables.length > 0 && (
+        <Table
+          head={["테이블", "원본에서 확인한 행", "대상에서 빠진 행", "결과"]}
+          rows={rep.tables.map((t) => {
+            let chip = <Chip kind="ok">일치</Chip>;
+            if (t.error) chip = <Chip kind="bad">{"오류: " + t.error}</Chip>;
+            else if (t.skipped) chip = <Chip>{"건너뜀: " + t.skipped}</Chip>;
+            else if (t.missing === undefined) chip = <Chip>측정 안 됨</Chip>;
+            else if (t.missing > 0) chip = <Chip kind="bad">누락 있음</Chip>;
+            const measured = !t.error && !t.skipped;
+            return [td(<code>{t.table}</code>), td(measured ? n(t.checked, "행") : "-", "num"), td(measured ? n(t.missing, "행") : "-", "num"), td(chip)];
+          })}
+        />
+      )}
+      {f && (
+        <div className="mg-report">
+          <Num label="일치하는 파일" value={n(f.matching, "개")} note="원본과 대상의 해시가 같은 파일" ok={fOk ? true : undefined} />
+          <Num label="내용이 다른 파일" value={n(f.differences, "개")} note="양쪽에 있지만 해시가 다른 파일" ok={f.differences === undefined ? undefined : f.differences === 0} />
+          <Num label="대상에 없는 파일" value={n(f.missingOnTarget, "개")} note="원본에만 있는 파일" ok={f.missingOnTarget === undefined ? undefined : f.missingOnTarget === 0} />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth } from "../data/live";
-import { AI_END, iso } from "../sim/mig";
+import { AI_END, iso, SWITCH_AT } from "../sim/mig";
+import { buildMapSnapshot } from "../data/mapSnapshot";
+import { useSimMigration } from "../data/migration";
 import { createSim, SimProvider } from "../sim/store";
 import { fakeRun } from "../api/fakes";
 import { Migrate, MigrateList } from "./Migrate";
@@ -56,6 +58,35 @@ describe("migration demo follows the live controls", () => {
     expect(screen.getByLabelText("관찰 시간")).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "게이트를 어기면 바로 롤백" })).toBeDisabled();
     expect(screen.getByText(/데모는 빠른 카나리.*관찰과 자동 롤백.*지원하지 않습니다/)).toBeInTheDocument();
+  });
+});
+
+describe("migration demo shows the verify evidence like a live run", () => {
+  it("fills the engine's verify report and shows it on the result and the map", async () => {
+    const { sim, user } = setup(true);
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    act(() => { for (let i = 0; i < SWITCH_AT; i++) sim.tick(); });
+    act(() => { sim.dispatch({ type: "mig-switch" }); for (let i = 0; i < 68; i++) sim.tick(); });
+    const r = sim.state.mig.run!;
+    expect(r.status).toBe("succeeded");
+    const report = r.engine.steps.verify.evidence?.report as { tables: { table: string; checked: number; missing: number }[]; files: Record<string, number | boolean> };
+    expect(report.tables.map((t) => t.table)).toEqual(["app.spaces", "app.space_photos", "app.reservations", "app.reservation_slots", "app.reviews"]);
+    expect(report.tables.every((t) => t.checked > 0 && t.missing === 0)).toBe(true);
+    expect(report.files).toEqual({ matching: 1284, differences: 0, missingOnTarget: 0, ok: true });
+
+    expect(screen.getByText("데이터 검증")).toBeInTheDocument();
+    expect(screen.getByText("손실 없음")).toBeInTheDocument();
+    expect(screen.getByText("app.reservation_slots")).toBeInTheDocument();
+    expect(screen.getByText("일치하는 파일").nextSibling).toHaveTextContent("1,284개");
+
+    // the map reads the same record: the target DB and bucket carry the check
+    let view: ReturnType<typeof useSimMigration> | undefined;
+    function Probe() { view = useSimMigration(); return null; }
+    render(<SimProvider sim={sim} intervalMs={0}><Probe /></SimProvider>);
+    const s = buildMapSnapshot(view!, { now: Date.now() });
+    const tgt = s.lanes.aws.role === "tgt" ? "aws" : s.lanes.gcp.role === "tgt" ? "gcp" : "onprem";
+    expect(s.nodes[tgt + ".db"]).toEqual(["live", "테이블 5개 · 누락 0"]);
+    expect(s.nodes[tgt + ".store"]).toEqual(["live", "파일 1,284개 일치"]);
   });
 });
 
