@@ -82,6 +82,19 @@ describe("environment mode parity", () => {
     expect(screen.queryByText("AWS EKS")).not.toBeInTheDocument();
   });
 
+  it("passes real environment names to the enrollment form and prevents replacing the existing onprem", () => {
+    state.live = true;
+    state.envs = { ...state.envs, data: [environment, { ...environment, name: "onprem", provider: "onprem", displayName: "내 노트북" }], loading: false };
+    state.traffic = { ...state.traffic, data: traffic, loading: false };
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "온프렘 연결" }));
+    const panel = screen.getByRole("region", { name: "온프렘 연결 마법사" });
+    expect(within(panel).getByLabelText("환경 이름")).toHaveValue("");
+    fireEvent.change(within(panel).getByLabelText("환경 이름"), { target: { value: "onprem" } });
+    expect(within(panel).getByRole("alert")).toHaveTextContent("이미 등록된 환경 이름");
+    expect(within(panel).getByRole("button", { name: "등록 코드 발급" })).toBeDisabled();
+  });
+
   it("keeps writes on the source until the engine completes cutover", () => {
     const sim = createSim();
     sim.state.mig.src = "aws";

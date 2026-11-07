@@ -37,7 +37,7 @@ function LiveEnvs() {
   ) : apps.error && !apps.data ? (
     <span className="hint">앱 목록을 읽지 못해 앱을 지정하지 않은 기본 게이트웨이를 보여 줍니다. 등록된 앱의 트래픽과 다를 수 있습니다.</span>
   ) : null;
-  return <EnvsView envs={envs} traffic={traffic} scope={scope} enrollment={<OnpremEnrollmentEntry onReady={envs.reload} />} />;
+  return <EnvsView envs={envs} traffic={traffic} scope={scope} enrollment={<OnpremEnrollmentEntry onReady={envs.reload} environmentNames={envs.data?.map((e) => e.name)} environmentListError={envs.error ? errorText(envs.error) : undefined} onReloadEnvironments={envs.reload} />} />;
 }
 
 type ReadResult<T> = Pick<Resource<T>, "data" | "error" | "reload">;

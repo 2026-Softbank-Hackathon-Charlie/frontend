@@ -17,7 +17,7 @@ function json(value: unknown, status = 200) {
 }
 function setup() {
   setToken("test-operator-only");
-  return render(<OnpremEnrollmentPanel operator pollMs={0} onClose={vi.fn()} />);
+  return render(<OnpremEnrollmentPanel operator environmentNames={[]} pollMs={0} onClose={vi.fn()} />);
 }
 async function issue() {
   const user = userEvent.setup();
@@ -85,18 +85,18 @@ it("hides consumed credentials and requires every check even when the server rep
   await screen.findByLabelText("일회용 등록 코드");
   await user.click(screen.getByRole("button", { name: "연결 상태 새로고침" }));
   await waitFor(() => expect(screen.queryByLabelText("일회용 등록 코드")).not.toBeInTheDocument());
-  expect(screen.queryByText("배포할 준비가 됐습니다.")).not.toBeInTheDocument();
+  expect(screen.queryByText("클러스터 연결과 기본 배포 검증을 통과했습니다.")).not.toBeInTheDocument();
   expect(within(screen.getByRole("row", { name: /이미지 다운로드/ })).getByText("미확인")).toBeInTheDocument();
 });
 
 it("shows completion only from ready plus all successful server checks", async () => {
   const onReady = vi.fn();
   vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => init?.method === "POST" ? json({ enrollment: enrollment(), code: "ABCD-EFGH", installCommand: "server-command" }, 201) : json(enrollment("ready"))));
-  render(<OnpremEnrollmentPanel operator pollMs={0} onClose={vi.fn()} onReady={onReady} />);
+  render(<OnpremEnrollmentPanel operator environmentNames={[]} pollMs={0} onClose={vi.fn()} onReady={onReady} />);
   const user = await issue();
   await screen.findByLabelText("일회용 등록 코드");
   await user.click(screen.getByRole("button", { name: "연결 상태 새로고침" }));
-  expect(await screen.findByText("배포할 준비가 됐습니다.")).toBeInTheDocument();
+  expect(await screen.findByText("클러스터 연결과 기본 배포 검증을 통과했습니다.")).toBeInTheDocument();
   expect(onReady).toHaveBeenCalledTimes(1);
 });
 
@@ -137,14 +137,14 @@ it("marks a failed refresh stale and removes the no-longer-confirmed command", a
   await user.click(screen.getByRole("button", { name: "연결 상태 새로고침" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("마지막으로 받은 결과입니다");
   expect(screen.queryByLabelText("장비에서 실행할 명령")).not.toBeInTheDocument();
-  expect(screen.queryByText("배포할 준비가 됐습니다.")).not.toBeInTheDocument();
+  expect(screen.queryByText("클러스터 연결과 기본 배포 검증을 통과했습니다.")).not.toBeInTheDocument();
 });
 
 it("works in StrictMode and disables duplicate issuance while the request is pending", async () => {
   let finish!: (value: Response) => void;
   const fetcher = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
   vi.stubGlobal("fetch", fetcher);
-  render(<StrictMode><OnpremEnrollmentPanel operator pollMs={0} onClose={vi.fn()} /></StrictMode>);
+  render(<StrictMode><OnpremEnrollmentPanel operator environmentNames={[]} pollMs={0} onClose={vi.fn()} /></StrictMode>);
   const user = await issue();
   expect(screen.getByRole("button", { name: "발급하는 중" })).toBeDisabled();
   expect(fetcher).toHaveBeenCalledTimes(1);
@@ -186,10 +186,59 @@ it("requires explicit k3s installation consent and sends that choice to the serv
 
 it("clears the one-time command when operator access is removed", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ enrollment: enrollment(), code: "ABCD-EFGH", installCommand: "server-command" }, 201)));
-  const view = render(<OnpremEnrollmentPanel operator pollMs={0} onClose={vi.fn()} />);
+  const view = render(<OnpremEnrollmentPanel operator environmentNames={[]} pollMs={0} onClose={vi.fn()} />);
   await issue(); await screen.findByLabelText("일회용 등록 코드");
   view.rerender(<OnpremEnrollmentPanel operator={false} pollMs={0} onClose={vi.fn()} />);
   expect(screen.queryByLabelText("일회용 등록 코드")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("장비에서 실행할 명령")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeDisabled();
+});
+
+it("requires a new name and refuses to issue a grant for an existing environment", async () => {
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  render(<OnpremEnrollmentPanel operator environmentNames={["eks", "onprem"]} pollMs={0} onClose={vi.fn()} />);
+  const user = userEvent.setup();
+  expect(screen.getByLabelText("환경 이름")).toHaveValue("");
+  expect(screen.getByLabelText("환경 이름")).toHaveAttribute("placeholder", "onprem-my-laptop");
+  await user.type(screen.getByLabelText("환경 이름"), "onprem");
+  expect(await screen.findByText(/이미 등록된 환경 이름입니다/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "등록 코드 발급" }));
+  expect(fetcher).not.toHaveBeenCalled();
+  await user.clear(screen.getByLabelText("환경 이름"));
+  await user.type(screen.getByLabelText("환경 이름"), "onprem-my-laptop");
+  expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeEnabled();
+});
+
+it("does not issue credentials until existing environment names are available", () => {
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  render(<OnpremEnrollmentPanel operator environmentListError="API unavailable" pollMs={0} onClose={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeDisabled();
+  expect(screen.getByRole("alert")).toHaveTextContent("기존 환경 이름을 확인하지 못했습니다");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("distinguishes an unconfigured issuer from an unsupported server and permits an explicit retry", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ error: { code: "enrollment_issuer_unavailable", message: "not configured" } }, 503)));
+  setup(); await issue();
+  expect(await screen.findByRole("alert")).toHaveTextContent("온프렘 등록 서비스 설정이 완료되지 않았습니다");
+  expect(screen.queryByText(/자동 연결을 지원하지 않습니다/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "등록 코드 발급" })).toBeEnabled();
+});
+
+it("shows the actual server registration stage without inferring completion from local installation", async () => {
+  const status = { ...enrollment("verifying"), stage: "cluster_checks" };
+  vi.stubGlobal("fetch", vi.fn(async () => json({ enrollment: status }, 201)));
+  setup(); await issue();
+  expect(await screen.findByText("클러스터 권한·이미지·Hello World 검사 중")).toBeInTheDocument();
+  expect(screen.queryByText("클러스터 연결과 기본 배포 검증을 통과했습니다.")).not.toBeInTheDocument();
+  expect(screen.getByText(/DB·MinIO·GPU 설치와 환경 동등성은 별도로/)).toBeInTheDocument();
+});
+
+it("does not infer progress or completion from an unknown future registration stage", async () => {
+  const status = { ...enrollment("verifying"), stage: "future_server_stage", checks: enrollment("ready").checks };
+  vi.stubGlobal("fetch", vi.fn(async () => json({ enrollment: status }, 201)));
+  setup(); await issue();
+  expect(await screen.findByText("등록 단계 미확인")).toBeInTheDocument();
+  expect(screen.queryByText("클러스터 연결과 기본 배포 검증을 통과했습니다.")).not.toBeInTheDocument();
 });
