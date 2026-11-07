@@ -276,8 +276,21 @@ function parityPart(d: Record<string, unknown>, refused: string): PreflightView[
   // not passed: a failed check is a mismatch; otherwise something stayed unknown or the evidence expired
   if (items.some((i) => i.status === "fail"))
     return { status: "fail", summary: "대상이 원본의 요구와 맞지 않는 항목이 있습니다. 기록 전용이라 시작은 막지 않았습니다", items, digest };
-  return { status: "unknown", summary: "확인하지 못한 항목이 있어 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다", items, digest };
+  if (items.some((i) => i.status === "unknown"))
+    return { status: "unknown", summary: "확인하지 못한 항목이 있어 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다", items, digest };
+  // every item passed or did not apply, yet the platform did not pass: the baseline or the evidence's lifetime decided
+  const baseline = typeof p.baselineStatus === "string" ? p.baselineStatus : "";
+  const summary = BASELINE_SUMMARY[baseline] ?? "항목은 모두 통과했지만 플랫폼이 통과로 판정하지 않았습니다. 기록 전용이라 시작은 막지 않았습니다";
+  return { status: "unknown", summary, items, digest };
 }
+
+/** Why an all-pass report is still not passed (paritygate.Gate.Check sets baselineStatus; operator_reviewed leaves the expiry). */
+const BASELINE_SUMMARY: Record<string, string> = {
+  operator_reviewed: "항목은 모두 통과했지만 증거의 유효 시간이 지나 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다",
+  not_configured: "항목은 모두 통과했지만 원본 기준선이 설정되지 않아 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다",
+  expired_or_future: "항목은 모두 통과했지만 원본 기준선의 검토 기한이 맞지 않아 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다",
+  source_scope_mismatch: "항목은 모두 통과했지만 원본 namespace가 동등성 파일의 앱과 달라 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다",
+};
 
 /** The pre-start checks of an audit entry, or undefined when it holds none. */
 export function preflightOf(e: Pick<AuditEntry, "time" | "detail">): PreflightView | undefined {

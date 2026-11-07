@@ -160,6 +160,14 @@ describe("pre-start checks from the audit log", () => {
     ]);
     expect(recorded(false, ["secret unknown probe_not_configured", "audit not_applicable none"]).parity).toMatchObject({ status: "unknown", items: [{ status: "unknown" }, { status: "skip" }] });
     expect(recorded(true, ["identity pass ok"]).parity).toMatchObject({ status: "pass", items: [{ label: "인증, 권한", status: "pass", detail: "ok" }] });
+    // all items pass but the platform did not: the summary names the baseline or the expiry, not an unchecked item
+    const allPass = (baselineStatus?: string) =>
+      preflightOf(entry({ residency: "allowed", parity: { outcome: "recorded", mode: "audit", passed: false, results: ["identity pass ok", "secret not_applicable not_required"], baselineStatus } }))!.parity!;
+    expect(allPass("not_configured")).toMatchObject({ status: "unknown", summary: expect.stringContaining("원본 기준선이 설정되지 않아") });
+    expect(allPass("expired_or_future").summary).toContain("검토 기한이 맞지 않아");
+    expect(allPass("source_scope_mismatch").summary).toContain("원본 namespace가");
+    expect(allPass("operator_reviewed").summary).toContain("유효 시간이 지나");
+    expect(allPass().summary).toContain("플랫폼이 통과로 판정하지 않았습니다");
     expect(preflightOf(entry({ residency: "not_configured", parity: { outcome: "not_configured", mode: "audit", binding: null } }))!.parity).toMatchObject({ status: "skip", items: [] });
     expect(preflightOf(entry({ residency: "rollback_exempt", parity: { outcome: "rollback_exempt" } }))!.parity?.status).toBe("skip");
     expect(preflightOf(entry({ residency: "allowed", parity: { outcome: "error" } }))!.parity?.status).toBe("unknown");
