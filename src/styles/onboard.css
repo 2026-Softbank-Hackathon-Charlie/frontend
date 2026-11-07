@@ -29,6 +29,8 @@
 @media (max-width: 600px) {
   .onboard-page > .actrow, .onboard-page .onboard-unavailable .actrow { flex-direction: column; align-items: stretch; }
   .onboard-page > .actrow .btn, .onboard-page .onboard-unavailable .btn { justify-content: center; }
+  /* Keep the language control in the footer flow instead of covering form/actions. */
+  body:has(.onboard-page) .lang-fab { position: static; display: flex; width: max-content; margin: 0 var(--sp-md) var(--sp-md) auto; }
 }
 @media (max-width: 440px) {
   .onboard-page .onboard-steps li { padding: var(--sp-sm); gap: var(--sp-xs); }
