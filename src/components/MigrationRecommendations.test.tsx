@@ -23,6 +23,15 @@ it("shows concise evidence and the exact app/target link while leaving unknown s
   expect(calls).toHaveLength(1);
 });
 
+it("labels measured savings as an entered total-cost estimate", async () => {
+  const response = report();
+  Object.assign(response.recommendations[0], { estimatedMonthlySavingsUsd: 105.5 });
+  installFetch(() => json(200, response));
+  render(<MigrationRecommendations />); await flush();
+  expect(screen.getByText("입력 총비용 견적 기준 월 약 $105.5 차이")).toBeInTheDocument();
+  expect(screen.queryByText(/공시 요금 기준 월 약/)).not.toBeInTheDocument();
+});
+
 it("reuses the same session cache on reentry and unlocks refresh without polling", async () => {
   const calls = installFetch(() => json(200, report()));
   const first = render(<MigrationRecommendations />); await flush(); first.unmount();

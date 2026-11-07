@@ -16,7 +16,7 @@ function RecommendationRow({ item, stale }: { item: MigrationRecommendation; sta
       <b>{item.app}{item.source && <span className="ov-rec-route"> · {envName(item.source)}{item.target && item.target !== item.source ? " → " + envName(item.target) : ""}</span>}</b>
       <span>{item.title}</span>
       {item.reasons.length > 0 && <span>{item.reasons.join(" · ")}</span>}
-      {item.estimatedMonthlySavingsUsd !== null && <small>공시 요금 기준 월 약 ${item.estimatedMonthlySavingsUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} 차이</small>}
+      {item.estimatedMonthlySavingsUsd !== null && <small>입력 총비용 견적 기준 월 약 ${item.estimatedMonthlySavingsUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} 차이</small>}
       {(item.sources.length > 0 || item.missing.length > 0) && <details className="ov-rec-evidence"><summary>판단 근거</summary>
         {item.missing.length > 0 && <p>확인 필요: {item.missing.join(" · ")}</p>}
         <ul>{item.sources.map((source, i) => <li key={source.title + i}>
