@@ -347,18 +347,26 @@ export function currentPrimary(envs: string[], topology: AppDBTopology | undefin
 }
 
 export interface DBRole {
-  role: "primary" | "replica";
+  role: "primary" | "replica" | "unknown";
+  observed?: true;
   /** whether the gateway sends the app's writes here; undefined when the gateway did not say */
   traffic?: "active" | "standby";
 }
 
-/** The app's two databases now: the primary takes the writes; the other is a read-only replica of it. */
-export function dbRoles(topology: AppDBTopology, writeBackend: string | undefined): Record<string, DBRole> {
-  const envs = [topology.primary, topology.replica];
+/** Registered membership supplies every database, including an onprem third member. */
+export function dbRoles(topology: AppDBTopology, writeBackend: string | undefined, environments?: string[]): Record<string, DBRole> {
+  const envs = environments ?? [topology.primary, topology.replica];
   const known = !!writeBackend && envs.includes(writeBackend);
   const primary = known ? writeBackend : topology.primary;
   const out: Record<string, DBRole> = {};
-  for (const e of envs) out[e] = { role: e === primary ? "primary" : "replica", traffic: known ? (e === writeBackend ? "active" : "standby") : undefined };
+  for (const e of envs) {
+    const observed = topology.readiness?.environments.find((r) => r.env === e && r.inApp);
+    out[e] = {
+      role: envs.length > 2 ? (observed?.role ?? "unknown") : (e === primary ? "primary" : "replica"),
+      traffic: known ? (e === writeBackend ? "active" : "standby") : undefined,
+      ...(envs.length > 2 && observed && observed.role !== "unknown" ? { observed: true as const } : {}),
+    };
+  }
   return out;
 }
 

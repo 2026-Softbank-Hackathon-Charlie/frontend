@@ -744,12 +744,19 @@ export interface paths {
      * instance's `apps/<instance>/` from the gitops repository, and forgets
      * the app with its instances and deployments. Argo CD then deletes the
      * Applications and the resources they created, so the app's data goes
-     * with them; 202 means that is under way.
+     * with them. The platform also removes every instance from the traffic
+     * gateway and the app's database routes, and then deletes the buckets
+     * and keys it made for the app: every instance's file bucket and the
+     * Postgres backup bucket `<prefix><name>---pg` with its user, keys and
+     * every object version (ADR 0016, 0037). A bucket that cannot be
+     * deleted yet is retried every few minutes. 202 means that is under
+     * way.
      *
      * Only registered apps can be deleted. Error codes: app_not_found (404),
      * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
-     * in both stays listed from the file), github_unreachable (502),
-     * github_not_configured (503). Role operator.
+     * in both stays listed from the file, without `deploy`, until the file
+     * drops it), github_unreachable (502), github_not_configured (503).
+     * Role operator.
      */
     delete: operations["deleteApp"];
     parameters: {
@@ -760,7 +767,7 @@ export interface paths {
   };
   "/v1/apps/{name}/environments": {
     /**
-     * @description Add an environment to a registered app (ADR 0037) and queue a
+     * @description Add an environment to a registered app (ADR 0043) and queue a
      * deployment of the default instance (trigger `environment`) to all of
      * the app's environments, the new one included. The deployment repeats
      * the default instance's last healthy deployment: its commit, images and
@@ -842,7 +849,7 @@ export interface paths {
   };
   "/v1/apps/{name}/environments/{env}": {
     /**
-     * @description Take an environment back out of a registered app (ADR 0037), for an
+     * @description Take an environment back out of a registered app (ADR 0043), for an
      * environment added by mistake or whose deployment cannot get healthy.
      * The platform takes the environment's backend out of every instance's
      * traffic gateway app (first, so no request goes to workloads that are
@@ -1264,6 +1271,11 @@ export interface components {
     };
     /** @description The migration-engine plan (migration-engine/pkg/plan). `${VAR}` references are expanded on the server. */
     EnginePlan: {
+      /**
+       * @description Opt-in for approved three-environment registered database groups. Before holding writes, prepare may CAS-update only the current primary's future replica source to the directly following target. It never reparents the target or changes a primary role.
+       * @default false
+       */
+      allowSourceRewire?: boolean;
       id: string;
       source: components["schemas"]["EnginePlanEndpoint"];
       target: components["schemas"]["EnginePlanEndpoint"];
@@ -2946,7 +2958,7 @@ export interface components {
       records: components["schemas"]["WrittenRecord"][];
     };
     WrittenRecordsAccepted: {
-      /** @description records stored */
+      /** @description Input records accepted atomically; identical eventId retries count as accepted without increasing stored count. */
       accepted: number;
     };
     WrittenRecordStats: {
@@ -3255,7 +3267,7 @@ export interface components {
       dbTopology?: components["schemas"]["AppDBTopology"];
     };
     /**
-     * @description The database pair of the app's default instance (ADR 0030, ADR 0037),
+     * @description The database pair of the app's default instance (ADR 0030, ADR 0043),
      * present only while the server sets PLATFORM_APP_DB_TOPOLOGY for an app
      * with a postgres resource registered in exactly two environments, or in
      * one environment while exactly one other environment has a database
@@ -3284,7 +3296,7 @@ export interface components {
     };
     /**
      * @description Whether `POST /v1/migrations` can move the app between the two
-     * environments of its pair now (ADR 0037). Only `GET /v1/apps/{name}`
+     * environments of its pair now (ADR 0043). Only `GET /v1/apps/{name}`
      * has it; it reads the traffic gateway and both environments' CNPG
      * Clusters in parallel, each within 3 seconds, and reuses what it read
      * for the app for 10 seconds (the deployments and migration runs are
@@ -5437,11 +5449,14 @@ export interface operations {
     };
   };
   /**
-   * @description The AI runner's runs (ai-sandbox hopai as a Kubernetes Job next to the
-   * platform), newest first. A run plans the move, submits the plan,
-   * rehearses it in a sandbox and uploads the report; its steps show as
-   * agent sessions (`GET /v1/agent/sessions`) and its plan in `GET /v1/plans`.
-   * Finished runs disappear once the cluster cleans up their Job.
+   * @description What the AI runner (hopai) did lately, read from the observability
+   * stack's ClickHouse (the HyperDX store): the model it asked, the
+   * read-only tools the model requested, the sandbox steps and rehearsal
+   * results. Only parsed fields are returned, never a raw log line. The
+   * console draws its migration map from it. Without
+   * PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
+   * `observability_not_configured`; if ClickHouse cannot be reached, 502
+   * `observability_unavailable`.
    *
    * Roles: viewer, agent, operator.
    */
@@ -5467,6 +5482,15 @@ export interface operations {
       default: components["responses"]["Internal"];
     };
   };
+  /**
+   * @description The AI runner's runs (ai-sandbox hopai as a Kubernetes Job next to the
+   * platform), newest first. A run plans the move, submits the plan,
+   * rehearses it in a sandbox and uploads the report; its steps show as
+   * agent sessions (`GET /v1/agent/sessions`) and its plan in `GET /v1/plans`.
+   * Finished runs disappear once the cluster cleans up their Job.
+   *
+   * Roles: viewer, agent, operator.
+   */
   listAIRuns: {
     parameters: {
       query?: {
@@ -5668,12 +5692,19 @@ export interface operations {
    * instance's `apps/<instance>/` from the gitops repository, and forgets
    * the app with its instances and deployments. Argo CD then deletes the
    * Applications and the resources they created, so the app's data goes
-   * with them; 202 means that is under way.
+   * with them. The platform also removes every instance from the traffic
+   * gateway and the app's database routes, and then deletes the buckets
+   * and keys it made for the app: every instance's file bucket and the
+   * Postgres backup bucket `<prefix><name>---pg` with its user, keys and
+   * every object version (ADR 0016, 0037). A bucket that cannot be
+   * deleted yet is retried every few minutes. 202 means that is under
+   * way.
    *
    * Only registered apps can be deleted. Error codes: app_not_found (404),
    * app_not_registered (409: the app is only in PLATFORM_APPS_FILE; an app
-   * in both stays listed from the file), github_unreachable (502),
-   * github_not_configured (503). Role operator.
+   * in both stays listed from the file, without `deploy`, until the file
+   * drops it), github_unreachable (502), github_not_configured (503).
+   * Role operator.
    */
   deleteApp: {
     parameters: {
@@ -5696,7 +5727,7 @@ export interface operations {
     };
   };
   /**
-   * @description Add an environment to a registered app (ADR 0037) and queue a
+   * @description Add an environment to a registered app (ADR 0043) and queue a
    * deployment of the default instance (trigger `environment`) to all of
    * the app's environments, the new one included. The deployment repeats
    * the default instance's last healthy deployment: its commit, images and
@@ -5802,7 +5833,7 @@ export interface operations {
     };
   };
   /**
-   * @description Take an environment back out of a registered app (ADR 0037), for an
+   * @description Take an environment back out of a registered app (ADR 0043), for an
    * environment added by mistake or whose deployment cannot get healthy.
    * The platform takes the environment's backend out of every instance's
    * traffic gateway app (first, so no request goes to workloads that are

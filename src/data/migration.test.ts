@@ -119,6 +119,21 @@ describe("which app and environment a migration starts from", () => {
     expect(dbRoles(topo, undefined)).toEqual({ gke: { role: "primary", traffic: undefined }, eks: { role: "replica", traffic: undefined } });
   });
 
+  it("includes onprem and separates observed DB roles from gateway traffic", () => {
+    const members = ["gke", "eks", "onprem"];
+    expect(dbRoles(topo, "onprem", members)).toEqual({
+      gke: { role: "unknown", traffic: "standby" },
+      eks: { role: "unknown", traffic: "standby" },
+      onprem: { role: "unknown", traffic: "active" },
+    });
+    const readiness = { ready: true, reason: "ready", message: "ready", environments: members.map((env) => ({ env, inApp: true, role: env === "onprem" ? "primary" as const : "replica" as const, deployed: true, healthy: true, gatewayBackend: true })) };
+    expect(dbRoles({ ...topo, readiness }, "onprem", members)).toEqual({
+      gke: { role: "replica", traffic: "standby", observed: true },
+      eks: { role: "replica", traffic: "standby", observed: true },
+      onprem: { role: "primary", traffic: "active", observed: true },
+    });
+  });
+
   it("lists only apps with two environments and matches runs by either namespace", () => {
     const app = (name: string, n: number) => ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: ["eks", "gke"].slice(0, n).map((env) => ({ env, cnpgCluster: name, dbHost: "h" })) }) as App;
     expect(migratableApps([app("a", 2), app("b", 0), app("c", 1)]).map((a) => a.name)).toEqual(["a"]);
