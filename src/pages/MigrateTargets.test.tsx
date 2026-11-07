@@ -70,6 +70,7 @@ it("shows settings without a map until the server accepts AI execution, then kee
   expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
   await act(async () => accept(json(202, { name: "hopai-accepted", app: "moimroom-mig", source: "eks", target: "gke", status: "running", requestedBy: "operator", createdAt: new Date().toISOString() })));
   expect(await screen.findByTitle("이주 지도")).toBeInTheDocument();
+  expect(document.querySelector(".wiz")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("옮겨 갈 환경")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "AI 없이 Plan 작성" })).not.toBeInTheDocument();
   expect(screen.getByText(/실행 요청이 수락/)).toBeInTheDocument();

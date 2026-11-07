@@ -62,7 +62,15 @@ h3{font-size:12px;letter-spacing:.04em;color:var(--sb-text-muted);margin:0 0 6px
 .bigtxt{font-size:20px;font-weight:700;color:var(--sb-text-strong);line-height:1.4}
 .sub{color:var(--sb-text-muted);font-size:13px}
 .src{color:var(--sb-text-muted);font-size:11px}
-.kpi{display:flex;flex-direction:column;gap:4px}
+.kpi{display:flex;flex-direction:column;gap:2px;padding:10px 12px}
+.grid.g4{gap:10px}
+.kpi h3{margin-bottom:2px;font-size:11px;letter-spacing:0}
+.kpi .big{font-size:19px;line-height:1.25}
+.kpi .bigtxt{font-size:16px;line-height:1.3}
+.kpi .sub{font-size:12px;line-height:1.45}
+.kpi .pill{font-size:11px;line-height:20px}
+.kpi .split{height:5px;margin-top:2px}
+@media(max-width:460px){.grid.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi{padding:8px}.kpi .big{font-size:17px}}
 .split{height:8px;display:flex;border-radius:var(--radius);overflow:hidden;background:var(--sb-surface-alt);border:1px solid var(--sb-border-subtle);margin-top:4px}
 .split i{display:block;height:100%;transition:width .4s}
 .split .a{background:var(--sb-text-muted)}.split .b{background:var(--st-info)}
@@ -84,7 +92,7 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .lbl{font-size:12px;color:var(--sb-text-muted);font-weight:600}
 
 /* stepper (progress bar) */
-.stepscroll{margin-top:8px;min-width:0}
+.stepscroll{margin-top:8px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain}
 .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
 .steps li{display:flex;flex-direction:column;gap:6px;min-width:0;padding:10px;border:1px solid var(--sb-border-subtle);border-radius:var(--radius);cursor:default}
 .steps li.cur{border-color:var(--st-info);background:var(--sb-surface-alt)}
@@ -105,11 +113,21 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .stephead .seg button{font-size:13px;padding:3px 12px}
 /* labels wrap inside their own column instead of running into the next step (long Japanese labels too) */
 .steps .nm,.steps .group,.steps .cs{word-break:keep-all;overflow-wrap:anywhere}
-.steps.simple{gap:12px}
-.steps.simple .segs{display:flex;gap:2px}
-.steps.simple .segs .bar{flex:1}
-.steps.simple .nm{font-size:13px}
-.steps.simple .cs{font-size:11px;color:var(--sb-text-muted);font-family:var(--font-mono);line-height:1.4;min-height:16px}
+.steps.simple{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(110px,1fr);grid-template-columns:none;gap:22px;padding:4px 4px 8px;min-width:min-content}
+.steps.simple li{position:relative;align-items:center;border:0;background:none;padding:4px 0;gap:5px;text-align:center}
+.steps.simple .phase-circle{width:64px;height:64px;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;border:1.5px solid var(--sb-border-control);color:var(--sb-text-muted);background:var(--sb-canvas);line-height:1.3;flex:none}
+.steps.simple .phase-number{font:10px var(--font-mono)}
+.steps.simple .phase-label{font-size:13px;font-weight:700}
+.steps.simple .phase-status{font-size:10px;color:var(--sb-text-muted);font-family:var(--font-mono)}
+.steps.simple .phase-arrow{position:absolute;top:20px;right:-18px;color:var(--sb-text-muted);font-size:22px;line-height:1}
+.steps.simple .cs{font-size:11px;color:var(--sb-text-muted);line-height:1.45;min-height:32px;width:100%;max-width:160px}
+.steps.simple li.done .phase-circle{color:var(--st-ok);border-color:var(--st-ok);background:var(--st-ok-bg)}
+.steps.simple li.skip .phase-circle{border-style:dashed}
+.steps.simple li.cur .phase-circle{color:var(--st-info);border-color:var(--st-info);--phase-tint:var(--st-info-bg)}
+.steps.simple li.wait .phase-circle,.steps.simple li.warn .phase-circle{color:var(--st-warn);border-color:var(--st-warn);--phase-tint:var(--st-warn-bg)}
+.steps.simple li.fail .phase-circle{color:var(--st-crit);border-color:var(--st-crit);background:var(--st-crit-bg)}
+.steps.simple li.is-live .phase-circle{animation:phase-breathe 1.8s ease-in-out infinite}
+@keyframes phase-breathe{0%,100%{background:var(--sb-canvas);box-shadow:0 0 0 0 transparent}50%{background:var(--phase-tint);box-shadow:0 0 0 4px var(--phase-tint)}}
 .steps.simple li.cur .cs{color:var(--st-info)}
 .steps.simple li.wait .cs{color:var(--st-warn)}
 .steps.simple li.fail .cs{color:var(--st-crit)}
@@ -245,11 +263,12 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 /* Reduced motion (the OS setting) stills the map, as in the original, unless the viewer turns motion on (.motion-on). */
 @media (prefers-reduced-motion:reduce){
   :root:not(.motion-on) .node[data-st="plan"] rect.b,:root:not(.motion-on) .pipe.on,:root:not(.motion-on) .cross.on,
-  :root:not(.motion-on) .term .cur::after,:root:not(.motion-on) .bar i.c{animation:none}
+  :root:not(.motion-on) .term .cur::after,:root:not(.motion-on) .bar i.c,:root:not(.motion-on) .phase-circle{animation:none}
   :root:not(.motion-on) .bar i.c{width:100%!important}
 }
 :root.motion-off .node[data-st="plan"] rect.b,:root.motion-off .pipe.on,:root.motion-off .cross.on,:root.motion-off .term .cur::after,:root.motion-off .bar i.c{animation:none}
 :root.motion-off .bar i.c{width:100%!important}
+:root.motion-off .phase-circle{animation:none}
 </style>
 </head>
 <body>
@@ -575,11 +594,13 @@ function buildSteps(s){
     ol.appendChild(li);
   });
   const os=$('stepsSimple'); os.replaceChildren();
-  groupsOf(s).forEach((g,gi)=>{
+  const groups=groupsOf(s);
+  groups.forEach((g,gi)=>{
     const li=document.createElement('li');
-    li.innerHTML=`<span class="segs" aria-hidden="true">${g.idx.map(()=>'<span class="bar"><i></i></span>').join('')}</span><span class="nm"><b></b><span></span></span><span class="cs"></span>`;
-    li.querySelector('.nm b').textContent = String(gi+1).padStart(2,'0');
-    li.querySelector('.nm span').textContent = g.name;
+    li.innerHTML='<span class="phase-circle" aria-hidden="true"><span class="phase-number"></span><span class="phase-label"></span></span><span class="cs"></span><span class="phase-status"></span>';
+    li.querySelector('.phase-number').textContent = String(gi+1).padStart(2,'0');
+    li.querySelector('.phase-label').textContent = g.name;
+    if(gi<groups.length-1){const arrow=document.createElement('span');arrow.className='phase-arrow';arrow.setAttribute('aria-hidden','true');arrow.textContent='→';li.appendChild(arrow);}
     os.appendChild(li);
   });
   stepsKey = s.phases.map(p=>p.key).join(',');
@@ -599,7 +620,7 @@ function renderProgress(s){
 }
 function setView(v){
   $('validations').hidden = v!=='detail';
-  $('stepsSimple').hidden = v!=='simple'; $('steps').hidden = v!=='detail';
+  $('stepsSimple').hidden = false; $('steps').hidden = v!=='detail';
   document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.view===v)));
   store.set('hc.stepView', v);
 }
@@ -678,18 +699,23 @@ function render(s){
   s.phases.forEach((p,k)=>{ const li=lis[k]; li.className=p.st; li.querySelector('i').className=BAR[p.st]; const state=STEP_STATE[p.st]; li.querySelector('.cs').textContent=state+(p.dur?' · '+p.dur:''); li.setAttribute('aria-current', k===s.cur && ['cur','wait','fail'].includes(p.st)?'step':'false'); li.title = p.label+' · '+state+(p.dur?' · '+p.dur:''); });
   const gl=$('stepsSimple').children;
   groupsOf(s).forEach((g,gi)=>{
-    const li=gl[gi], bars=li.querySelectorAll('.bar i');
+    const li=gl[gi];
     const st=g.idx.map(k=>s.phases[k].st);
-    st.forEach((c,j)=>{ bars[j].className=BAR[c]; });
     const at=g.idx.indexOf(s.cur);
     const past = st.every(c=>c==='done'||c==='skip'||c==='warn');
     const counts=`완료 ${st.filter(c=>c==='done').length}/${st.length}`;
     let c='', cs='';
-    if (past){ c=st.includes('warn')?'warn':'done'; cs=st.includes('warn')?'판단 보류 포함':st.includes('skip')?'건너뜀 포함':'완료'; }
+    if (past){ c=st.includes('warn')?'warn':st.every(x=>x==='skip')?'skip':'done'; cs=st.includes('warn')?'판단 보류 포함':st.includes('skip')?'건너뜀 포함':'완료'; }
     else if (at>=0 && st[at]!=='todo'){ c=st[at]; cs=STEP_STATE[c]+' · '+s.phases[s.cur].label; }
     else if (st.includes('fail')){ c='fail'; cs='실패'; }
     else cs = '시작 전';
-    li.className=c; li.querySelector('.cs').textContent=counts+' · '+cs; li.setAttribute('aria-current', at>=0 && ['cur','wait','fail'].includes(st[at])?'step':'false');
+    const current=at>=0 && ['cur','wait','fail'].includes(st[at]);
+    const focus=current?s.phases[s.cur]:s.phases[g.idx.find(k=>s.phases[k].st==='fail')??g.idx.find(k=>s.phases[k].st==='todo')??g.idx[g.idx.length-1]];
+    li.className=c+(!s.stale && current && ['cur','wait'].includes(c)?' is-live':'');
+    li.querySelector('.cs').textContent=focus.label;
+    li.querySelector('.phase-status').textContent=counts+' · '+cs;
+    li.setAttribute('aria-label',g.name+' · '+focus.label+' · '+counts+' · '+cs);
+    li.setAttribute('aria-current',current?'step':'false');
   });
   // toolbar: the real commands the state allows
   const ak = JSON.stringify([s.actions, s.busy]);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useRuns } from "../api/hooks";
 import type { Run } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -71,21 +71,23 @@ export function MigrationResults({ runs }: { runs: Run[] }) {
 }
 
 function ResultSummary({ r, example = false }: { r: Run; example?: boolean }) {
+  const [expanded, setExpanded] = useState(example);
+  const detailsId = useId();
   const x = r.result;
   const verification = writeVerificationOf(x);
   const invalidCounts = invalidRequestCounts(x);
   return <li className="box result-card">
-    <header><div><h2>{r.source.namespace || r.planId}</h2><p><EnvRoute source={r.source.env} target={r.target.env} /></p></div><Chip kind={RESULT_KIND[r.status] ?? ""}>{RUN_SHORT[r.status]}</Chip></header>
+    <header><div><h2>{r.source.namespace || r.planId}</h2><p><EnvRoute source={r.source.env} target={r.target.env} /></p></div><div className="result-status"><Chip kind={RESULT_KIND[r.status] ?? ""}>{RUN_SHORT[r.status]}</Chip>{verification?.status === "failed" && <Chip kind="bad">검증 오류</Chip>}{r.observe?.passed === false && <Chip kind="warn">관찰 위반</Chip>}</div></header>
     <p className="hint"><time dateTime={r.endedAt ?? r.updatedAt}>{date(r.endedAt ?? r.updatedAt)}</time> · {r.endedAt ? "종료" : "마지막 갱신"} · <code>{r.runId}</code>{r.rollbackOf && <> · 롤백 원본 {r.rollbackOf}</>}</p>
     <dl className="result-metrics">
       {([["전체 소요", millis(x.durationMillis)], ["쓰기 보류", millis(x.downtimeMillis)], ["실패 요청", invalidCounts ? "집계 이상" : count(x.failedRequests)], ["행 누락", count(x.missingRows)], ["쓰기 누락", count(measuredWriteMissing(verification, x.missingWrites))], ["파일 누락", count(x.missingFiles)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
     </dl>
-    <WriteVerification verification={verification} legacyMissing={x.missingWrites} />
+    <button type="button" className="result-toggle" aria-label={r.runId + " 실행 상세"} aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><span>실행 상세</span><span className="result-chevron" aria-hidden="true">⌄</span></button>
+    <div id={detailsId} className="result-expanded" hidden={!expanded}>
+      <WriteVerification verification={verification} legacyMissing={x.missingWrites} />
     {r.status === "halted" && <p className="result-warning">승격 이후 상태 확인이 필요합니다. 원복 완료를 의미하지 않습니다.</p>}
     {r.observe?.passed === false && <p className="result-warning">전환 후 관찰에서 게이트 위반이 감지됐습니다.{r.observe.rollbackRunId && " 롤백 실행: " + r.observe.rollbackRunId}</p>}
     {(r.statusReason || r.engine.failureError) && <p className="hint">{r.statusReason || r.engine.failureError}</p>}
-    <details open={example || undefined}>
-      <summary>실행 상세</summary>
       <RunDecisionPanel r={r} />
       {example && <DemoMigrationSecurityComparison />}
       <dl className="result-details">
@@ -93,6 +95,6 @@ function ResultSummary({ r, example = false }: { r: Run; example?: boolean }) {
         <dt>요청 수</dt><dd>{invalidCounts ? "집계 이상" : count(x.requests)}</dd><dt>실패 단계</dt><dd>{r.engine.failureStep ?? "기록 없음"}</dd>
         <dt>엔진 단계</dt><dd>{Object.entries(r.engine.steps).map(([key, step]) => <div key={key}>{key}: {step.status}{step.error ? " · " + step.error : ""}</div>)}</dd>
       </dl>
-    </details>
+    </div>
   </li>;
 }
