@@ -655,10 +655,11 @@ const HOP_LEN=[45,130]; // px of line per hop: short quick hops to long ones
 const HOP_LOW=[3,9];    // height of an ordinary hop
 const HOP_HIGH=[14,24]; // height of a leap
 const LEAP=0.22;        // share of hops that are leaps
-const PACE=[0.65,1.45];  // a rabbit's pace as a multiple of its line's speed
+const PACE=[0.5,1.7];   // a rabbit's own pace as a multiple of its line's speed
+const HOP_PACE=[0.6,1.6]; // and each hop is run at its own pace on top of that, so a rabbit speeds up and slows down
 const rand=(r)=>r[0]+Math.random()*(r[1]-r[0]);
 function nextHop(p){
-  p.hopStart+=p.hopLen; p.hopLen=rand(HOP_LEN);
+  p.hopStart+=p.hopLen; p.hopLen=rand(HOP_LEN); p.hopRun=rand(HOP_PACE);
   p.hopH=Math.random()<LEAP ? rand(HOP_HIGH) : rand(HOP_LOW);
 }
 function resetParticles(){ parts=[]; pool=[]; acc={}; $('gParticles').replaceChildren(); }
@@ -671,7 +672,7 @@ function spawn(path, cls, speed, shape){
     e={shape, used:false, el:g}; pool.push(e);
   }
   e.used=true; e.el.setAttribute('class',cls); e.el.style.display='';
-  const p={ e, path, len:path.getTotalLength(), d:0, speed, run:1, hopStart:0, hopLen:0, hopH:0 };
+  const p={ e, path, len:path.getTotalLength(), d:0, speed, run:1, hopRun:1, hopStart:0, hopLen:0, hopH:0 };
   if (shape!=='sq'){ p.run=rand(PACE); nextHop(p); p.hopStart=-Math.random()*p.hopLen; } // start part way through a hop
   parts.push(p);
 }
@@ -699,7 +700,7 @@ function stepParticles(dt){
     if (s.activity==='sandbox') flow('smoke', 3, dt, routes[T].inner, 'pt-snap', 200);
   }
   for (let k=parts.length-1;k>=0;k--){
-    const p=parts[k]; p.d+=p.speed*p.run*dt;
+    const p=parts[k]; p.d+=p.speed*p.run*p.hopRun*dt;
     if (p.d>=p.len || !p.path.isConnected){ p.e.used=false; p.e.el.style.display='none'; parts.splice(k,1); continue; }
     // face the way the line runs (mirrored when it runs left), tilt along it, and hop (each hop has its own length and height)
     const pt=p.path.getPointAtLength(p.d), nx=p.path.getPointAtLength(Math.min(p.len,p.d+4));
