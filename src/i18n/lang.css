@@ -1,0 +1,27 @@
+/* Language switch: a round button fixed at the bottom right, above the page content. */
+.lang-fab {
+  position: fixed;
+  right: var(--sp-md);
+  bottom: var(--sp-md);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 0 var(--sp-sm);
+  border: 1px solid var(--field-line);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--muted);
+  font: 500 16px/1 var(--font-body);
+  cursor: pointer;
+}
+.lang-fab:hover { background: var(--fill); }
+.lang-fab:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.lang-fab .on { color: var(--fg); font-weight: 700; }
+.lang-fab .sep { color: var(--hairline); }
+
+/* Japanese fonts first, so kana and kanji do not come from a Korean face */
+:root[lang="ja"] {
+  --font-body: "SUIT Variable", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, "Yu Gothic", system-ui, sans-serif;
+}

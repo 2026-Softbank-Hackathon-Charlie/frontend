@@ -6,12 +6,14 @@ import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/motion.css";
 import { App } from "./App";
+import { LangToggle } from "./i18n/LangToggle";
 import { SimProvider } from "./sim/store";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <SimProvider>
       <App />
+      <LangToggle />
     </SimProvider>
   </StrictMode>,
 );
