@@ -1,9 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
-import { fakeRun } from "../api/fakes";
-import type { App, PlanRecord, Run } from "../api/types";
+import { fakeAgentSession, fakeRun } from "../api/fakes";
+import type { AgentSession, App, PlanRecord, Run } from "../api/types";
 
 // The live hook reads the platform through these hooks; each test sets what the lists answer.
-const lists: { runs: Run[]; plans: PlanRecord[] } = { runs: [], plans: [] };
+const lists: { runs: Run[]; plans: PlanRecord[]; sessions: AgentSession[] } = { runs: [], plans: [], sessions: [] };
 const watched: (string | null)[] = [];
 const res = <T,>(data: T | undefined) => ({ data, error: undefined, loading: false, reload: () => {} });
 const app = { name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: ["gke", "eks"].map((env) => ({ env, cnpgCluster: "shop-db", dbHost: "h" })) } as App;
@@ -18,7 +18,7 @@ vi.mock("../api/hooks", async (orig) => ({
     return { run: id ? lists.runs.find((r) => r.runId === id) : undefined, events: [], connected: !!id, error: undefined };
   },
   useAIRuns: () => res([]),
-  useAgentSessions: () => res([]),
+  useAgentSessions: () => res(lists.sessions),
   useAgentSession: () => ({ session: undefined, events: [], connected: false, error: undefined }),
   useApp: () => res(undefined),
   useTraffic: () => res(undefined),
@@ -42,6 +42,7 @@ const plan = (p: Partial<PlanRecord> = {}): PlanRecord =>
 beforeEach(() => {
   lists.runs = [];
   lists.plans = [];
+  lists.sessions = [];
   watched.length = 0;
   window.location.hash = "#migrate-app?app=shop";
 });
@@ -71,6 +72,31 @@ describe("the live migration page follows a run started elsewhere", () => {
     act(() => rerender());
     expect(result.current.run).toBeUndefined();
     expect(result.current.stage).toBe("setup");
+  });
+});
+
+describe("the Plan an AI planning session submits", () => {
+  it("is this app's Plan, not another app's Plan submitted meanwhile", () => {
+    lists.sessions = [fakeAgentSession({ id: "ags_p", title: "shop 이전 계획 (gke → eks)", createdAt: "2026-11-07T00:00:00Z" })];
+    const { result, rerender } = renderHook(() => useLiveMigration());
+    expect(result.current.stage).toBe("ai");
+
+    // another operator migrates another app: its Plan arrives first and starts at once
+    const other: PlanRecord["summary"] = { ...plan().summary, planId: "doom-eks-to-gke", source: { env: "eks", namespace: "doom", cluster: "" }, target: { env: "gke", namespace: "doom", cluster: "" } };
+    lists.plans = [plan({ ref: "pln_doom", summary: other, submittedAt: "2026-11-07T00:00:10Z" })];
+    act(() => rerender());
+    lists.plans = [plan({ ref: "pln_doom", status: "started", summary: other, submittedAt: "2026-11-07T00:00:10Z" })];
+    lists.runs = [fakeRun({ runId: "run_doom", planRef: "pln_doom", source: { env: "eks", namespace: "doom", cluster: "" }, target: { env: "gke", namespace: "doom", cluster: "" } })];
+    act(() => rerender());
+    expect(result.current.plan?.ref).not.toBe("pln_doom");
+    expect(result.current.run).toBeUndefined();
+
+    // this session's Plan arrives
+    lists.sessions = [fakeAgentSession({ id: "ags_p", title: "shop 이전 계획 (gke → eks)", status: "succeeded", createdAt: "2026-11-07T00:00:00Z" })];
+    lists.plans = [...lists.plans, plan({ ref: "pln_shop", submittedAt: "2026-11-07T00:00:30Z" })];
+    act(() => rerender());
+    expect(result.current.plan?.ref).toBe("pln_shop");
+    expect(result.current.stage).toBe("review");
   });
 });
 
