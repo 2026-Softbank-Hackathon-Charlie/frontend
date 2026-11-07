@@ -45,7 +45,7 @@ export function EnvChip({ s, env }: { s: DeploymentEnvironmentStatus; env?: stri
   return <Chip kind={kind}>{env ? envName(env) + " " + text : text}</Chip>;
 }
 
-export const TRIGGER_LABEL: Record<DeploymentTrigger, string> = { register: "등록", manual: "수동", push: "push", redeploy: "재배포" };
+export const TRIGGER_LABEL: Record<DeploymentTrigger, string> = { register: "등록", manual: "수동", push: "push", redeploy: "재배포", environment: "환경 변경" };
 
 export const short = (sha: string | undefined) => (sha ? sha.slice(0, 7) : "-");
 

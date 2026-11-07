@@ -247,7 +247,7 @@ describe("deploy simulation (platform contract shapes)", () => {
     expect(dep.checkCreate(S.deploy, { ...req, repo: "team-charlie/todo-api" })).toEqual({ error: expect.stringMatching(/이미 등록된 앱/) });
     expect(dep.checkCreate(S.deploy, { ...req, environments: [] })).toEqual({ error: expect.any(String) });
     apply(S, { type: "app-create", req: { ...req, repo: "team-charlie/photo-album" } });
-    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
+    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api", "wiki"]);
   });
 
   it("a new deployment supersedes the unfinished one, and delete forgets the app", () => {
@@ -265,20 +265,23 @@ describe("deploy simulation (platform contract shapes)", () => {
     expect(first.status).toBe("superseded");
 
     apply(S, { type: "app-delete", name: "notice-board" });
-    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
+    expect(S.deploy.apps.map((a) => a.name)).toEqual(["todo-api", "wiki"]);
     expect(S.deploy.deployments.some((x) => x.app === "notice-board")).toBe(false);
     expect(S.deploy.events[second.id]).toBeUndefined();
   });
 
-  it("starts with todo-api registered on all three environments and two finished deployments", () => {
+  it("starts with todo-api registered on all three environments and two finished deployments, and wiki in one with its pair's peer missing", () => {
     const S = fresh();
-    const [todo] = S.deploy.apps;
+    const [todo, wiki] = S.deploy.apps;
     expect(todo.deploy?.status.map((s) => s.status)).toEqual(["healthy", "healthy", "healthy"]);
-    expect(S.deploy.deployments.map((x) => [x.trigger, x.status])).toEqual([
-      ["push", "healthy"],
-      ["register", "healthy"],
+    expect(S.deploy.deployments.map((x) => [x.app, x.trigger, x.status])).toEqual([
+      ["todo-api", "push", "healthy"],
+      ["todo-api", "register", "healthy"],
+      ["wiki", "register", "healthy"],
     ]);
-    expect(appsIn(S, "aws")).toBe(1);
+    expect(wiki.deploy?.environments).toEqual(["eks"]);
+    expect(dep.withReadiness(S.deploy, wiki).deploy?.dbTopology).toMatchObject({ primary: "eks", replica: "gke", replicaPresent: false, readiness: { ready: false, reason: "replica_missing" } });
+    expect(appsIn(S, "aws")).toBe(2);
   });
 });
 
