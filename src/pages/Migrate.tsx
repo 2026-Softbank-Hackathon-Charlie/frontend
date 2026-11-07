@@ -7,7 +7,7 @@ import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
-import { EmptyShop, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
+import { EmptyShop, EnvLabel, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
@@ -74,7 +74,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
             rows={[
               [
                 td(live ? <b>{v.app}</b> : <a href={"#app-" + v.app}>{v.app}</a>),
-                td(v.srcLabel),
+                td(<EnvLabel env={v.src} label={v.srcLabel} />),
                 td(
                   v.run ? (
                     <RunStatusChip r={v.run} />
