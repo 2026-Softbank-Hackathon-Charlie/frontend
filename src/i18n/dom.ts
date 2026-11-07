@@ -3,7 +3,7 @@
 // iframes (the migration map) get their own pass, and so do the values of read-only inputs.
 import type { Translator } from "./translate";
 
-const ATTRS = ["placeholder", "title", "aria-label", "alt"];
+const ATTRS = ["placeholder", "title", "aria-label", "alt", "label"];
 // user-typed values and raw data (the OCSF JSON) stay as they are
 const SKIP = "textarea, script, style, code, pre.code, [data-no-i18n]";
 
@@ -36,6 +36,7 @@ export function translateDom(root: HTMLElement, tr: Translator): () => void {
   };
 
   const doAttr = (el: Element, name: string) => {
+    if (name === "label" && el.tagName !== "OPTGROUP") return;
     const v = el.getAttribute(name);
     if (v === null) return;
     const saved = attrs.get(el)?.get(name);

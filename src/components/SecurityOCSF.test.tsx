@@ -137,7 +137,7 @@ describe("OCSF 내보내기 tab (SEC-09)", () => {
     await screen.findByRole("button", { name: "JSON 내려받기" });
     expect(screen.queryByText("앱 선택은 OCSF 내보내기에 적용되지 않습니다.")).not.toBeInTheDocument();
     expect(calls.map((c) => c.url)).toContain("/v1/security/ocsf");
-    await user.selectOptions(screen.getByLabelText("보안 환경"), "gke");
+    await user.selectOptions(screen.getByRole("combobox", { name: "점검 범위" }), "gke");
     await waitFor(() => expect(calls.map((c) => c.url)).toContain("/v1/security/ocsf?environment=gke"));
     expect(await screen.findByRole("button", { name: "JSON 내려받기" })).toBeInTheDocument();
   });

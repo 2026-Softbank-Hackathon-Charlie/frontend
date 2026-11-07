@@ -90,6 +90,98 @@ describe("shared security workspace", () => {
     expect(screen.getByRole("row", { name: /edge-02.*partial read/ })).toBeInTheDocument();
   });
 
+  it("groups registered clusters separately from account and other observed scopes", () => {
+    const data = {
+      ...securityData(liveReport),
+      environments: [
+        { id: "gce-edge", label: "GCE k3s", provider: "GCP", scope: "cluster" as const },
+        { id: "cloudflare-account", label: "Cloudflare", provider: "Cloudflare", scope: "account" as const },
+        { id: "edge-02", label: "edge-02", provider: "On-prem", scope: "other" as const },
+      ],
+    };
+    render(<SecurityWorkspace route="security/controls" data={data} />);
+    const scope = within(screen.getByRole("combobox", { name: "점검 범위" }));
+    expect(scope.getByRole("option", { name: "전체 점검 범위" })).toBeInTheDocument();
+    expect(within(scope.getByRole("group", { name: "클러스터" })).getByRole("option", { name: "GCE k3s" })).toHaveValue("gce-edge");
+    expect(within(scope.getByRole("group", { name: "계정·프로젝트·플랫폼" })).getByRole("option", { name: "Cloudflare" })).toHaveValue("cloudflare-account");
+    expect(within(scope.getByRole("group", { name: "기타 관측 범위" })).getByRole("option", { name: "edge-02" })).toHaveValue("edge-02");
+  });
+
+  it("scopes live vulnerabilities and container coverage to the selected app and clears it outside its environment", async () => {
+    const image = { environment: "eks", namespace: "shop", workload: "Deployment/web", container: "web", image: "repo/web:v1", digest: "sha256:a", scanState: "scanned" as const };
+    const data = securityData(liveReport, { vulnerabilities: {
+      generatedAt: liveReport.generatedAt, scanner: { status: "connected" }, scans: [],
+      vulnerabilities: [{
+        id: "v1", scanId: "s1", digest: "sha256:a", advisory: "CVE-2026-0001", aliases: [], fixedVersions: [], fixState: "unknown", severity: "high",
+        severityBasis: { type: "vendor", issuer: "example", policy: "p1" }, cvss: [], urls: [], package: { name: "lib-web", version: "1.0", type: "deb" },
+      }],
+      runningImages: [
+        { ...image, app: "all", workload: "Deployment/selected-app" },
+        { ...image, app: "shop", workload: "Deployment/other-app" },
+        { ...image, workload: "Deployment/unlabeled" },
+        { ...image, app: "unscanned", digest: "sha256:b", workload: "Deployment/unscanned", scanState: "not_scanned" },
+        { ...image, environment: "edge-02", app: "edge", workload: "Deployment/edge" },
+      ],
+      summary: { advisories: 1, images: 2, affectedContainers: 4, occurrences: 1, notScannedContainers: 1 },
+    } });
+    const user = userEvent.setup({ delay: null });
+    const { rerender } = render(<SecurityWorkspace route="security/vulnerabilities" data={data} />);
+    const scope = screen.getByRole("combobox", { name: "점검 범위" });
+    await user.selectOptions(scope, "eks");
+    const app = screen.getByLabelText("보안 앱");
+    expect(within(app).getAllByRole("option").map((option) => option.textContent)).toEqual(["전체 앱", "all", "shop", "unscanned"]);
+    await user.selectOptions(app, "all");
+    expect(screen.getByText("선택 범위 · 검사됨 1/1 컨테이너 · 미검사·실패 0")).toBeInTheDocument();
+    expect(screen.getByText("이미지 1개 · 실행 확인 1개")).toBeInTheDocument();
+    const containers = within(screen.getByRole("region", { name: "실행 컨테이너 스캔 상태" }));
+    expect(containers.getByText(/Deployment\/selected-app/)).toBeInTheDocument();
+    expect(containers.queryByText(/Deployment\/(other-app|unlabeled|unscanned)/)).not.toBeInTheDocument();
+
+    rerender(<SecurityWorkspace route="security/findings" data={data} />);
+    expect(screen.queryByLabelText("보안 앱")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "실제 낮은 등급 신호" })).toBeInTheDocument();
+    rerender(<SecurityWorkspace route="security/vulnerabilities" data={data} />);
+    const restoredApp = screen.getByLabelText("보안 앱");
+    expect(restoredApp).toHaveValue("all");
+    await user.selectOptions(restoredApp, "unscanned");
+    expect(screen.getByText("선택 범위 · 검사됨 0/1 컨테이너 · 미검사·실패 1")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "취약점 결과 없음" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "취약점 목록" })).not.toBeInTheDocument();
+
+    await user.selectOptions(scope, "edge-02");
+    expect(restoredApp).toHaveValue("");
+    expect(within(restoredApp).getAllByRole("option").map((option) => option.textContent)).toEqual(["전체 앱", "edge"]);
+    await user.selectOptions(scope, "eks");
+    expect(restoredApp).toHaveValue("");
+
+    await user.selectOptions(restoredApp, "all");
+    const afterPoll = { ...data, runningImages: data.runningImages?.filter((row) => row.app !== "all") };
+    rerender(<SecurityWorkspace route="security/vulnerabilities" data={afterPoll} />);
+    expect(restoredApp).toHaveValue("");
+    rerender(<SecurityWorkspace route="security/vulnerabilities" data={data} />);
+    expect(restoredApp).toHaveValue("");
+
+    await user.selectOptions(restoredApp, "all");
+    const afterScopeRemoval = {
+      ...data,
+      environments: data.environments.filter((option) => option.id !== "eks"),
+      runningImages: data.runningImages?.filter((row) => row.environment !== "eks"),
+    };
+    rerender(<SecurityWorkspace route="security/vulnerabilities" data={afterScopeRemoval} />);
+    expect(scope).toHaveValue("all");
+    expect(restoredApp).toHaveValue("");
+    rerender(<SecurityWorkspace route="security/vulnerabilities" data={data} />);
+    expect(scope).toHaveValue("all");
+    expect(restoredApp).toHaveValue("");
+  });
+
+  it("explains why the live app filter has no options when no labeled images were observed", () => {
+    render(<SecurityWorkspace route="security/vulnerabilities" data={securityData(liveReport)} />);
+    const app = screen.getByLabelText("보안 앱");
+    expect(app).toBeDisabled();
+    expect(app).toHaveAccessibleDescription("선택한 범위에서 앱이 연결된 실행 이미지를 아직 확인하지 못했습니다.");
+  });
+
   it("preserves original severity/category filtering and scopes storage keys to the environment", async () => {
     installFetch(() => json(200, liveReport));
     window.history.replaceState(null, "", "/#security/findings");
@@ -97,7 +189,8 @@ describe("shared security workspace", () => {
     render(<RoutedSecurity />);
     const user = userEvent.setup({ delay: null });
     expect(await screen.findByRole("link", { name: "실제 높은 등급 신호" })).toBeInTheDocument();
-    expect(screen.getByLabelText("보안 앱")).toBeDisabled();
+    expect(screen.queryByLabelText("보안 앱")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "앱별 실행 이미지와 취약점 보기" })).toHaveAttribute("href", "#security/vulnerabilities");
     await user.selectOptions(screen.getByLabelText("발견 항목 심각도"), "high");
     expect(screen.queryByRole("link", { name: "실제 낮은 등급 신호" })).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("발견 항목 심각도"), "all");
@@ -105,7 +198,7 @@ describe("shared security workspace", () => {
     expect(screen.queryByRole("link", { name: "실제 높은 등급 신호" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "실제 낮은 등급 신호" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("발견 항목 분류"), "all");
-    await user.selectOptions(screen.getByLabelText("보안 환경"), "edge-02");
+    await user.selectOptions(screen.getByRole("combobox", { name: "점검 범위" }), "edge-02");
     expect(screen.getByText("...EDGE")).toBeInTheDocument();
     expect(screen.queryByText("...AWS1")).not.toBeInTheDocument();
   });
