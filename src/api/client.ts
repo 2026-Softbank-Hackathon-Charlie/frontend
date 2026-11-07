@@ -8,6 +8,7 @@ import type {
   AbortRequest,
   AIActivity,
   AppObservation,
+  LLMObservability,
   AIRun,
   AIRunList,
   AIRunRequest,
@@ -331,6 +332,9 @@ export const startAIRun = (req: AIRunRequest, o?: RequestOptions) => request<AIR
  */
 export const getAppObservability = (app: string, minutes?: number, o?: RequestOptions) =>
   request<AppObservation>("GET", "/v1/apps/" + encodeURIComponent(app) + "/observability" + (minutes ? "?minutes=" + minutes : ""), o);
+
+export const getAppLLMObservability = (app: string, minutes = 60, o?: RequestOptions) =>
+  request<LLMObservability>("GET", `/v1/apps/${seg(app)}/llm-observability?minutes=${minutes}`, o);
 /**
  * What the AI runner (hopai) did in the last `minutes` (1 to 1440, server default 60), read from the observability
  * stack's logs: model calls, the read-only tools it ran, the rehearsal. 503 observability_not_configured without the

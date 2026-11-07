@@ -26,3 +26,12 @@
 .obs-patterns code{white-space:pre-wrap;word-break:break-word;font-size:12px}
 .obs-patterns .hint{grid-column:2}
 .obs-dialog footer{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.obs-sources{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.obs-sources [aria-pressed="true"]{border-color:var(--fg);font-weight:700}
+.obs-llm{display:grid;gap:12px;min-width:0}
+.obs-llm-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px;margin:0}
+.obs-llm-metrics>div{padding:10px;border:1px solid var(--border,#d0d0d0);border-radius:4px;min-width:0}
+.obs-llm-metrics dt{font-size:12px;color:var(--muted)}
+.obs-llm-metrics dd{margin:4px 0 0;font-size:18px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.obs-llm-table{overflow-x:auto;min-width:0}
+.obs-llm-table .m{display:block;max-width:25ch;overflow-wrap:anywhere}

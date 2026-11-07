@@ -1,5 +1,6 @@
 // Friendly names for the generated contract types (src/api/schema.d.ts).
 import type { components } from "./schema";
+import type { components as LLMComponents } from "./llm-schema";
 
 type S = components["schemas"];
 
@@ -30,6 +31,7 @@ export type AIRunRequest = S["AIRunRequest"];
 export type AIRunList = S["AIRunList"];
 export type AIActivity = S["AIActivity"];
 export type AppObservation = S["AppObservation"];
+export type LLMObservability = LLMComponents["schemas"]["LLMObservability"];
 export type AIActivityEvent = S["AIActivityEvent"];
 export type AIActivitySummary = S["AIActivitySummary"];
 export type App = S["App"];
