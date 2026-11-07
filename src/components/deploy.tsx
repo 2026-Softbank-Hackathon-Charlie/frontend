@@ -9,6 +9,7 @@ import { errorText } from "../data/live";
 import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
 import { EnvLabel, envName } from "./shared";
 import { Chip, ProgItem, Table, td, type ChipKind } from "./ui";
+import "../styles/apps-list.css";
 
 /* ---------- labels ---------- */
 
@@ -407,8 +408,8 @@ export function AppsList({ apps, now, busy = {}, full, onObserve }: { apps: App[
   });
   const head = full ? ["이름", "레포", "환경별 상태", "주소", "최근 배포", ""] : ["이름", "환경별 상태", "주소", "최근 배포"];
   return (
-    <div className="box">
-      <Table head={head} rows={rows} />
+    <div className="box apps-list">
+      <Table head={head} rows={rows} scrollLabel="앱 목록" />
       {/* each chip carries its state as hidden text and a title, so the legend is for the eye only; the overview's short list goes without */}
       {full && (
         <div className="legend envlegend" aria-hidden="true">
