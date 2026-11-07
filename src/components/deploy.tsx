@@ -327,7 +327,7 @@ function envChips(a: App, def: AppInstance | undefined) {
 }
 
 /** File apps and registered apps in one table, as GET /v1/apps lists them. */
-export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: number; busy?: Record<string, string>; full: boolean }) {
+export function AppsList({ apps, now, busy = {}, full, onObserve }: { apps: App[]; now: number; busy?: Record<string, string>; full: boolean; onObserve?: (app: string) => void }) {
   const rows = apps.map((a) => {
     const d = a.deploy;
     const last = d?.lastDeployment;
@@ -377,13 +377,18 @@ export function AppsList({ apps, now, busy = {}, full }: { apps: App[]; now: num
     if (full)
       r.push(
         td(
-          a.environments.length > 0 ? (
-            <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
-              이전
-            </a>
-          ) : (
-            ""
-          ),
+          <span className="chips">
+            {onObserve && (
+              <button type="button" className="btn ghost" aria-label={a.name + " 관측"} onClick={() => onObserve(a.name)}>
+                관측
+              </button>
+            )}
+            {a.environments.length > 0 && (
+              <a className="btn ghost" href={"#migrate-app?app=" + encodeURIComponent(a.name)}>
+                이전
+              </a>
+            )}
+          </span>,
         ),
       );
     return r;

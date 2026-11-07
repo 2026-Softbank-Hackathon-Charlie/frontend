@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { AppDBReadinessEnvironment, AppDBTopology, AppInstance, AppSpecValidation, Deployment } from "../api/types";
 import { ago, AppsList, appHealth, DeployChip, elapsedSec, EnvChip, ENV_STATUS, ExtLink, short, SpecResult, SpecSummary, TRIGGER_LABEL, type AppHealth } from "../components/deploy";
+import { AppObservationDialog } from "../components/AppObservation";
 import { AppSecrets, SecretsSummary } from "../components/secrets";
 import { envName } from "../components/shared";
 import { Icon } from "../components/Icon";
@@ -57,13 +58,14 @@ export function Apps({ filter = "all" }: { filter?: AppFilter }) {
   );
 }
 function LiveAppsBody({ filter }: { filter: AppFilter }) {
-  return <AppsBody m={useLiveApps()} filter={filter} />;
+  return <AppsBody m={useLiveApps()} filter={filter} observable />;
 }
 function SimAppsBody({ filter }: { filter: AppFilter }) {
   return <AppsBody m={useSimApps()} filter={filter} />;
 }
 
-function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
+function AppsBody({ m, filter, observable = false }: { m: AppsModel; filter: AppFilter; /** live mode only: the logs are the platform's */ observable?: boolean }) {
+  const [observing, setObserving] = useState<string | null>(null);
   if (m.error) return <LoadError title="앱 목록을 불러오지 못했습니다." error={m.error} />;
   if (!m.apps) return <Skeleton box />;
   const health = new Map(m.apps.map((a) => [a.name, appHealth(a)]));
@@ -90,8 +92,9 @@ function AppsBody({ m, filter }: { m: AppsModel; filter: AppFilter }) {
           </div>
         </div>
       ) : (
-        <AppsList apps={shown} now={m.now} busy={m.busy} full />
+        <AppsList apps={shown} now={m.now} busy={m.busy} full onObserve={observable ? setObserving : undefined} />
       )}
+      {observing && <AppObservationDialog app={observing} onClose={() => setObserving(null)} />}
     </>
   );
 }

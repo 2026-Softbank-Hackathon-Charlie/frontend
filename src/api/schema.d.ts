@@ -642,6 +642,25 @@ export interface paths {
      */
     post: operations["draftPlan"];
   };
+  "/v1/apps/{name}/observability": {
+    /**
+     * @description What the observability stack's logs (HyperDX's ClickHouse) show about
+     * one registered app lately: line, error and warning counts in total,
+     * per service and per five minutes, and the errors and warnings that
+     * repeat. The repeated ones are returned as patterns only: redacted
+     * (passwords, tokens, keys, emails and long token-like strings are
+     * hidden) and with numbers and ids folded away. An ordinary log line is
+     * never returned. Redaction cannot know every secret.
+     *
+     * A service belongs to the app when its name is the app's or starts with
+     * `<app>-`. Without PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
+     * `observability_not_configured`; if ClickHouse cannot be read, 502
+     * `observability_unavailable`.
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["getAppObservability"];
+  };
   "/v1/ai-activity": {
     /**
      * @description What the AI runner (hopai) did lately, read from the observability
@@ -1411,6 +1430,45 @@ export interface components {
       createdAt: string;
       /** Format: date-time */
       finishedAt?: string;
+    };
+    AppObservationBucket: {
+      /**
+       * Format: date-time
+       * @description start of the five minutes
+       */
+      time: string;
+      total: number;
+      errors: number;
+      warnings: number;
+    };
+    AppObservationService: {
+      name: string;
+      total: number;
+      errors: number;
+      warnings: number;
+      /** Format: date-time */
+      lastSeen: string;
+    };
+    AppObservationPattern: {
+      /** @enum {string} */
+      severity: "error" | "warning";
+      service: string;
+      /** @description redacted, numbers and ids folded to # and «id», at most 160 characters */
+      text: string;
+      count: number;
+      /** Format: date-time */
+      lastSeen: string;
+    };
+    AppObservation: {
+      /** Format: date-time */
+      since: string;
+      total: number;
+      errors: number;
+      warnings: number;
+      buckets: components["schemas"]["AppObservationBucket"][];
+      services: components["schemas"]["AppObservationService"][];
+      /** @description the most repeated, errors first, at most 10 */
+      patterns: components["schemas"]["AppObservationPattern"][];
     };
     AIActivityEvent: {
       /** Format: date-time */
@@ -5462,6 +5520,32 @@ export interface operations {
    *
    * Roles: viewer, agent, operator.
    */
+  getAppObservability: {
+    parameters: {
+      query?: {
+        /** @description how far back to read */
+        minutes?: number;
+      };
+      path: {
+        name: string;
+      };
+    };
+    responses: {
+      /** @description The summary. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AppObservation"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
   getAIActivity: {
     parameters: {
       query?: {

@@ -6,6 +6,7 @@ import {
   getSourceRetention,
   getWrittenRecords,
   getAIActivity,
+  getAppObservability,
   listAIRuns,
   getApp,
   getDeployment,
@@ -32,6 +33,7 @@ import {
 import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
 import type {
   AIActivity,
+  AppObservation,
   AIRun,
   SourceRetentionResponse,
   WrittenRecordStats,
@@ -146,6 +148,10 @@ export function useAudit(limit?: number): Resource<AuditEntry[]> {
 }
 
 /** Every app: the PLATFORM_APPS_FILE ones (what plans are drafted for) in configuration order, then the other registered ones by name. */
+/** What the logs show about an app in the last `minutes`. A falsy `app` loads nothing; a 502 or 503 shows as `error`. */
+export function useAppObservability(app: string | null | undefined, minutes = 60, pollMs = 0): Resource<AppObservation> {
+  return usePolled(app ? "app-obs:" + app + ":" + minutes : null, pollMs, (signal) => getAppObservability(app!, minutes, { signal }));
+}
 /** What the AI runner did in the last `minutes`. `enabled` false loads nothing; a 502 or 503 shows as `error`. */
 export function useAIActivity(pollMs = 0, minutes = 60, enabled = true): Resource<AIActivity> {
   return usePolled(enabled ? "ai-activity:" + minutes : null, pollMs, (signal) => getAIActivity(minutes, { signal }));

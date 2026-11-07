@@ -1,0 +1,28 @@
+.obs-overlay{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto}
+.obs-dialog{background:var(--canvas,#fff);color:inherit;border:1px solid var(--border,#d0d0d0);border-radius:4px;width:min(860px,100%);padding:20px 24px;display:flex;flex-direction:column;gap:18px;outline:none}
+.obs-dialog header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.obs-dialog h2{margin:0 0 4px;font-size:20px}
+.obs-dialog h3{margin:0 0 8px;font-size:14px}
+.obs-windows{display:flex;flex-wrap:wrap;gap:6px}
+.obs-windows .btn.on{background:var(--text,#222);color:var(--canvas,#fff)}
+.obs-head{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--border,#d0d0d0);border-radius:4px;padding:14px 16px}
+.obs-head p{margin:4px 0 0}
+.obs-bars{display:flex;align-items:flex-end;gap:2px;height:96px;border-bottom:1px solid var(--border,#d0d0d0)}
+.obs-bar{flex:1 1 0;min-width:2px;height:100%;display:flex;align-items:flex-end}
+.obs-col{width:100%;min-height:2px;background:var(--obs-ok,#9bb7d4);display:flex;flex-direction:column;justify-content:flex-start}
+.obs-col i{display:block;width:100%}
+.obs-col i.e,.obs-legend i.e{background:#c8000f}
+.obs-col i.w,.obs-legend i.w{background:#d49a22}
+.obs-legend i{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;vertical-align:baseline}
+.obs-legend i:first-child{margin-left:0}
+.obs-timeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.obs-timeline li{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.obs-timeline time{min-width:64px;font-variant-numeric:tabular-nums;color:var(--muted,#666)}
+.obs-table{width:100%;border-collapse:collapse;font-size:13px}
+.obs-table th,.obs-table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#e5e5e5)}
+.obs-table td.bad{color:#c8000f;font-weight:700}
+.obs-patterns{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.obs-patterns li{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
+.obs-patterns code{white-space:pre-wrap;word-break:break-word;font-size:12px}
+.obs-patterns .hint{grid-column:2}
+.obs-dialog footer{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
