@@ -142,6 +142,7 @@ main#main { box-sizing: border-box; width: 100%; padding: var(--sp-xl) max(var(-
   .scroll > .tbl :is(th, td):first-child { position: sticky; left: 0; z-index: 1; background: var(--canvas); }
 }
 .tbl tr:last-child td { border-bottom: 0; }
+.tbl .nw { white-space: nowrap; }
 /* A row button is taller than a text line: pulled into the cell padding, its label sits on the line beside it, and
    cells stay top-aligned so a row of two- and three-line cells (security findings) still reads from its first line. */
 .tbl .btn { margin-block: -4px; }
