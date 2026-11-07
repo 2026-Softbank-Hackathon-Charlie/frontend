@@ -66,7 +66,7 @@ it("shows a real platform onprem candidate even before the app has it, without a
   expect(await screen.findByText(/이 앱에 등록되지 않은 환경/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "앱 환경 추가 화면 열기" })).toHaveAttribute("href", "#app-moimroom-mig");
   expect(screen.getByRole("button", { name: "AI 계획·리허설 실행" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
   expect(calls.every((c) => c.method === "GET")).toBe(true);
 });
 
@@ -90,7 +90,7 @@ it("shows unreachable observations without presenting them as a healthy deployme
   await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "onprem");
   expect(await screen.findByText(/연결 안 됨/)).toBeInTheDocument();
   expect(screen.getByText("API timeout")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
 });
 
 it("keeps registered choices when the global environment list fails and reports the missing discovery", async () => {
@@ -118,7 +118,7 @@ it("discovers non-cloud targets by server ID instead of a hardcoded provider lis
   await screen.findByRole("option", { name: /GPU 실험실/ });
   await user.selectOptions(screen.getByLabelText("옮겨 갈 환경"), "edge-gpu-02");
   expect(await screen.findByText(/이 앱에 등록되지 않은 환경/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
 });
 
 it("lets a database-free registered app plan from deployment members and its observed gateway source", async () => {
@@ -142,7 +142,7 @@ it("does not guess the source of a database-free app when its gateway cannot be 
   await screen.findByRole("heading", { name: "docker-doom 이전" });
   expect(await screen.findByText(/원본을 추정하지 않으며/)).toBeInTheDocument();
   expect(screen.getByLabelText("원본")).toHaveValue("미확인");
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
   expect(calls.every((c) => c.method === "GET")).toBe(true);
 });
 
@@ -150,7 +150,7 @@ it("opens preparation for a single-environment app instead of silently selecting
   const { calls } = setup(false, environments, true, stateless("hello-onprem", ["onprem"]), "onprem");
   expect(await screen.findByRole("heading", { name: "hello-onprem 이전" })).toBeInTheDocument();
   expect(await screen.findByText(/이전할 환경이 두 곳 이상 필요/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
   expect(calls.every((c) => c.method === "GET")).toBe(true);
 });
 
@@ -160,7 +160,7 @@ it("does not treat a postgres app's deployment environment as proof that its dat
   setup(false, environments, true, postgres);
   expect(await screen.findByRole("heading", { name: "pxls 이전" })).toBeInTheDocument();
   expect(await screen.findByText(/이전할 환경이 두 곳 이상 필요/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "AI 없이 Plan 작성" })).toBeDisabled();
 });
 
 it("still requires database endpoints when a postgres app was deployed into two environments", async () => {
