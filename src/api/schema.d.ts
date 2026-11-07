@@ -661,6 +661,19 @@ export interface paths {
      */
     get: operations["getAppObservability"];
   };
+  "/v1/apps/{name}/ai-services": {
+    /**
+     * @description App-scoped AI client dependencies from HyperDX/ClickStack OTLP traces.
+     * A 24-hour history locates previously observed routes; requests counts only
+     * distinct exported client spans in the requested window, not all traffic.
+     * Caller deployment is separate from model hosting. Accelerator and hosting
+     * attributes are reported evidence, not independent hardware attestation.
+     * Ordinary dependency.name=ai spans establish usage with unknown location.
+     * Unknown, unavailable and unconfigured observations never mean no AI or zero
+     * total calls. No raw spans, URLs, prompts, credentials or request IDs return.
+     */
+    get: operations["getAppAIServices"];
+  };
   "/v1/ai-activity": {
     /**
      * @description What the AI runner (hopai) did lately, read from the observability
@@ -1469,6 +1482,60 @@ export interface components {
       services: components["schemas"]["AppObservationService"][];
       /** @description the most repeated, errors first, at most 10 */
       patterns: components["schemas"]["AppObservationPattern"][];
+    };
+    AIServiceTopology: {
+      app: string;
+      /** Format: date-time */
+      generatedAt: string;
+      window: {
+        /** Format: date-time */
+        from: string;
+        /** Format: date-time */
+        to: string;
+      };
+      sources: ({
+          name: string;
+          /** @enum {string} */
+          status: "observed" | "unobserved" | "unavailable" | "not_configured";
+          message: string;
+        })[];
+      services: components["schemas"]["AIServiceObservation"][];
+    };
+    AIServiceObservation: {
+      /** @description Route identity for this caller and physical service. */
+      id: string;
+      /** @description Observed physical-service identity, shared across callers. */
+      serviceId: string;
+      name: string;
+      /** @enum {string} */
+      kind: "self_hosted" | "managed" | "external" | "unknown";
+      /** @description Empty when the caller deployment was not instrumented. */
+      callerEnv: string;
+      model?: string;
+      location: {
+        environment?: string;
+        provider?: string;
+        region?: string;
+        /** @enum {string} */
+        accelerator: "gpu" | "cpu" | "unknown";
+      };
+      activity: {
+        /** @enum {string} */
+        state: "active" | "idle" | "unknown";
+        /**
+         * Format: int64
+         * @description Observed exported client-span count in the window, not an estimate of all requests.
+         */
+        requests?: number;
+        /** Format: date-time */
+        lastSeen?: string;
+      };
+      evidence: {
+          source: string;
+          /** Format: date-time */
+          observedAt: string;
+          detail: string;
+        }[];
     };
     AIActivityEvent: {
       /** Format: date-time */
@@ -5505,6 +5572,39 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description App-scoped AI client dependencies from HyperDX/ClickStack OTLP traces.
+   * A 24-hour history locates previously observed routes; requests counts only
+   * distinct exported client spans in the requested window, not all traffic.
+   * Caller deployment is separate from model hosting. Accelerator and hosting
+   * attributes are reported evidence, not independent hardware attestation.
+   * Ordinary dependency.name=ai spans establish usage with unknown location.
+   * Unknown, unavailable and unconfigured observations never mean no AI or zero
+   * total calls. No raw spans, URLs, prompts, credentials or request IDs return.
+   */
+  getAppAIServices: {
+    parameters: {
+      query?: {
+        minutes?: number;
+      };
+      path: {
+        name: string;
+      };
+    };
+    responses: {
+      /** @description Observed topology, or explicit source unavailability without invented services. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AIServiceTopology"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
       default: components["responses"]["Internal"];
     };
   };

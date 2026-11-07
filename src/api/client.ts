@@ -67,6 +67,7 @@ import type {
   WrittenRecordStats,
 } from "./types";
 import type { OnpremEnrollment, OnpremEnrollmentCreated, OnpremEnrollmentCreateRequest } from "./onprem";
+import { isAIServiceTopology } from "../data/aiServices";
 
 /** An API failure. `status` is 0 when no HTTP response arrived (timeout, network, CORS). */
 export class ApiError extends Error {
@@ -583,4 +584,7 @@ export const revokeOnpremEnrollment = (id: string, o?: RequestOptions) =>
 
 /** App dependencies and actual call observations; never inferred from a model name. */
 export const getAppAIServices = (app: string, minutes = 5, o?: RequestOptions) =>
-  request<import("../data/aiServices").AIServiceTopology>("GET", `/v1/apps/${seg(app)}/ai-services`, { ...o, query: { minutes } });
+  request<unknown>("GET", `/v1/apps/${seg(app)}/ai-services`, { ...o, query: { minutes } }).then(result => {
+    if (!isAIServiceTopology(result) || result.app !== app) throw new ApiError(502, "invalid_ai_service_topology", "앱 AI 관측 응답을 확인하지 못했습니다.");
+    return result;
+  });
