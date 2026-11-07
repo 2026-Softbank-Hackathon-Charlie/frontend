@@ -66,3 +66,38 @@ it("keeps cached evidence read-only when a refresh fails and backs off retries",
   expect(screen.getByRole("button", { name: "추천 새로고침" })).toBeDisabled();
   expect(calls).toHaveLength(2);
 });
+
+it("coalesces concurrent mounts and rapid manual refresh clicks", async () => {
+  const calls = installFetch(() => json(200, report()));
+  render(<><MigrationRecommendations /><MigrationRecommendations /></>); await flush();
+  expect(calls).toHaveLength(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(900001); });
+  for (const button of screen.getAllByRole("button", { name: "추천 새로고침" })) { fireEvent.click(button); fireEvent.click(button); }
+  await flush();
+  expect(calls).toHaveLength(2);
+});
+
+it("never reuses another signed-in session's cached evidence", async () => {
+  const calls = installFetch(() => json(200, report()));
+  render(<MigrationRecommendations />); await flush();
+  await act(async () => { startSession(fakeSession({ token: "another-session" })); }); await flush();
+  expect(calls).toHaveLength(2);
+});
+
+it.each(["not_configured", "unavailable"])("shows %s without fabricated results or migration actions", async status => {
+  const calls = installFetch(() => json(200, report(status)));
+  render(<MigrationRecommendations />); await flush();
+  expect(screen.getByRole("status")).toHaveTextContent(status === "not_configured" ? "아직 연결되지 않았습니다" : "완료하지 못했습니다");
+  expect(screen.queryByRole("link", { name: /이전/ })).not.toBeInTheDocument();
+  expect(calls).toHaveLength(1);
+});
+
+it("tolerates an API rollout that has not reached this endpoint and does not retry on a timer", async () => {
+  const calls = installFetch(() => json(404, { error: { code: "not_found", message: "not found" } }));
+  render(<MigrationRecommendations />); await flush();
+  expect(screen.getByRole("status")).toHaveTextContent("추천을 읽지 못했습니다");
+  expect(screen.queryByRole("link", { name: /이전/ })).not.toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60001); });
+  expect(calls).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "추천 새로고침" })).toBeEnabled();
+});
