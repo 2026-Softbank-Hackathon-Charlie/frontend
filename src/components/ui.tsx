@@ -118,12 +118,12 @@ export const td = (v: ReactNode, cls?: string): Cell => ({ v, cls });
 const isNum = (c: Cell | undefined) => !!c?.cls?.split(" ").includes("num");
 
 /** `rowClass` gives a row its class, by row index. */
-export function Table({ head, rows, rowClass }: { head: string[]; rows: Cell[][]; rowClass?: (i: number) => string | undefined }) {
+export function Table({ head, rows, rowClass, scrollLabel }: { head: string[]; rows: Cell[][]; rowClass?: (i: number) => string | undefined; scrollLabel?: string }) {
   // a column of numbers aligns its head with them; the last column without a head (actions) hugs the right
   const num = head.map((_, i) => rows.length > 0 && rows.every((r) => isNum(r[i])));
   const act = (i: number) => i === head.length - 1 && head[i] === "";
   return (
-    <div className="scroll">
+    <div className="scroll" role={scrollLabel ? "region" : undefined} aria-label={scrollLabel} tabIndex={scrollLabel ? 0 : undefined}>
       <table className="tbl">
         <thead>
           <tr>
