@@ -1,6 +1,7 @@
+import { render, screen } from "@testing-library/react";
 import { at, fakeRun } from "../api/fakes";
 import type { Run, RunEvent } from "../api/types";
-import { groupsOf } from "./Migrate";
+import { CanaryBox, groupsOf, VerifyBox } from "./Migrate";
 
 const ev = (seq: number, kind: string, p: Partial<RunEvent> = {}): RunEvent => ({ seq, time: at(seq), runId: "run_1", kind, ...p });
 const status = (seq: number, s: string, phase: string) => ev(seq, "status_changed", { data: { status: s, phase, reason: "" } });
@@ -62,5 +63,104 @@ describe("migration progress groups", () => {
     const g = groupsOf(ended({ status: "succeeded" }, { outcome: "succeeded", steps }), []);
     expect(g[2].items.map((x) => x.st)).toEqual(["ok", "ok", "neu", "ok"]);
     expect(g.map((x) => x.st)).toEqual(["done", "done", "done", "done"]);
+  });
+});
+
+describe("data verification on the result", () => {
+  const verified = (report: unknown) => ended({ status: "succeeded" }, { outcome: "succeeded", steps: { verify: { status: "succeeded", evidence: { report } } } });
+  const files = { differences: 0, matching: 634, missingOnTarget: 0, ok: true, output: "" };
+
+  it("shows each table's checked and missing rows, a skip and an error, and the file counts", () => {
+    render(
+      <VerifyBox
+        r={verified({
+          ok: true,
+          missingRows: 0,
+          files,
+          tables: [
+            { table: "app.reservations", checked: 3120, missing: 0 },
+            { table: "app.audit", checked: 0, missing: 0, skipped: "no primary key" },
+            { table: "app.reviews", checked: 0, missing: 0, error: "permission denied" },
+          ],
+        })}
+      />,
+    );
+    const rows = screen.getAllByRole("row").map((r) => [...r.querySelectorAll("th, td")].map((c) => c.textContent));
+    expect(rows).toEqual([
+      ["테이블", "원본에서 확인한 행", "대상에서 빠진 행", "결과"],
+      ["app.reservations", "3,120행", "0행", "일치"],
+      ["app.audit", "-", "-", "건너뜀: no primary key"],
+      ["app.reviews", "-", "-", "오류: permission denied"],
+    ]);
+    // a table the engine could not check is not a clean result
+    expect(screen.getByText("차이 있음")).toBeInTheDocument();
+    expect(screen.getByText("일치하는 파일").nextSibling).toHaveTextContent("634개");
+    expect(screen.getByText("내용이 다른 파일").nextSibling).toHaveTextContent("0개");
+    expect(screen.getByText("대상에 없는 파일").nextSibling).toHaveTextContent("0개");
+  });
+
+  it("says nothing was lost when every table and file matches", () => {
+    render(<VerifyBox r={verified({ ok: true, missingRows: 0, files, tables: [{ table: "app.spaces", checked: 48, missing: 0 }] })} />);
+    expect(screen.getByText("손실 없음")).toBeInTheDocument();
+  });
+
+  it("flags rows missing on the target", () => {
+    render(<VerifyBox r={verified({ ok: false, missingRows: 2, tables: [{ table: "app.spaces", checked: 48, missing: 2, samples: ["1", "2"] }] })} />);
+    expect(screen.getByText("누락 있음")).toBeInTheDocument();
+    expect(screen.getByText("차이 있음")).toBeInTheDocument();
+  });
+
+  it("hides the table while the engine reports no tables, and keeps the files", () => {
+    render(<VerifyBox r={verified({ ok: true, missingRows: 0, files, tables: [] })} />);
+    expect(screen.getByText("데이터 검증")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText("일치하는 파일")).toBeInTheDocument();
+  });
+
+  it("does not claim nothing was lost from the live report with no tables counted", () => {
+    // the shape the platform returns today (moimroom-mig-gke-to-eks-20261107-115247)
+    render(<VerifyBox r={verified({ durability: "asynchronous", files, missingRows: 0, ok: true, tables: [] })} />);
+    expect(screen.getByText("데이터 검증")).toBeInTheDocument();
+    expect(screen.queryByText("손실 없음")).not.toBeInTheDocument();
+    expect(screen.queryByText("차이 있음")).not.toBeInTheDocument();
+  });
+
+  it("does not claim nothing was lost when every table was skipped or has no count", () => {
+    render(<VerifyBox r={verified({ ok: true, files, tables: [{ table: "app.audit", checked: 0, missing: 0, skipped: "no primary key" }, { table: "app.spaces", checked: 48 }] })} />);
+    expect(screen.queryByText("손실 없음")).not.toBeInTheDocument();
+  });
+
+  it("says rows are missing when the report has no tables but a missing total", () => {
+    render(<VerifyBox r={verified({ ok: false, missingRows: 3, tables: [] })} />);
+    expect(screen.getByText("차이 있음")).toBeInTheDocument();
+    expect(screen.getByText("원본에 있고 대상에 없는 행 3행이 보고되었습니다. 테이블별 내역은 없습니다.")).toBeInTheDocument();
+  });
+
+  it("hides the evidence of a rolled back run and of a verify step that did not succeed", () => {
+    const report = { ok: true, missingRows: 0, files, tables: [{ table: "app.spaces", checked: 48, missing: 0 }] };
+    const rolledBack = ended({ status: "rolled_back" }, { outcome: "rolled_back", steps: { verify: { status: "succeeded", evidence: { report } } } });
+    const failed = ended({ status: "failed" }, { outcome: "failed", steps: { verify: { status: "failed", evidence: { report } } } });
+    expect(render(<VerifyBox r={rolledBack} />).container).toBeEmptyDOMElement();
+    expect(render(<VerifyBox r={failed} />).container).toBeEmptyDOMElement();
+  });
+
+  it("shows nothing without a verify report", () => {
+    const { container } = render(<VerifyBox r={ended({ status: "succeeded" })} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("read canary table", () => {
+  it("rounds p95 to whole milliseconds like the gate's reason", () => {
+    const r = fakeRun({
+      canary: {
+        options: { weights: [50] },
+        passed: true,
+        steps: [{ weight: 50, startedAt: at(1), endedAt: at(2), verdict: "ok", gate: { passed: true, reason: "120 requests, error rate 0.00%, p95 45ms", requests: 120, errorRate: 0, p95Millis: 44.545456 } }],
+      },
+    });
+    render(<CanaryBox r={r} />);
+    expect(screen.getByText("45ms")).toBeInTheDocument();
+    expect(screen.queryByText("44.545456ms")).not.toBeInTheDocument();
   });
 });

@@ -1370,6 +1370,8 @@ export interface components {
       gatewayMode: string;
       fenceGate: boolean;
       maxDowntime: string;
+      /** @description Whether this submitted plan configures verify.writtenRecords. Does not prove collection or verification succeeded. Absent for historical summaries and older servers; absence means unknown, not false. */
+      writtenRecordsConfigured?: boolean;
     };
     PlanRecord: {
       /** @example pln_3f9c1a0b2d4e */

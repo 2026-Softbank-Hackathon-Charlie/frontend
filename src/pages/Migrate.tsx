@@ -5,14 +5,16 @@ import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
-import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
+import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
-import { EmptyShop } from "../components/shared";
+import { EmptyShop, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
+import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
+import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
@@ -86,6 +88,10 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <Chip kind="warn">승인 대기</Chip>
                   ) : v.stage === "ai" ? (
                     <Chip kind="run">AI 작업 중</Chip>
+                  ) : v.lastRun ? (
+                    <Chip kind={RESULT_KIND[v.lastRun.status] ?? ""}>
+                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", " + envName(v.lastRun.source.env) + " → " + envName(v.lastRun.target.env) + ", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, v.now ?? Date.now())}
+                    </Chip>
                   ) : (
                     <Chip>이전 전</Chip>
                   ),
@@ -579,6 +585,7 @@ function ApproveBox({ v }: { v: MigrationView }) {
         <b>
           Plan {v.plan.ref} (revision {v.plan.revision})을 승인할까요?
         </b>
+        <PlanWriteVerification configured={s.writtenRecordsConfigured} />
         <dl className="kv">
           <dt>경로</dt>
           <dd>
@@ -724,6 +731,7 @@ function StartAgainBox({ v }: { v: MigrationView }) {
         <b>
           Plan {p.ref} (revision {p.revision})은 승인됐지만 시작하지 않았습니다.
         </b>
+        <PlanWriteVerification configured={p.summary.writtenRecordsConfigured} />
         <p className="hint">
           {blocked
             ? "시작 전 검사에서 막혔습니다. 검사 결과의 이유를 해결한 뒤(레지던시 정책이나 대상 설정 변경 등) 다시 시작하세요. 해결하지 않고 다시 시작하면 같은 이유로 막힙니다."
@@ -1220,6 +1228,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
       {v.preflight?.blocked && <PreflightBox p={v.preflight} />}
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
+      {ended && <VerifyBox r={r} />}
       {v.live && ended && <LiveSourceRetention runId={r.runId} />}
       {ended && <PhaseTimes r={r} m={marks} />}
       <CanaryBox r={r} />
@@ -1375,7 +1384,7 @@ function RunSessions({ v }: { v: MigrationView }) {
   );
 }
 
-function CanaryBox({ r }: { r: Run }) {
+export function CanaryBox({ r }: { r: Run }) {
   const c = r.canary;
   if (!c) return null;
   return (
@@ -1401,7 +1410,7 @@ function CanaryBox({ r }: { r: Run }) {
             td(chip),
             td(g ? fmt(g.requests) : "-", "num"),
             td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
-            td(g ? g.p95Millis + "ms" : "-", "num"),
+            td(g ? Math.round(g.p95Millis) + "ms" : "-", "num"),
           ];
         })}
       />
@@ -1444,7 +1453,7 @@ function ObserveBox({ r }: { r: Run }) {
               td(verdict(s)),
               td(g ? fmt(g.requests) : "-", "num"),
               td(g ? (g.errorRate * 100).toFixed(2) + "%" : "-", "num"),
-              td(g ? g.p95Millis + "ms" : "-", "num"),
+              td(g ? Math.round(g.p95Millis) + "ms" : "-", "num"),
             ];
           })}
         />
@@ -1483,6 +1492,48 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
       </div>
       <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>
       {!x.verified && <div className="bb hint">검증이 끝나지 않았거나 문제가 있습니다.</div>}
+    </div>
+  );
+}
+
+// The verify step's evidence: what the engine compared on both sides, table by table and file by file.
+export function VerifyBox({ r }: { r: Run }) {
+  const rep = verifiedReportOf(r);
+  const rowsOnly = !!rep && !rep.tables.length && (rep.missingRows ?? 0) > 0;
+  if (!rep || (!rep.tables.length && !rep.files && !rowsOnly)) return null;
+  const { bad, clean } = verifyVerdict(rep);
+  const f = rep.files;
+  const fOk = f && filesClean(f);
+  const n = (k: number | undefined, unit: string) => (k === undefined ? "-" : fmt(k) + unit);
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>데이터 검증</b>
+        {bad ? <Chip kind="bad">차이 있음</Chip> : clean ? <Chip kind="ok">손실 없음</Chip> : null}
+        <span className="hint">검증 단계가 원본과 대상을 직접 비교한 결과</span>
+      </div>
+      {rowsOnly && <div className="bb hint">{"원본에 있고 대상에 없는 행 " + fmt(rep.missingRows!) + "행이 보고되었습니다. 테이블별 내역은 없습니다."}</div>}
+      {rep.tables.length > 0 && (
+        <Table
+          head={["테이블", "원본에서 확인한 행", "대상에서 빠진 행", "결과"]}
+          rows={rep.tables.map((t) => {
+            let chip = <Chip kind="ok">일치</Chip>;
+            if (t.error) chip = <Chip kind="bad">{"오류: " + t.error}</Chip>;
+            else if (t.skipped) chip = <Chip>{"건너뜀: " + t.skipped}</Chip>;
+            else if (t.missing === undefined) chip = <Chip>측정 안 됨</Chip>;
+            else if (t.missing > 0) chip = <Chip kind="bad">누락 있음</Chip>;
+            const measured = !t.error && !t.skipped;
+            return [td(<code>{t.table}</code>), td(measured ? n(t.checked, "행") : "-", "num"), td(measured ? n(t.missing, "행") : "-", "num"), td(chip)];
+          })}
+        />
+      )}
+      {f && (
+        <div className="mg-report">
+          <Num label="일치하는 파일" value={n(f.matching, "개")} note="원본과 대상의 해시가 같은 파일" ok={fOk ? true : undefined} />
+          <Num label="내용이 다른 파일" value={n(f.differences, "개")} note="양쪽에 있지만 해시가 다른 파일" ok={f.differences === undefined ? undefined : f.differences === 0} />
+          <Num label="대상에 없는 파일" value={n(f.missingOnTarget, "개")} note="원본에만 있는 파일" ok={f.missingOnTarget === undefined ? undefined : f.missingOnTarget === 0} />
+        </div>
+      )}
     </div>
   );
 }
