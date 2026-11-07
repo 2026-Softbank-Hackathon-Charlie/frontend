@@ -7,6 +7,7 @@
 import type {
   App,
   AppCreateRequest,
+  AppDBReadinessEnvironment,
   AppInstance,
   AppSpec,
   AppSpecFieldError,
@@ -141,6 +142,20 @@ export const REPOS: RepoFixture[] = [
       },
     },
   },
+  // registered in one environment with a database pair whose peer is not added yet (ADR 0037)
+  {
+    repo: gh("wiki"),
+    base: "node:22-alpine",
+    install: "npm ci",
+    build: "npm run build",
+    branches: {
+      main: {
+        commit: "2b4d6f8a0c2e4a6c8e0b2d4f6a8c0e2b4d6f8a0c",
+        spec: { name: "wiki", services: [svc("web", 3000, { healthCheck: "/healthz", public: true })], resources: [{ name: "db", type: "postgres" }] },
+        errors: [],
+      },
+    },
+  },
   {
     repo: gh("analytics-worker"),
     base: "",
@@ -260,7 +275,7 @@ function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, comm
   const c7 = commit.slice(0, 7);
   const s: Step[] = [{ at: 0, type: "phase", phase: "queued", message: "대기열에 들어갔습니다 (trigger " + trigger + ")" }];
   // A redeploy builds nothing: the last healthy deployment's images go out again with the current secrets.
-  const again = trigger === "redeploy";
+  const again = trigger === "redeploy" || trigger === "environment";
   if (!again) s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
   const broken = again ? undefined : Object.values(f?.branches ?? {}).find((b) => b.commit === commit)?.buildError;
   if (broken) {
@@ -441,6 +456,10 @@ function register(d: DeploySim, repo: string, branch: string, environments: stri
 
 export function freshDeploy(): DeploySim {
   const d: DeploySim = { now: 0, apps: [], deployments: [], events: {}, active: {}, seq: 0, nextId: 1, secrets: freshSecrets() };
+  // wiki: registered in AWS EKS two days ago; its database pair's replica belongs in GCP GKE, not added yet (ADR 0037).
+  const wiki = register(d, ORG + "/wiki", "main", ["eks"], true, -172_900);
+  wiki.deploy!.dbTopology = { primary: "eks", replica: "gke", replicaPresent: false };
+  advance(d, newDeployment(d, wiki, wiki.deploy!.instances[0], "register", "operator", "main", wiki.deploy!.specCommit, -172_800).id, 0);
   // todo-api: registered yesterday, deployed again by a push 12 minutes ago.
   const envs = ENV_ORDER.map((k) => ENV[k].id);
   const app = register(d, ORG + "/todo-api", "main", envs, true, -86_700);
@@ -519,6 +538,107 @@ export function redeployNoBuild(d: DeploySim, name: string, branch: string): voi
   const inst = app.deploy!.instances.find((i) => i.branch === branch)!;
   const last = lastHealthy(d, inst.name)!;
   newDeployment(d, app, inst, "redeploy", "operator", last.ref, last.commit, d.now);
+}
+
+/** The default instance's newest deployment that lists `env`, as the platform judges an environment of the app by. */
+const newestTo = (d: DeploySim, instance: string, env: string) => d.deployments.find((x) => x.instance === instance && x.environments.some((e) => e.env === env));
+
+const hasPostgres = (app: App) => !!app.deploy?.spec.resources?.some((r) => r.type === "postgres");
+
+/**
+ * What POST /v1/apps/{name}/environments would refuse, in the server's order (ADR 0037); null when it would add `env`
+ * or, for an environment of the app whose deployment there failed or was superseded, deploy it again. `migrating`: a
+ * migration of the app is in progress.
+ */
+export function checkAddEnvironment(d: DeploySim, name: string, env: string, migrating = false): Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  if (!ENV_ORDER.some((k) => ENV[k].id === env)) return { status: 404, code: "env_not_found", message: `unknown environment ${env}` };
+  if (app.deploy.environments.includes(env) && newestTo(d, name, env)?.status === "healthy")
+    return { status: 409, code: "environment_exists", message: `app ${name} is already in ${env}` };
+  if (d.deployments.some((x) => x.instance === name && !isFinal(x.status))) return { status: 409, code: "deployment_in_progress", message: `instance ${name} has a deployment in progress` };
+  if (migrating) return { status: 409, code: "migration_in_progress", message: `a migration run of ${name} is in progress` };
+  if (!lastHealthy(d, name)) return { status: 409, code: "nothing_to_redeploy", message: `instance ${name} has no healthy deployment to deploy again` };
+  if (hasPostgres(app) && app.deploy.dbTopology?.replica !== env)
+    return { status: 409, code: "db_pair_unavailable", message: `app ${name} has no database pair whose peer is ${env}` };
+  return null;
+}
+
+/** Adds `env` to the app and its instances (once), and deploys the default instance's last healthy deployment to all of its environments (trigger environment). */
+export function addEnvironment(d: DeploySim, name: string, env: string): void {
+  if (checkAddEnvironment(d, name, env)) return;
+  const app = d.apps.find((a) => a.name === name)!;
+  if (!app.deploy!.environments.includes(env)) {
+    app.deploy!.environments = [...app.deploy!.environments, env];
+    // in place: the default instance's status is also the app's deploy.status (the same array)
+    for (const i of app.deploy!.instances) i.status.push({ env, status: "pending" });
+  }
+  const inst = app.deploy!.instances.find((i) => i.default)!;
+  const last = lastHealthy(d, inst.name)!;
+  newDeployment(d, app, inst, "environment", "operator", last.ref, last.commit, d.now);
+}
+
+/** What DELETE /v1/apps/{name}/environments/{env} would refuse, in the server's order; null when it would remove `env`. */
+export function checkRemoveEnvironment(d: DeploySim, name: string, env: string, migrating = false): Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  const envs = app.deploy.environments;
+  if (!envs.includes(env)) return { status: 404, code: "env_not_found", message: `app ${name} is not in ${env}` };
+  if (envs[0] === env) return { status: 409, code: "primary_environment", message: `${env} is app ${name}'s first environment` };
+  // no simulated migration moves a registered app, so the gateway writes where its database was born primary
+  if (app.deploy.dbTopology?.primary === env) return { status: 409, code: "write_backend", message: `the traffic gateway sends the writes of ${name} to ${env}` };
+  if (d.deployments.some((x) => x.app === name && !isFinal(x.status))) return { status: 409, code: "deployment_in_progress", message: `app ${name} has a deployment in progress` };
+  if (migrating) return { status: 409, code: "migration_in_progress", message: `a migration run of ${name} is in progress` };
+  return null;
+}
+
+/** Takes `env` out of the app and its instances, then deploys the default instance's last healthy deployment to the rest. */
+export function removeEnvironment(d: DeploySim, name: string, env: string): void {
+  if (checkRemoveEnvironment(d, name, env)) return;
+  const app = d.apps.find((a) => a.name === name)!;
+  app.deploy!.environments = app.deploy!.environments.filter((e) => e !== env);
+  for (const i of app.deploy!.instances) {
+    const at = i.status.findIndex((x) => x.env === env);
+    if (at >= 0) i.status.splice(at, 1);
+  }
+  const inst = app.deploy!.instances.find((i) => i.default)!;
+  const last = lastHealthy(d, inst.name);
+  if (last) newDeployment(d, app, inst, "environment", "operator", last.ref, last.commit, d.now);
+}
+
+/**
+ * The app as GET /v1/apps/{name} shows it: with a database pair, whether the peer is the app's and whether the pair
+ * can be migrated now, by the platform's checks that the simulation has (the peer, the deployments, a migration in
+ * progress). The simulated clusters are always healthy and follow the primary.
+ */
+export function withReadiness(d: DeploySim, app: App, migrating = false): App {
+  const t = app.deploy?.dbTopology;
+  if (!t) return app;
+  const envs = app.deploy!.environments;
+  let reason = "ready";
+  let message = "both databases are healthy and the replica follows the primary";
+  const fail = (r: string, m: string) => {
+    if (reason === "ready") [reason, message] = [r, m];
+  };
+  const environments: AppDBReadinessEnvironment[] = [];
+  const pending: [string, Deployment | undefined][] = [];
+  for (const env of [t.primary, t.replica]) {
+    const inApp = envs.includes(env);
+    const last = inApp ? newestTo(d, app.name, env) : undefined;
+    const deployed = !!last && last.status !== "superseded" && last.environments.find((e) => e.env === env)?.status === "healthy";
+    environments.push({ env, inApp, deployed, gatewayBackend: deployed, role: env === t.primary ? "primary" : "replica", healthy: deployed, ...(deployed ? { phase: "Cluster in healthy state" } : {}) });
+    if (!inApp) fail("replica_missing", `${env} is not one of the app's environments; add it with POST /v1/apps/${app.name}/environments`);
+    else if (!deployed) pending.push([env, last]);
+  }
+  if (migrating) fail("migration_in_progress", `a migration run of ${app.name} is in progress`);
+  for (const [env, last] of pending) {
+    if (!last || !isFinal(last.status) || last.status === "superseded") fail("deploy_pending", `no deployment of ${app.name} has gone to ${env} healthy yet`);
+    else fail("deploy_failed", `deployment ${last.id} to ${env} did not end healthy: ${last.error ?? ""}`);
+  }
+  return {
+    ...app,
+    deploy: { ...app.deploy!, dbTopology: { ...t, replicaPresent: envs.includes(t.replica), readiness: { ready: reason === "ready", reason, message, environments } } },
+  };
 }
 
 /**

@@ -139,7 +139,7 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(box).toHaveTextContent("데이터는 되돌릴 수 없습니다.");
     await user.click(within(box).getByRole("button", { name: "취소" }));
     expect(screen.queryByRole("group", { name: "앱 삭제 확인" })).not.toBeInTheDocument();
-    expect(sim.state.deploy.apps.map((a) => a.name)).toEqual(["todo-api"]);
+    expect(sim.state.deploy.apps.map((a) => a.name)).toEqual(["todo-api", "wiki"]);
 
     await user.click(screen.getByRole("button", { name: "더 보기" }));
     await user.click(screen.getByRole("button", { name: "앱 삭제" }));
@@ -148,7 +148,7 @@ describe("GitHub deploy screens (simulation)", () => {
     await user.type(within(again).getByLabelText("확인하려면 앱 이름 todo-api을(를) 입력하세요"), "todo-api ");
     await user.click(within(again).getByRole("button", { name: "삭제" }));
     await waitFor(() => expect(window.location.hash).toBe("#apps"));
-    expect(sim.state.deploy.apps).toHaveLength(0);
+    expect(sim.state.deploy.apps.map((a) => a.name)).toEqual(["wiki"]);
     expect(confirm).not.toHaveBeenCalled();
   });
 
@@ -314,7 +314,7 @@ describe("GitHub deploy screens (simulation)", () => {
     expect(within(tiles).getByRole("link", { name: /배포 중/ })).toHaveAttribute("aria-current", "true");
     await user.click(within(tiles).getByRole("link", { name: /정상/ }));
     expect(await screen.findByRole("link", { name: "todo-api" })).toBeInTheDocument();
-    expect(screen.getByText("GitHub")).toBeInTheDocument();
+    expect(screen.getAllByText("GitHub")).toHaveLength(2);
   });
 });
 
@@ -459,7 +459,7 @@ describe("GitHub deploy screens (platform API)", () => {
         ...app.deploy!,
         environments: ["eks", "gke"],
         status: [{ env: "eks", status: "healthy" }, { env: "gke", status: "healthy" }],
-        dbTopology: { primary: "gke", replica: "eks" },
+        dbTopology: { primary: "gke", replica: "eks", replicaPresent: true },
       },
     };
     setup("#app-moimroom");

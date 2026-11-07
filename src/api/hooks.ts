@@ -112,8 +112,9 @@ export function useSourceRetention(runId: string | null | undefined, pollMs = 15
   return usePolled(runId ? "retention:" + runId : null, pollMs, signal => getSourceRetention(runId!, { signal }));
 }
 
-export function useEnvironments(pollMs = 0): Resource<Environment[]> {
-  return usePolled("envs", pollMs, async (signal) => (await listEnvironments({ signal })).environments);
+/** `enabled` false loads nothing. */
+export function useEnvironments(pollMs = 0, enabled = true): Resource<Environment[]> {
+  return usePolled(enabled ? "envs" : null, pollMs, async (signal) => (await listEnvironments({ signal })).environments);
 }
 
 /** `window` is the statistics window, 1s to 5m (server default 10s); `app` reads that app's gateway scope. `enabled` false loads nothing. */

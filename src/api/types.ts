@@ -153,6 +153,11 @@ export interface MetricData {
 // Apps registered from GitHub and their deployments (ADR 0011).
 export type AppDeploy = S["AppDeploy"];
 export type AppDBTopology = S["AppDBTopology"];
+export type AppDBReadiness = S["AppDBReadiness"];
+export type AppDBReadinessEnvironment = S["AppDBReadinessEnvironment"];
+export type AppEnvironmentAddRequest = S["AppEnvironmentAddRequest"];
+export type AppEnvironmentAdded = S["AppEnvironmentAdded"];
+export type AppEnvironmentRemoved = S["AppEnvironmentRemoved"];
 export type AppEnvironmentStatus = S["AppEnvironmentStatus"];
 export type AppCreateRequest = S["AppCreateRequest"];
 export type AppCreated = S["AppCreated"];

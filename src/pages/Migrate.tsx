@@ -260,6 +260,10 @@ function MigrateView({ v }: { v: MigrationView }) {
   );
 
   if (v.stage === "setup") {
+    // the database pair's readiness (ADR 0037): only a sure refusal stops the buttons; app_degraded leaves the AI, which can pick cold mode
+    const pc = v.pairCheck;
+    const stopAI = pc?.stop === "all";
+    const stopManual = pc?.stop === "all" || pc?.stop === "manual";
     return page(
       <>
         <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<AppPick v={v} />} />
@@ -325,13 +329,37 @@ function MigrateView({ v }: { v: MigrationView }) {
             </details>
           </div>
         </div>
+        {pc && (
+          <div className="box fillbox" role="status" id="mig-blocked">
+            <div className="bb">
+              <p>{pc.text}</p>
+              {pc.runId && v.openRun && (
+                <button type="button" className="btn sm ghost" onClick={() => v.openRun!(pc.runId!)}>
+                  진행 중인 이전 보기
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {!live || v.aiRun?.available ? (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || v.aiRun?.running} onClick={live ? v.aiRun?.start : v.makePlan}>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={v.busy || !v.tgt || v.aiRun?.running || stopAI}
+              onClick={live ? v.aiRun?.start : v.makePlan}
+              aria-describedby={pc ? "mig-blocked" : undefined}
+            >
               <Icon name="bot" size={16} />
               {v.aiRun?.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
             </button>
-            <button type="button" className="btn ghost" disabled={!live || v.busy || !v.tgt} onClick={v.makePlan} aria-describedby={!live ? "mig-demo-plan-why" : undefined}>
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={!live || v.busy || !v.tgt || stopManual}
+              onClick={v.makePlan}
+              aria-describedby={!live ? "mig-demo-plan-why" : pc ? "mig-blocked" : undefined}
+            >
               <Icon name="clipboard-check" size={16} />
               AI 없이 Plan 작성
             </button>
@@ -344,7 +372,7 @@ function MigrateView({ v }: { v: MigrationView }) {
           </div>
         ) : (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || stopManual} onClick={v.makePlan} aria-describedby={pc ? "mig-blocked" : undefined}>
               <Icon name="clipboard-check" size={16} />
               Plan 작성
             </button>

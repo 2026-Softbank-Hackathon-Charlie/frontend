@@ -99,7 +99,7 @@ describe("approval block (platform #24)", () => {
 });
 
 describe("which app and environment a migration starts from", () => {
-  const topo = { primary: "gke", replica: "eks" };
+  const topo = { primary: "gke", replica: "eks", replicaPresent: true };
   const envs = ["eks", "gke"];
 
   it("starts from where the gateway sends the writes, so a second migration goes back", () => {
