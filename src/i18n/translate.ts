@@ -12,7 +12,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Builds a lookup from the dictionary. It returns null for text it does not know, so the caller keeps the Korean. */
 export function makeTranslator(dict: Dict): Translator {
   const exact = new Map<string, string>();
-  const patterns: { re: RegExp; holes: number[]; ja: string; weight: number }[] = [];
+  const patterns: { re: RegExp; holes: number[]; ja: string; weight: number; strict: boolean }[] = [];
   for (const [ko, ja] of Object.entries(dict)) {
     if (!ja) continue;
     if (!/\{\d+\}/.test(ko)) {
@@ -29,7 +29,10 @@ export function makeTranslator(dict: Dict): Translator {
       })
       .join("");
     // more fixed text first, so "서비스 {0}개 모두 있음" wins over "서비스 {0}개"
-    patterns.push({ re: new RegExp("^" + src + "$"), holes, ja, weight: ko.replace(HOLE, "").length });
+    const fixed = ko.replace(HOLE, "");
+    // "{0}회" or "{0}분" would otherwise eat "조회" or "부분": a pattern with little Korean of its own takes only non-Korean holes
+    const strict = (fixed.match(/[가-힣]/g) ?? []).length <= 2;
+    patterns.push({ re: new RegExp("^" + src + "$"), holes, ja, weight: fixed.length, strict });
   }
   patterns.sort((a, b) => b.weight - a.weight);
   // last resort for text built at runtime ("AWS EKS 정상"): known phrases, longest first, not inside a longer word
@@ -49,13 +52,14 @@ export function makeTranslator(dict: Dict): Translator {
     if (viaPattern !== null) return viaPattern;
     if (!words) return null;
     const replaced = core.replace(words, (w) => exact.get(w)!);
-    return replaced === core ? null : replaced;
+    // half-translated text reads worse than the Korean, so a phrase swap counts only when nothing Korean is left
+    return replaced === core || HANGUL.test(replaced) ? null : replaced;
   };
 
   const matchPattern = (core: string, depth: number): string | null => {
     for (const p of patterns) {
       const m = p.re.exec(core);
-      if (!m) continue;
+      if (!m || (p.strict && m.slice(1).some((v) => HANGUL.test(v)))) continue;
       const values: Record<number, string> = {};
       p.holes.forEach((h, i) => {
         const v = m[i + 1];

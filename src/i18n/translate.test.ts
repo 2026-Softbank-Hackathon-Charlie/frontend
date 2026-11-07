@@ -30,6 +30,13 @@ test("joined lists go item by item, and runtime-built text falls back to known w
   expect(tr("저장소")).toBeNull(); // 저장 inside a longer word stays
 });
 
+test("a pattern with little Korean of its own does not cut into a word", () => {
+  const t = makeTranslator({ "{0}분": "{0}分", "{0}회{1}": "{0}回{1}" });
+  expect(t("5분")).toBe("5分");
+  expect(t("부분")).toBeNull();
+  expect(t("조회하기")).toBeNull();
+});
+
 test("the DOM layer translates new and changed text and restores the Korean on stop", async () => {
   document.body.innerHTML = `<div id="r"><button title="저장">저장</button><span>높음 1</span><textarea>저장</textarea></div>`;
   const root = document.getElementById("r")!;

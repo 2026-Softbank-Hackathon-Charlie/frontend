@@ -4,7 +4,7 @@ import type { Translator } from "./translate";
 
 const ATTRS = ["placeholder", "title", "aria-label", "alt"];
 // user-typed values and code stay as they are
-const SKIP = "textarea, script, style, [data-no-i18n]";
+const SKIP = "textarea, script, style, pre, code, [data-no-i18n]";
 
 type Saved = { ko: string; ja: string };
 
