@@ -15,9 +15,12 @@ function LiveSecurity({ route }: { route: string }) {
   const controls = useSecurityControls(60_000);
   const vulnerabilities = useSecurityVulnerabilities(60_000);
   const data = securityData(result.data, {
+    findingsRequest: { loading: result.loading, error: result.error ? { status: result.error.status, code: result.error.code, message: errorText(result.error) } : undefined },
     controls: controls.data, controlsError: controls.error ? errorText(controls.error) : undefined,
     vulnerabilities: vulnerabilities.data, vulnerabilitiesError: vulnerabilities.error ? errorText(vulnerabilities.error) : undefined,
+    controlsRequest: { loading: controls.loading, error: controls.error ? { status: controls.error.status, code: controls.error.code, message: errorText(controls.error) } : undefined },
+    vulnerabilitiesRequest: { loading: vulnerabilities.loading, error: vulnerabilities.error ? { status: vulnerabilities.error.status, code: vulnerabilities.error.code, message: errorText(vulnerabilities.error) } : undefined },
   });
   const reload = () => { result.reload(); controls.reload(); vulnerabilities.reload(); };
-  return <SecurityWorkspace route={route} data={data} loading={!result.data && !result.error} error={result.error ? errorText(result.error) : undefined} reload={reload} />;
+  return <SecurityWorkspace route={route} data={data} loading={result.loading && controls.loading && vulnerabilities.loading} error={result.error ? errorText(result.error) : undefined} reload={reload} />;
 }

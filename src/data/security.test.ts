@@ -158,6 +158,60 @@ describe("live posture mapping", () => {
     expect(d.policyVersion).toBe("hopcharlie-security-policy/2026-11-06.1");
   });
 
+  it("keeps a shared control's source evidence separate by environment without inventing app ownership", () => {
+    const controls = { generatedAt, policyVersion: "p1", controls: [control], coverage: [], evaluations: [
+      evaluation("first", "user/alice", "pass"),
+      { ...evaluation("second", "*", "unknown"), environment: "other-account" },
+    ] };
+    const base = { generatedAt, findings: [], storageKeys: [], summary: { bySeverity: { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 }, byEnvironment: {} }, sources: [
+      { name: "aws-iam", provider: "aws" as const, environment: "aws-account", status: "ok" as const, checkedAt: generatedAt, findings: 0 },
+      { name: "aws-iam", provider: "aws" as const, environment: "other-account", status: "error" as const, checkedAt: generatedAt, findings: 0, message: "denied in other environment" },
+    ] };
+    const d = securityData(base, { controls });
+    expect(d.controls?.map((c) => [c.id, c.environment, c.sourceStatus, c.sourceReason])).toEqual([
+      ["first", "aws-account", "ok", undefined], ["second", "other-account", "error", "denied in other environment"],
+    ]);
+    expect(filterControls(d.controls!, "aws-account", "all").map((c) => c.id)).toEqual(["first"]);
+    expect(filterControls(d.controls!, "all", "shop")).toEqual([]);
+  });
+
+  it("does not call a connected empty scan store zero vulnerabilities", () => {
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, scans: [], vulnerabilities: [], runningImages: [{ ...images[0], scanState: "not_scanned", scanId: undefined }], summary } });
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.observations?.vulnerabilities.state).toBe("unobserved");
+    expect(d.unavailable?.vulnerabilities).toContain("0건이 아닙니다");
+  });
+
+  it.each([["failed", "error"], ["unsupported", "unsupported"]] as const)("keeps an entirely %s scan separate from an empty successful result", (status, state) => {
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, summary, vulnerabilities: [],
+      scans: [{ id: "scan1", digest, status, scanner: { name: "grype", version: "one" } }],
+      runningImages: [{ ...images[0], scanState: "scan_failed" }],
+    } });
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.observations?.vulnerabilities.state).toBe(state);
+    expect(d.runningImages?.[0].scanStatus).toBe(status);
+  });
+
+  it("joins CVE evidence by scan ID and image digest, and preserves only its actual container occurrences", () => {
+    const other = "sha256:" + "2".repeat(64);
+    const baseV = { id: "v1", scanId: "scan1", digest, advisory: "CVE-2026-0001", aliases: [], package: { name: "openssl", version: "3", type: "deb" }, fixedVersions: [], fixState: "unknown" as const, severity: "high" as const, severityBasis: { type: "vendor" as const, issuer: "grype", policy: "p1" }, cvss: [], urls: ["javascript:alert(1)", "https://nvd.nist.gov/vuln/detail/CVE-2026-0001"] };
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, summary,
+      scans: [
+        { id: "scan1", digest, status: "succeeded", scanner: { name: "grype", version: "one" }, finishedAt: generatedAt },
+        { id: "scan2", digest: other, status: "succeeded", scanner: { name: "grype", version: "two" }, finishedAt: "2026-11-06T08:00:00Z" },
+      ],
+      vulnerabilities: [baseV, { ...baseV, id: "other", digest: other, scanId: "scan1" }, { ...baseV, id: "valid-other", digest: other, scanId: "scan2" }],
+      runningImages: [images[0], { ...images[0], environment: "eks", digest: other, scanId: "scan2" }, { ...images[0], environment: "onprem", scanId: "scan2" }],
+    } });
+    expect(d.vulnerabilities?.[0]).toMatchObject({ scanId: "scan1", scanner: "grype one", scannedAt: generatedAt, basisUrl: baseV.urls[1] });
+    expect(d.vulnerabilities?.[0].occurrences.map((o) => o.environment)).toEqual(["gke"]);
+    expect(d.vulnerabilities?.[1].scanner).toBeUndefined();
+    expect(d.vulnerabilities?.[1].occurrences).toEqual([]);
+    expect(d.vulnerabilities?.[2].scanner).toBe("grype two");
+    expect(d.vulnerabilities?.[2].occurrences.map((o) => o.environment)).toEqual(["eks"]);
+    expect(d.runningImages?.map((i) => i.scannedAt)).toEqual([generatedAt, "2026-11-06T08:00:00Z", null]);
+  });
+
   it("does not turn a missing scanner into zero vulnerabilities", () => {
     const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "not_configured", message: "no scanner" }, scans: [], vulnerabilities: [], runningImages: images, summary } });
     expect(d.vulnerabilities).toBeNull();

@@ -43,6 +43,37 @@ function open(route = "#security") {
 }
 
 describe("shared security workspace", () => {
+  it("keeps slow posture requests collecting after findings arrive, then renders the actual control and scanner state", async () => {
+    let releaseControls!: (r: Response) => void;
+    let releaseVulnerabilities!: (r: Response) => void;
+    const controlResponse = new Promise<Response>((resolve) => { releaseControls = resolve; });
+    const vulnerabilityResponse = new Promise<Response>((resolve) => { releaseVulnerabilities = resolve; });
+    const calls = installFetch((call) => call.url.includes("/v1/security/controls") ? controlResponse : call.url.includes("/v1/security/vulnerabilities") ? vulnerabilityResponse : json(200, liveReport));
+    window.history.replaceState(null, "", "/#security");
+    startSession(fakeSession());
+    render(<RoutedSecurity />);
+    const user = userEvent.setup({ delay: null });
+    const status = await screen.findByLabelText("보고서 관측 상태");
+    expect(within(status).getAllByText("수집 중")).toHaveLength(2);
+    expect(screen.queryByText("미연동")).not.toBeInTheDocument();
+    await act(async () => releaseControls(json(200, {
+      generatedAt: liveReport.generatedAt, policyVersion: "p1", coverage: [],
+      controls: [{ id: "HC-IDN-03", title: "실제 MFA 검사", domain: "identity", check: "aws.user-mfa", source: "aws-iam", asset: "user", condition: "MFA", mapping: "unmapped", references: [], failSeverity: "high", limitations: [], severityBasis: { type: "platform_policy", issuer: "platform", policy: "p1" } }],
+      evaluations: [{ id: "ev-real", controlId: "HC-IDN-03", environment: "aws-account", source: "aws-iam", asset: "user/test", result: "fail", reason: "실제 수집 결과: MFA 꺼짐", evaluatedAt: liveReport.generatedAt, findingIds: [] }],
+    })));
+    expect(within(status).getAllByText("수집 중")).toHaveLength(1);
+    await user.click(screen.getByRole("link", { name: "통제 점검" }));
+    const row = (await screen.findByRole("link", { name: "실제 MFA 검사" })).closest("tr")!;
+    expect(within(row).getByText("실제 수집 결과: MFA 꺼짐", { exact: false })).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: /구현 코드/ })).toHaveAttribute("href", expect.stringContaining("31540bbe"));
+    await act(async () => releaseVulnerabilities(json(200, { generatedAt: liveReport.generatedAt, scanner: { status: "connected" }, scans: [], vulnerabilities: [], runningImages: [{ environment: "eks", namespace: "shop", workload: "Deployment/web", container: "web", image: "repo/web:v1", digest: "sha256:a", scanState: "not_scanned" }], summary: { advisories: 0, images: 0, affectedContainers: 0, occurrences: 0, notScannedContainers: 1 } })));
+    await user.click(screen.getByRole("link", { name: "취약점" }));
+    expect(screen.queryByLabelText("취약점 목록")).not.toBeInTheDocument();
+    expect(within(status).getByText("미관측")).toBeInTheDocument();
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+    expect(document.querySelector('a[href*="token="]')).toBeNull();
+  });
+
   it("shows provider icons for cloud scopes and keeps a custom environment label", () => {
     const checkedAt = liveReport.generatedAt;
     const data = securityData({
@@ -95,8 +126,9 @@ describe("shared security workspace", () => {
     const tip = document.getElementById(info.getAttribute("aria-describedby")!);
     expect(tip).toHaveAttribute("role", "tooltip");
     expect(tip).toHaveTextContent(explanation);
-    expect(screen.getAllByText(/^수집 \d/)[0].tagName).toBe("B");
-    expect(screen.getAllByText(/^수집 \d/)[0]).toHaveClass("sp-collected");
+    const sourceTime = within(noScan.closest("tr")!).getByText(/^수집 \d/);
+    expect(sourceTime.tagName).toBe("B");
+    expect(sourceTime).toHaveClass("sp-collected");
     expect(screen.queryByText("검사 미확인")).not.toBeInTheDocument();
     expect(screen.getByText("수집 실패")).toBeInTheDocument();
     expect(screen.queryByText("수집 완료")).not.toBeInTheDocument();
@@ -168,7 +200,9 @@ describe("shared security workspace", () => {
     render(<SecurityWorkspace route="security" data={securityData(liveReport)} error="network failure" reload={vi.fn()} />);
     expect(screen.getByText("최신 결과를 다시 읽지 못했습니다. 마지막 성공 결과를 표시합니다.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /실제 높은 등급 신호/ })).toBeInTheDocument();
-    expect(screen.getAllByText("미연동")).toHaveLength(4);
+    const stats = document.querySelectorAll(".sp-stat");
+    expect(stats).toHaveLength(4);
+    for (const stat of stats) expect(stat).toHaveTextContent("미관측");
   });
   it("shares all six tabs in live mode without filling unsupported capabilities from fixtures", async () => {
     installFetch((call) => call.url.includes("/v1/security/vulnerabilities") ? json(200, {
@@ -353,13 +387,13 @@ describe("security exceptions (SEC-08)", () => {
     expect(filter).toHaveValue("exclude");
     expect(within(list).queryByRole("link", { name: "CVE-2026-0001" })).not.toBeInTheDocument();
     await u.selectOptions(filter, "include");
-    const links = within(list).getAllByRole("link").map((a) => a.textContent);
+    const links = within(list).getAllByRole("link", { name: /^CVE-/ }).map((a) => a.textContent);
     expect(links).toEqual(["CVE-2026-0002", "CVE-2026-0001"]);
     const row = within(list).getByRole("link", { name: "CVE-2026-0001" }).closest("tr")!;
     expect(row).toHaveClass("sp-excepted");
     expect(within(row).getByText("예외 · 11/20까지")).toBeInTheDocument();
     await u.selectOptions(filter, "only");
-    expect(within(list).getAllByRole("link").map((a) => a.textContent)).toEqual(["CVE-2026-0001"]);
+    expect(within(list).getAllByRole("link", { name: /^CVE-/ }).map((a) => a.textContent)).toEqual(["CVE-2026-0001"]);
   });
 
   it("filters and marks excepted findings", async () => {
