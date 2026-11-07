@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
 import {
   ApiError,
+  getSourceRetention,
   listAIRuns,
   getApp,
   getDeployment,
@@ -29,6 +30,7 @@ import {
 import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
 import type {
   AIRun,
+  SourceRetentionResponse,
   AgentEvent,
   AgentSession,
   App,
@@ -104,6 +106,10 @@ function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSi
   if (key === null) return { data: undefined, error: undefined, loading: false, reload };
   if (state.key !== key) return { data: undefined, error: undefined, loading: true, reload };
   return { data: state.data, error: state.error, loading: state.data === undefined && state.error === undefined, reload };
+}
+
+export function useSourceRetention(runId: string | null | undefined, pollMs = 15000): Resource<SourceRetentionResponse> {
+  return usePolled(runId ? "retention:" + runId : null, pollMs, signal => getSourceRetention(runId!, { signal }));
 }
 
 export function useEnvironments(pollMs = 0): Resource<Environment[]> {

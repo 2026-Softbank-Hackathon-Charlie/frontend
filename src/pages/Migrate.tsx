@@ -4,6 +4,7 @@ import type { AgentEvent, AgentSession, AIRun, PlanAttachment, Run, RunEvent, Ru
 import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
+import { LiveSourceRetention } from "../components/SourceRetention";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
@@ -1161,6 +1162,7 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
       {v.preflight?.blocked && <PreflightBox p={v.preflight} />}
       <ObserveBox r={r} />
       {ended && <ResultBox r={r} v={v} />}
+      {v.live && ended && <LiveSourceRetention runId={r.runId} />}
       {ended && <PhaseTimes r={r} m={marks} />}
       <CanaryBox r={r} />
       <RunRecords key={r.runId} v={v} r={r} />

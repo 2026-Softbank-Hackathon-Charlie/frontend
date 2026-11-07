@@ -3,7 +3,7 @@
 // console's simulation, in live mode the platform: plans, AI sessions, the run over SSE and the gateway.
 // The map's buttons come back as {type:"hc-cmd"} and run the same actions as the rest of the page.
 import { useEffect, useRef, useState } from "react";
-import { useEnvironments, useTraffic } from "../api/hooks";
+import { useEnvironments, useSourceRetention, useTraffic } from "../api/hooks";
 import { useAuth } from "../data/live";
 import type { Environment, TrafficState } from "../api/types";
 import type { MigrationView } from "../data/migration";
@@ -27,7 +27,9 @@ function LiveFrame(p: MapFrameProps) {
   const envs = useEnvironments(30000);
   // resume is an operator command (the platform answers 403 to other roles)
   const operator = useAuth().session?.principal.role === "operator";
-  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} canResume={operator} />;
+  const retention = useSourceRetention(p.v.run?.status === "succeeded" ? p.v.run.runId : null);
+  const canRollback = p.v.run?.status !== "succeeded" || (!!retention.data && !retention.error && !["deleting", "deleted"].includes(retention.data.job?.status ?? ""));
+  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} canResume={operator} canRollback={canRollback} />;
 }
 
 const RUN: Record<MapAction, (v: MigrationView) => void> = {
@@ -39,7 +41,7 @@ const RUN: Record<MapAction, (v: MigrationView) => void> = {
   reset: (v) => v.reset(),
 };
 
-export function MapFrame({ v, hero, traffic, envs, canResume = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; canResume?: boolean }) {
+export function MapFrame({ v, hero, traffic, envs, canResume = true, canRollback = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; canResume?: boolean; canRollback?: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef(false);
   const [height, setHeight] = useState(1240);
@@ -47,6 +49,7 @@ export function MapFrame({ v, hero, traffic, envs, canResume = true }: MapFrameP
   const [now, setNow] = useState(() => Date.now());
   const snap = buildMapSnapshot(v, { traffic, envs, now, hero });
   if (!canResume) snap.actions = snap.actions.filter((a) => a.key !== "resume");
+  if (!canRollback) snap.actions = snap.actions.filter((a) => a.key !== "rollback");
   const json = JSON.stringify(snap);
 
   // durations of the phase at work move with the clock

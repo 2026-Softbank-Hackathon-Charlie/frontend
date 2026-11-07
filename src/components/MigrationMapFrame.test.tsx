@@ -23,6 +23,12 @@ function fromFrame(data: unknown, o: { origin?: string; source?: MessageEventSou
 }
 
 describe("migration map frame bridge", () => {
+  it("rejects a stale rollback command when source cleanup makes rollback unavailable", () => {
+    const rollback = vi.fn();
+    render(<MapFrame v={view({ run: fakeRun({ status: "succeeded" }), rollback })} canRollback={false} />);
+    fromFrame({ type: "hc-cmd", key: "rollback" });
+    expect(rollback).not.toHaveBeenCalled();
+  });
   it("runs a command the state offers once, even when the frame sends it twice before the next render", () => {
     const v = view();
     render(<MapFrame v={v} />);
