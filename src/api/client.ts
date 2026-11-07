@@ -4,6 +4,7 @@
 // and throws ApiError on failure. Aborting the caller's signal rejects with
 // the fetch AbortError instead, so callers can tell "cancelled" from "failed".
 import type {
+  SourceRetentionResponse,
   AbortRequest,
   AIRun,
   AIRunList,
@@ -289,6 +290,8 @@ export const denyDeviceLogin = (userCode: string, o?: RequestOptions) =>
   request<DeviceLogin>("POST", `/v1/auth/device/${seg(userCode)}/deny`, o);
 
 // --- plans ---
+export const getSourceRetention = (runId: string, o?: RequestOptions) => request<SourceRetentionResponse>("GET", `/v1/migrations/${seg(runId)}/retention`, o);
+export const preserveSource = (runId: string, change: { keep: true } | { retainUntil: string }, o?: RequestOptions) => request<SourceRetentionResponse>("POST", `/v1/migrations/${seg(runId)}/retention`, { ...o, body: change });
 
 export const listPlans = (o?: RequestOptions) => request<PlanList>("GET", "/v1/plans", o);
 export const getPlan = (ref: string, o?: RequestOptions) => request<PlanRecord>("GET", `/v1/plans/${seg(ref)}`, o);

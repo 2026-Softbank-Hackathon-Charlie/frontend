@@ -212,6 +212,17 @@ export interface paths {
       };
     };
   };
+  "/v1/migrations/{runId}/retention": {
+    /** @description Read the persisted source cleanup schedule. An absent job means this run was not enrolled. No historical enrollment is inferred from success. */
+    get: operations["getSourceRetention"];
+    /** @description Operator only. Extend retainUntil, or set keep=true to cancel automatic cleanup. Exactly one is required. Cannot shorten retention, enroll a run, or change a deleting/deleted/cancelled job. Serialized with migrations and the cleanup worker. */
+    post: operations["preserveSource"];
+    parameters: {
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+    };
+  };
   "/v1/migrations/{runId}/events": {
     /**
      * @description Server-Sent Events.
@@ -1319,7 +1330,12 @@ export interface components {
      * reads back on the source and ends the run as `rolled_back`. A step with
      * fewer than `gate.minRequests` requests and no other breach is
      * `inconclusive` and the canary moves on, except at the last step, which
-     * must pass with enough requests. Gradual steps such as
+     * must pass with enough requests. When the platform sends synthetic
+     * probe reads, a step whose target got fewer than `gate.minRequests` is
+     * extended once by another `stepDuration` with more probe reads and then
+     * judged over the whole step (at most the last 300s). It is not extended
+     * when the errors are already over the limit or when one more batch could
+     * not bring enough requests (as at 1%). Gradual steps such as
      * 1, 10, 25, 50, 75, 90, 100 are recommended. Needs gateway mode http.
      */
     CanaryOptions: {
@@ -1419,6 +1435,27 @@ export interface components {
       engine: components["schemas"]["EngineState"];
       /** @description the run this run rolls back (POST /v1/migrations/{runId}/rollback) */
       rollbackOf?: string;
+    };
+    SourceRetentionResponse: {
+      job?: {
+        runId: string;
+        sourceUID: string;
+        targetUID?: string;
+        pods: {
+            name: string;
+            uid: string;
+          }[];
+        /**
+         * Format: int64
+         * @description Server policy at enrollment, in nanoseconds.
+         */
+        keepForNanos: number;
+        /** Format: date-time */
+        dueAt?: string;
+        /** @enum {string} */
+        status: "captured" | "scheduled" | "blocked" | "deleting" | "deleted" | "cancelled";
+        reason?: string;
+      };
     };
     /** @description The numbers the console shows. Absent values were not measured (yet). */
     RunResult: {
@@ -4072,6 +4109,60 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Read the persisted source cleanup schedule. An absent job means this run was not enrolled. No historical enrollment is inferred from success. */
+  getSourceRetention: {
+    parameters: {
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+    };
+    responses: {
+      /** @description Latest persisted cleanup status. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SourceRetentionResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Operator only. Extend retainUntil, or set keep=true to cancel automatic cleanup. Exactly one is required. Cannot shorten retention, enroll a run, or change a deleting/deleted/cancelled job. Serialized with migrations and the cleanup worker. */
+  preserveSource: {
+    parameters: {
+      path: {
+        runId: components["parameters"]["RunId"];
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /**
+           * Format: date-time
+           * @description A later deadline, in the future and no more than 30 days from now.
+           */
+          retainUntil?: string;
+          /** @description true cancels automatic cleanup permanently for this run. */
+          keep?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description Updated persisted schedule. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["SourceRetentionResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       default: components["responses"]["Internal"];
     };
   };

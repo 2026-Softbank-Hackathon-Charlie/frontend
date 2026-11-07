@@ -43,6 +43,7 @@ export type RunPhase = S["RunPhase"];
 export type Run = S["Run"];
 export type RunList = S["RunList"];
 export type RunResult = S["RunResult"];
+export type SourceRetentionResponse = S["SourceRetentionResponse"];
 export type CanaryResult = S["CanaryResult"];
 export type CanaryStep = S["CanaryStep"];
 export type GateResult = S["GateResult"];
