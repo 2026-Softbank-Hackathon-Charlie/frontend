@@ -61,7 +61,7 @@ describe("the live migration page follows a run started elsewhere", () => {
     expect(result.current.run?.runId).toBe("run_b");
   });
 
-  it("does not take up a halted run the operator closed with reset", () => {
+  it("keeps the existing rule: a halted run the operator closed with reset is not taken up again", () => {
     lists.runs = [fakeRun({ runId: "run_h", planRef: "pln_1", status: "halted", phase: "done", endedAt: "2026-11-07T00:10:00Z" })];
     lists.plans = [plan({ status: "started" })];
     const { result, rerender } = renderHook(() => useLiveMigration());

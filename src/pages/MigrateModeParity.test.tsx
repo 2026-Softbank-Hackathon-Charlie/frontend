@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth } from "../data/live";
-import { AI_END } from "../sim/mig";
+import { AI_END, iso } from "../sim/mig";
 import { createSim, SimProvider } from "../sim/store";
 import { fakeRun } from "../api/fakes";
 import { Migrate, MigrateList } from "./Migrate";
@@ -60,27 +60,44 @@ describe("migration demo follows the live controls", () => {
 });
 
 describe("migration list", () => {
-  function list(history: ReturnType<typeof fakeRun>[]) {
+  // `ago(s)` is the demo clock s seconds ago, the clock the demo stamps its runs with
+  function list(history: (ago: (s: number) => string) => ReturnType<typeof fakeRun>[]) {
     chooseMode("demo");
     const sim = createSim();
     sim.dispatch({ type: "onb-skip" });
-    sim.state.mig.history = history;
+    sim.state.mig.history = history((s) => iso(sim.state.mig.now - s));
     render(<SimProvider sim={sim} intervalMs={0}><MigrateList /></SimProvider>);
   }
 
   it("shows the app's latest finished run instead of before migration", () => {
-    list([fakeRun({ status: "succeeded", phase: "done", source: { env: "eks", namespace: "shop", cluster: "shop-db" }, target: { env: "gke", namespace: "shop", cluster: "shop-db" }, endedAt: new Date(Date.now() - 3 * 60_000).toISOString() })]);
+    list((ago) => [fakeRun({ status: "succeeded", phase: "done", source: { env: "eks", namespace: "shop", cluster: "shop-db" }, target: { env: "gke", namespace: "shop", cluster: "shop-db" }, endedAt: ago(180) })]);
     expect(screen.getByText("최근 이전 성공, AWS EKS → GCP GKE, 3분 전")).toBeInTheDocument();
     expect(screen.queryByText("이전 전")).not.toBeInTheDocument();
   });
 
   it("tells a halted latest run from a succeeded one", () => {
-    list([fakeRun({ status: "halted", phase: "done", endedAt: new Date().toISOString() })]);
+    list((ago) => [fakeRun({ status: "halted", phase: "done", endedAt: ago(0) })]);
     expect(screen.getByText(/^최근 이전 정지, /)).toBeInTheDocument();
   });
 
+  it("reads a run the demo finished against the demo's clock", () => {
+    const sim = setup(true).sim;
+    cleanup();
+    act(() => {
+      sim.dispatch({ type: "mig-approve", revision: sim.state.mig.plan!.revision });
+      for (let i = 0; i < 2000 && !sim.state.mig.history.length; i++) {
+        if (sim.state.mig.run?.status === "awaiting_switch") sim.dispatch({ type: "mig-switch" });
+        sim.tick();
+      }
+      sim.dispatch({ type: "mig-new" });
+    });
+    expect(sim.state.mig.history[0]?.status).toBe("succeeded");
+    render(<SimProvider sim={sim} intervalMs={0}><MigrateList /></SimProvider>);
+    expect(screen.getByText(/^최근 이전 성공, .+ → .+, 방금$/)).toBeInTheDocument();
+  });
+
   it("shows before migration only without any run", () => {
-    list([]);
+    list(() => []);
     expect(screen.getByText("이전 전")).toBeInTheDocument();
   });
 });

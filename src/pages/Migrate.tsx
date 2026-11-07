@@ -89,7 +89,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <Chip kind="run">AI 작업 중</Chip>
                   ) : v.lastRun ? (
                     <Chip kind={RESULT_KIND[v.lastRun.status] ?? ""}>
-                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", " + envName(v.lastRun.source.env) + " → " + envName(v.lastRun.target.env) + ", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, Date.now())}
+                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", " + envName(v.lastRun.source.env) + " → " + envName(v.lastRun.target.env) + ", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, v.now ?? Date.now())}
                     </Chip>
                   ) : (
                     <Chip>이전 전</Chip>

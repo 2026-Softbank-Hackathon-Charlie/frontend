@@ -20,7 +20,7 @@ import {
 import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useRun, useRuns, useTraffic } from "../api/hooks";
 import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
-import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
+import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, iso, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
 import { AUDIT_PAGE, latestPreflight, latestPreflightOfApp, preflightOf, searchAudit, type PastPreflight, type PreflightView } from "./preflight";
@@ -113,6 +113,8 @@ export interface MigrationView {
   run?: Run;
   /** the app's newest run when it has ended, for the list while no run is on screen */
   lastRun?: Run;
+  /** epoch ms that lastRun's times are read against: the simulation's clock in the demo, else the wall clock */
+  now?: number;
   events: RunEvent[];
   /** Live run stream health; ended streams close normally. */
   stream?: { connected: boolean; error?: string };
@@ -190,6 +192,7 @@ export function useSimMigration(): MigrationView {
     fix: m.plan?.attachments?.length ? fixDiff(m.src, m.tgt) : undefined,
     run: m.run ?? undefined,
     lastRun: m.history[0],
+    now: Date.parse(iso(m.now)),
     events: m.events,
     counters: migCounters(m),
     preflight: m.run ? simPreflight(m.run.startedAt) : undefined,
@@ -511,7 +514,7 @@ export function useLiveMigration(): MigrationView {
   useEffect(() => {
     if (!enabled || runId || !ns) return;
     if (planRef) {
-      const started = runs.data?.find((r) => r.planRef === planRef && r.runId !== dismissed);
+      const started = runs.data?.find((r) => r.planRef === planRef);
       if (started) setRunId(started.runId);
       return;
     }
