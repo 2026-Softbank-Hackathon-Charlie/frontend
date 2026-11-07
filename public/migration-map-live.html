@@ -129,12 +129,6 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .lane.dim{opacity:.32}
 .lane-silver{fill:none;stroke:var(--sb-silver);stroke-width:3}
 /* services that sit in a cloud (static: what the catalog and the clusters hold, not a live probe), and the AI call out to Claude */
-.chip rect{fill:var(--sb-canvas);stroke:var(--sb-border-control);stroke-width:1}
-.chip text{font-family:var(--font-mono);font-size:10.5px;fill:var(--sb-text-muted)}
-.chip.test rect{stroke:var(--sb-silver);stroke-dasharray:3 2}
-.chip.ai text{fill:var(--sb-text)}
-.chip.ai.on rect{stroke:var(--st-warn);fill:var(--st-warn-bg);transition:stroke .3s,fill .3s}
-.chip.ai.on text{fill:var(--sb-text-strong);font-weight:700}
 .lane-t{font-family:var(--font-ui);font-size:14px;font-weight:700;fill:var(--sb-text-strong)}
 .lane-r{font-family:var(--font-mono);font-size:11px;fill:var(--sb-text-muted)}
 .lane-tag{font-family:var(--font-ui);font-size:11px;font-weight:700}
@@ -182,10 +176,13 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .pt-row{fill:var(--st-ok)}
 .pt-obj{fill:var(--sb-canvas);stroke:var(--st-ok);stroke-width:2.5px;stroke-linejoin:round;stroke-linecap:round}
 .pt-snap{fill:var(--st-warn)}
+.pt-resp{fill:var(--st-ok)}
+.edge.ro{stroke:var(--sb-silver);stroke-dasharray:4 3}
+.edge.ro.on{stroke:var(--st-warn)}
 .pt-x{fill:var(--st-warn)}
 /* the rabbits share their line's color, with an outline in the surface color so they stand out on it.
    The outline is painted under the fill (paint-order), so only the outer edge shows. */
-.pt-req,.pt-err,.pt-row,.pt-snap,.pt-x{stroke:var(--sb-canvas);stroke-width:3px;stroke-linejoin:round;paint-order:stroke}
+.pt-req,.pt-err,.pt-row,.pt-snap,.pt-resp,.pt-x{stroke:var(--sb-canvas);stroke-width:3px;stroke-linejoin:round;paint-order:stroke}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--sb-text-muted);margin-top:8px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%}
@@ -313,8 +310,8 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
       <span><i style="background:var(--st-info)"></i>사용자 요청 (읽기 비율대로)</span>
       <span><i style="background:var(--st-ok)"></i>DB 행 (CNPG 복제)</span>
       <span><i class="sq"></i>객체 (rclone)</span>
-      <span><i style="background:var(--st-warn)"></i>교차 쓰기 / AI 조회 · 샌드박스 · Claude 호출</span>
-      <span><i style="background:var(--sb-silver)"></i>클라우드 서비스 칩 (정적 표시)</span>
+      <span><i style="background:var(--st-warn)"></i>교차 쓰기 / AI 조회 · Claude 요청</span>
+      <span><i style="background:var(--st-ok)"></i>Claude 응답 (도구 결과로 만든 계획)</span>
       <span><i style="background:var(--st-crit)"></i>오류 응답 (대상 오류율만큼)</span>
     </div>
     <div class="runbar">
@@ -375,28 +372,13 @@ const P = {
   a2d:(y,d)=>`M 635 ${y} C 672 ${y} 672 ${y+d} 710 ${y+d}`,
   pipe:(a,b)=>`M 865 ${a} C 935 ${a} 935 ${b} 865 ${b}`,
   cross:(ty,sy)=>`M 635 ${ty} C 672 ${ty} 672 ${sy-22} 710 ${sy-22}`,
-  claude:'M 296 159 C 250 159 225 150 185 150', // from the AI runner chip in the AWS lane out to Claude
+  claudeUp:'M 112 128 L 112 94', claudeDown:'M 128 94 L 128 128', // hopai -> Claude (request) and back (answer)
+  read:(y)=>`M 205 150 C 245 150 250 ${y} 280 ${y}`, // hopai's read-only look at a cluster
 };
 function el(tag, attrs, parent){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); if(parent) parent.appendChild(e); return e; }
 function txt(parent, x, y, cls, s, anchor){ const t=el('text',{x,y,class:cls,'text-anchor':anchor||'middle'},parent); t.textContent=s; return t; }
 const textW = (s) => [...s].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 14 : 8.6), 0);
 
-/* Services in each cloud, drawn as chips under the lane's nodes. They come from the catalog and the clusters, not from a live probe.
-   The AI runner (hopai) runs as a Job in the management EKS; it calls the Claude API, which is outside every cloud. */
-const LANE_CHIPS = {
-  aws: [
-    { key:'ai', cls:'ai', label:'AI 실행기 (hopai)', tip:'AI 실행기(hopai): 관리 EKS에서 Job으로 돌고, 클라우드 밖의 Claude API를 호출합니다.' },
-    { label:'S3', tip:'파일 저장소(S3)' },
-    { label:'ECR', tip:'컨테이너 이미지 저장소(ECR)' },
-    { label:'SSM', tip:'설정과 키 저장소(SSM Parameter Store)' },
-  ],
-  gcp: [
-    { label:'GCS', tip:'파일 저장소(GCS)' },
-    { label:'Artifact Registry', tip:'컨테이너 이미지 저장소(Artifact Registry)' },
-    { label:'GPU L4 · 도쿄', cls:'test', tip:'GCP 도쿄(asia-northeast1)의 시험용 GPU(L4) VM. 정적 표시이고 이전 흐름과 연결되어 있지 않습니다.' },
-  ],
-};
-const chipW = (s) => Math.round([...s].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 10.5 : 6.4), 0)) + 14;
 let nodes = {}, edges = {}, lanesEl = {}, badges = {}, routes = {}, builtKey = '';
 function mkNode(id, cx, cy, w, h, title){
   const g = el('g',{class:'node','data-st':'idle'}, $('gNodes'));
@@ -428,22 +410,13 @@ function build(s){
   for (const k of LANES){
     const y = LANE_Y[k];
     const g = el('g',{class:'lane'}, $('gLanes'));
-    el('rect',{class:'lane-box',x:280,y:y-62,width:720,height:136,rx:2},g);
+    el('rect',{class:'lane-box',x:280,y:y-62,width:720,height:124,rx:2},g);
     el('rect',{class:'lane-silver',x:290,y:y-52,width:8,height:8},g);
     const name = txt(g, 306, y-43, 'lane-t', '', 'start');
     const region = txt(g, 306, y-43, 'lane-r', '', 'start');
     const tag = txt(g, 990, y-43, 'lane-tag', '', 'end');
     el('rect',{class:'data-box',x:703,y:y-50,width:164,height:100,rx:2},g);
-    lanesEl[k] = { g, name, region, tag, chips:{} };
-    let chipX = 296;
-    for (const c of (LANE_CHIPS[k] || [])){
-      const w = chipW(c.label), cg = el('g',{class:'chip'+(c.cls?' '+c.cls:'')}, g);
-      el('title',{},cg).textContent = c.tip;
-      el('rect',{x:chipX,y:y+50,width:w,height:18,rx:2},cg);
-      txt(cg, chipX+7, y+63, '', c.label, 'start');
-      if (c.key) lanesEl[k].chips[c.key] = cg;
-      chipX += w + 6;
-    }
+    lanesEl[k] = { g, name, region, tag };
     mkEdge(k+'.g2l', P.g2l(y)); mkEdge(k+'.c2a', P.c2a(y));
     mkEdge(k+'.a2d', P.a2d(y,-22)); mkEdge(k+'.a2s', P.a2d(y,22));
     mkNode(k+'.cluster', 365, y, 140, 44, '');
@@ -468,11 +441,14 @@ function build(s){
   mkEdge('u2g','M 98 250 L 120 250');
   mkNode('user', 60, 250, 76, 44, '사용자');
   mkNode('gslb', 170, 250, 100, 44, '트래픽 전환');
-  // outside every cloud: the Claude API that the AI runner calls
-  mkNode('claude', 110, 150, 150, 44, 'Claude API');
-  mkEdge('claude', P.claude, 'edge off');
-  routes.claude = mkHidden(P.claude);
-  lanesEl.ext = txt($('gBadges'), 35, 124, 'xlabel', '외부 서비스', 'start');
+  // outside every cloud, as seen in HyperDX logs of charlie-platform-hopai: the AI runner (a Job in the management EKS)
+  // asks Claude, Claude answers with tool calls (get_cnpg_cluster, list_storage_classes, node_capacity, get_app) that hopai runs read-only.
+  mkNode('claude', 120, 70, 170, 44, 'Claude API');
+  mkNode('hopai', 120, 150, 170, 44, 'AI 실행기 (hopai)');
+  mkEdge('claude.up', P.claudeUp, 'edge off'); mkEdge('claude.down', P.claudeDown, 'edge off');
+  routes.claudeUp = mkHidden(P.claudeUp); routes.claudeDown = mkHidden(P.claudeDown);
+  for (const k of [s.src, s.tgt]){ mkEdge('ro.'+k, P.read(LANE_Y[k]), 'edge ro off'); routes['ro.'+k] = mkHidden(P.read(LANE_Y[k])); }
+  lanesEl.ext = txt($('gBadges'), 35, 40, 'xlabel', '외부 서비스', 'start');
   builtKey = s.src+'>'+s.tgt;
 }
 
@@ -533,11 +509,12 @@ function render(s){
     setNode(k+'.db', s.nodes[k+'.db'][0], s.nodes[k+'.db'][1]);
     setNode(k+'.store', s.nodes[k+'.store'][0], s.nodes[k+'.store'][1], L.store);
   }
-  const aiCall = s.activity !== 'none';
-  setNode('claude', aiCall ? 'busy' : 'idle', aiCall ? '호출 중 · sonnet-5-5' : 'claude-sonnet-5-5');
-  edges.claude.setAttribute('class', 'edge ' + (aiCall ? 'on' : 'off'));
-  lanesEl.ext.setAttribute('class', 'xlabel' + (aiCall ? ' on' : ''));
-  for (const k of LANES) for (const key in lanesEl[k].chips) lanesEl[k].chips[key].classList.toggle('on', aiCall);
+  const probe = s.activity === 'probe', sand = s.activity === 'sandbox';
+  setNode('claude', probe ? 'busy' : 'idle', probe ? '도구 호출 요청 → 계획' : 'claude-sonnet-5-5');
+  setNode('hopai', probe || sand ? 'busy' : 'idle', probe ? '클러스터 읽기 전용 조회' : sand ? '샌드박스 리허설' : '관리 EKS · Job');
+  edges['claude.up'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off')); edges['claude.down'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off'));
+  for (const k of [s.src, s.tgt]) edges['ro.'+k].setAttribute('class', 'edge ro ' + (probe || (sand && k === s.tgt) ? 'on' : 'off'));
+  lanesEl.ext.setAttribute('class', 'xlabel' + (probe || sand ? ' on' : ''));
   setNode('user', s.nodes.user[0], s.nodes.user[1]);
   setNode('gslb', s.nodes.gslb[0], s.nodes.gslb[1]);
   // edges and weight badges: read share per lane
@@ -744,7 +721,11 @@ function stepParticles(dt){
     if (s.sync.mode==='cdc'){ flow('row', 2.2, dt, routes.fwd, 'pt-row', 220); if (s.sync.files) flow('obj', 0.6, dt, routes.fwd, 'pt-obj', 200, 'sq'); }
     if (s.activity==='probe'){ flow('probe.s', 1.5, dt, routes[S].inner, 'pt-snap', 180); flow('probe.t', 1.5, dt, routes[T].inner, 'pt-snap', 180); }
     if (s.activity==='sandbox') flow('smoke', 3, dt, routes[T].inner, 'pt-snap', 200);
-    if (s.activity!=='none') flow('ai.claude', 1.2, dt, routes.claude, 'pt-snap', 110); // the AI runner's calls out to Claude
+    if (s.activity==='probe'){
+      flow('ai.up', 1.0, dt, routes.claudeUp, 'pt-snap', 60); flow('ai.down', 1.0, dt, routes.claudeDown, 'pt-resp', 60); // asks, answers
+      for (const k of [S, T]) flow('ai.ro.'+k, 1.2, dt, routes['ro.'+k], 'pt-snap', 110);
+    }
+    if (s.activity==='sandbox') flow('ai.ro.sb', 1.2, dt, routes['ro.'+T], 'pt-snap', 110);
   }
   for (let k=parts.length-1;k>=0;k--){
     const p=parts[k]; p.d+=p.speed*p.run*p.hopRun*dt;
