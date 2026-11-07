@@ -32,23 +32,27 @@ function SimResults() {
 const count = (n?: number) => n === undefined ? "미측정" : fmt(n) + "건";
 const millis = (n?: number) => n === undefined ? "미측정" : dur(n / 1000);
 const date = (s: string) => new Date(s).toLocaleString("ko-KR", { hour12: false });
+/** Runs shown at once; the rest come a page at a time. */
+const PAGE = 10;
 
 export function MigrationResults({ runs }: { runs: Run[] }) {
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(PAGE);
   const ended = runs.filter((r) => r.status !== "running" && r.status !== "awaiting_switch");
   const shown = [...ended].sort((a, b) => Date.parse(b.endedAt ?? b.updatedAt) - Date.parse(a.endedAt ?? a.updatedAt)).filter((r) =>
     (filter === "all" || r.status === filter) && [r.runId, r.planId, r.source.namespace, envName(r.source.env), envName(r.target.env)].join(" ").toLowerCase().includes(query.toLowerCase()),
   );
   return <section className="results" aria-label="이전 실행 이력">
     <div className="results-filters">
-      <label>검색<input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="앱, 환경 또는 run ID" /></label>
-      <label>결과<select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">전체 결과</option>{Object.entries(RUN_SHORT).filter(([s]) => s !== "running" && s !== "awaiting_switch").map(([s, text]) => <option key={s} value={s}>{text}</option>)}</select></label>
+      <label>검색<input type="search" value={query} onChange={(e) => { setQuery(e.target.value); setLimit(PAGE); }} placeholder="앱, 환경 또는 run ID" /></label>
+      <label>결과<select value={filter} onChange={(e) => { setFilter(e.target.value); setLimit(PAGE); }}><option value="all">전체 결과</option>{Object.entries(RUN_SHORT).filter(([s]) => s !== "running" && s !== "awaiting_switch").map(([s, text]) => <option key={s} value={s}>{text}</option>)}</select></label>
       <p className="hint" role="status">종료된 이전 {ended.length}건 · 표시 {shown.length}건</p>
     </div>
     {!ended.length ? <div className="box empty-state"><b>아직 종료된 이전이 없습니다.</b><p className="hint">이전이 끝나면 성공·실패·중단 결과가 실행별로 쌓입니다.</p></div>
       : !shown.length ? <p className="box empty-state">조건에 맞는 이전 결과가 없습니다.</p>
-      : <ol className="result-list">{shown.map((r) => <ResultSummary key={r.runId} r={r} />)}</ol>}
+      : <><ol className="result-list">{shown.slice(0, limit).map((r) => <ResultSummary key={r.runId} r={r} />)}</ol>
+        {shown.length > limit && <button type="button" className="btn" onClick={() => setLimit(limit + PAGE)}>이전 결과 {Math.min(PAGE, shown.length - limit)}건 더 보기 ({shown.length - limit}건 남음)</button>}</>}
   </section>;
 }
 
