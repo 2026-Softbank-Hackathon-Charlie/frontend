@@ -2,12 +2,14 @@ import { useState } from "react";
 import { useRuns } from "../api/hooks";
 import type { Run } from "../api/types";
 import { Icon } from "../components/Icon";
+import { DemoMigrationSecurityComparison } from "../components/MigrationSecurityComparison";
 import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisionPanel";
 import { EnvRoute, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { Chip, LoadError, PageHead, Skeleton } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { dur, fmt } from "../sim/format";
 import { useSim } from "../sim/store";
+import { securityComparisonRun } from "../sim/securityComparison";
 import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import "../styles/results.css";
 
@@ -26,8 +28,19 @@ function LiveResults() {
 }
 function SimResults() {
   const { S } = useSim();
+  const [showExample, setShowExample] = useState(false);
   const m = S.mig;
-  return <MigrationResults runs={m.run ? [m.run, ...m.history.filter((r) => r.runId !== m.run!.runId)] : m.history} />;
+  return <>
+    <div className="actrow">
+      <button type="button" className="btn ghost" onClick={() => setShowExample(!showExample)}>
+        <Icon name="shield-check" size={16} />
+        {showExample ? "이전 실행 이력으로 돌아가기" : "moimroom-mig 보안 비교 예시"}
+      </button>
+      {showExample && <Chip>시연 데이터</Chip>}
+    </div>
+    {showExample ? <ol className="result-list"><ResultSummary r={securityComparisonRun} example /></ol>
+      : <MigrationResults runs={m.run ? [m.run, ...m.history.filter((r) => r.runId !== m.run!.runId)] : m.history} />}
+  </>;
 }
 
 const count = (n?: number) => n === undefined ? "미측정" : fmt(n) + "건";
@@ -57,7 +70,7 @@ export function MigrationResults({ runs }: { runs: Run[] }) {
   </section>;
 }
 
-function ResultSummary({ r }: { r: Run }) {
+function ResultSummary({ r, example = false }: { r: Run; example?: boolean }) {
   const x = r.result;
   const verification = writeVerificationOf(x);
   const invalidCounts = invalidRequestCounts(x);
@@ -71,10 +84,15 @@ function ResultSummary({ r }: { r: Run }) {
     {r.status === "halted" && <p className="result-warning">승격 이후 상태 확인이 필요합니다. 원복 완료를 의미하지 않습니다.</p>}
     {r.observe?.passed === false && <p className="result-warning">전환 후 관찰에서 게이트 위반이 감지됐습니다.{r.observe.rollbackRunId && " 롤백 실행: " + r.observe.rollbackRunId}</p>}
     {(r.statusReason || r.engine.failureError) && <p className="hint">{r.statusReason || r.engine.failureError}</p>}
-    <details><summary>실행 상세</summary><RunDecisionPanel r={r} /><dl className="result-details">
-      <dt>Plan</dt><dd>{r.planRef} · {r.planId}</dd><dt>시작</dt><dd>{date(r.startedAt)} · {r.startedBy}</dd>
-      <dt>요청 수</dt><dd>{invalidCounts ? "집계 이상" : count(x.requests)}</dd><dt>실패 단계</dt><dd>{r.engine.failureStep ?? "기록 없음"}</dd>
-      <dt>엔진 단계</dt><dd>{Object.entries(r.engine.steps).map(([key, step]) => <div key={key}>{key}: {step.status}{step.error ? " · " + step.error : ""}</div>)}</dd>
-    </dl></details>
+    <details open={example || undefined}>
+      <summary>실행 상세</summary>
+      <RunDecisionPanel r={r} />
+      {example && <DemoMigrationSecurityComparison />}
+      <dl className="result-details">
+        <dt>Plan</dt><dd>{r.planRef} · {r.planId}</dd><dt>시작</dt><dd>{date(r.startedAt)} · {r.startedBy}</dd>
+        <dt>요청 수</dt><dd>{invalidCounts ? "집계 이상" : count(x.requests)}</dd><dt>실패 단계</dt><dd>{r.engine.failureStep ?? "기록 없음"}</dd>
+        <dt>엔진 단계</dt><dd>{Object.entries(r.engine.steps).map(([key, step]) => <div key={key}>{key}: {step.status}{step.error ? " · " + step.error : ""}</div>)}</dd>
+      </dl>
+    </details>
   </li>;
 }
