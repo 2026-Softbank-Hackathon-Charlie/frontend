@@ -566,15 +566,16 @@ export function useLiveMigration(): MigrationView {
   // its latest state while it is still among the newest sessions, else the last one seen
   const planning = tracked ? (recent.data?.find((s) => s.id === tracked.id) ?? tracked) : undefined;
   useEffect(() => {
-    if (!planning) return;
+    if (!planning || !ns) return;
+    // only this app's Plan: another app's Plan submitted meanwhile (another operator's migration) is not this session's
     const submitted = [...(plans.data ?? [])]
-      .filter((p) => p.status === "pending_approval" && isAfter(p.submittedAt, planning.createdAt))
+      .filter((p) => p.status === "pending_approval" && touches(ns, p.summary) && isAfter(p.submittedAt, planning.createdAt))
       .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
     if (!submitted) return;
     setTracked(undefined);
     setSelected(null);
     setPlanRef(submitted.ref);
-  }, [planning, plans.data]);
+  }, [planning, plans.data, ns]);
   const ofPlan = useMemo(() => (enabled && planRef && !planning ? (sessions.data ?? []) : []), [enabled, planRef, planning, sessions.data]);
   const linked = useLinkedPlanSession(ofPlan);
   const sessionList = useMemo(() => {
