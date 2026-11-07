@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useEnvironments, useTraffic, type Resource } from "../api/hooks";
+import { useState, type ReactNode } from "react";
+import { useApps, useEnvironments, useTraffic, type Resource } from "../api/hooks";
 import type { DatabaseCluster, Environment, TrafficState } from "../api/types";
 import { Chip, type ChipKind, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
+import { hasGateway } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { ENV, ENV_ORDER } from "../sim/data";
 import { fmt } from "../sim/format";
@@ -14,14 +15,34 @@ export function Envs() {
 
 function LiveEnvs() {
   const envs = useEnvironments(10_000);
-  const traffic = useTraffic(5_000, "1m");
-  return <EnvsView envs={envs} traffic={traffic} />;
+  const apps = useApps(10_000);
+  const [picked, setPicked] = useState("");
+  const names = apps.data?.filter(hasGateway).map((a) => a.name) ?? [];
+  // The gateway is the app's: the one without an app belongs to the old shop example, which no app uses now. It is read
+  // only when no app has a gateway (none registered, or the app list could not be read), and not before the list has answered.
+  const app = names.includes(picked) ? picked : names[0];
+  const traffic = useTraffic(5_000, "1m", app, !!apps.data || !!apps.error);
+  const scope: ReactNode = names.length ? (
+    <label>
+      앱{" "}
+      <select aria-label="트래픽을 볼 앱" value={app} onChange={(e) => setPicked(e.target.value)}>
+        {names.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : apps.error && !apps.data ? (
+    <span className="hint">앱 목록을 읽지 못해 앱을 지정하지 않은 기본 게이트웨이를 보여 줍니다. 등록된 앱의 트래픽과 다를 수 있습니다.</span>
+  ) : null;
+  return <EnvsView envs={envs} traffic={traffic} scope={scope} />;
 }
 
 type ReadResult<T> = Pick<Resource<T>, "data" | "error" | "reload">;
 
 /** Both modes render the platform contract. Only the source of observations differs. */
-function EnvsView({ envs, traffic, demo = false }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; demo?: boolean }) {
+function EnvsView({ envs, traffic, scope, demo = false }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; scope?: ReactNode; demo?: boolean }) {
   const t = traffic.data;
   return (
     <div className="page">
@@ -57,7 +78,10 @@ function EnvsView({ envs, traffic, demo = false }: { envs: ReadResult<Environmen
         )}
       </section>
       <section className="sec">
-        <h2>트래픽 게이트웨이</h2>
+        <div className="sech">
+          <h2>트래픽 게이트웨이</h2>
+          {scope}
+        </div>
         {traffic.error && !t ? (
           <LoadError title="트래픽 게이트웨이 상태를 불러오지 못했습니다." error={errorText(traffic.error)} retry={traffic.reload} />
         ) : !t ? (

@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { useEnvironments, useMatrix } from "../api/hooks";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useApps, useEnvironments, useMatrix, useTraffic } from "../api/hooks";
 import type { Environment, MatrixRoute, Run, RunStatus } from "../api/types";
+import { hasGateway } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { navigate } from "../router";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
@@ -82,12 +83,42 @@ function dbCount(e: Environment): string {
   return ready === dbs.length ? dbs.length + "개" : ready + "/" + dbs.length + "개 준비";
 }
 
+/** An app's write backend from its own gateway; null when that gateway could not be read, undefined while it has not answered. */
+type AppWrite = string | null | undefined;
+
+/**
+ * Whether a cluster takes writes, from the registered apps' own gateways. `e.live` is about the gateway without an
+ * app (the old shop example), which no app uses now, so it answers only when no app's gateway could be read.
+ */
+export function trafficText(e: Environment, writes: AppWrite[]): string {
+  const read = writes.filter((w): w is string => typeof w === "string");
+  if (!read.length) return writes.includes(undefined) ? "-" : e.live ? "쓰기 받음" : "대기";
+  const n = read.filter((w) => w === e.gatewayBackend).length;
+  return n ? "쓰기 받음 (앱 " + n + "개)" : "대기";
+}
+
+/** Reads one app's gateway for the cards. A hook is called once per component, so each registered app gets one of these. */
+function AppWriteProbe({ app, report }: { app: string; report(app: string, write: AppWrite): void }) {
+  const t = useTraffic(10_000, undefined, app);
+  const write: AppWrite = t.data ? t.data.writeBackend : t.error ? null : undefined;
+  useEffect(() => report(app, write), [app, write, report]);
+  return null;
+}
+
 function LiveEnvGrid() {
   const envs = useEnvironments(10_000);
+  const apps = useApps(10_000);
+  const [writes, setWrites] = useState<Record<string, AppWrite>>({});
+  const report = useCallback((app: string, w: AppWrite) => setWrites((cur) => (cur[app] === w ? cur : { ...cur, [app]: w })), []);
   if (envs.error && !envs.data) return <LoadError title="클러스터 상태를 불러오지 못했습니다." error={errorText(envs.error)} retry={envs.reload} />;
   if (!envs.data) return <Skeleton box />;
+  const names = apps.data?.filter(hasGateway).map((a) => a.name) ?? [];
+  const appsPending = !apps.data && !apps.error;
   return (
     <div className="envcards">
+      {names.map((n) => (
+        <AppWriteProbe key={n} app={n} report={report} />
+      ))}
       {envs.data.map((e) => (
         <EnvCard
           key={e.name}
@@ -97,7 +128,7 @@ function LiveEnvGrid() {
           figs={[
             ["노드", e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total : "-"],
             ["DB", dbCount(e)],
-            ["트래픽", e.live ? "쓰기 받음" : "대기"],
+            ["트래픽", appsPending ? "-" : trafficText(e, names.map((n) => writes[n]))],
           ]}
           note={e.status.error}
         />

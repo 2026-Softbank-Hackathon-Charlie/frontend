@@ -2,7 +2,7 @@
 // migration state at every stage, from the setup through the AI plan and rehearsal, the approval and the engine run.
 // In demo mode that state is the console's simulation, in live mode the platform (plans, AI sessions, the run over
 // SSE, the gateway). Nothing here is invented: a value the state does not hold is shown as unknown.
-import type { AgentEvent, AgentSession, AIActivity, Environment, Run, RunEvent, TrafficState } from "../api/types";
+import type { AgentEvent, AgentSession, AIActivity, App, Environment, Run, RunEvent, TrafficState } from "../api/types";
 import { blockedOf, eventText as agentText } from "../components/agent";
 import { ENV, ENV_ORDER, envKeyOf, sampleBucketName, type EnvKey } from "../sim/data";
 import { CANARY, CANARY_PRESETS, ENGINE_STEPS, statusText } from "../sim/mig";
@@ -97,6 +97,8 @@ export interface SnapshotContext {
   aiMinutes?: number;
   traffic?: TrafficState;
   envs?: Environment[];
+  /** GET /v1/apps/{name} of the app on screen; absent in demo mode and while it cannot be read. Its instance status tells what the target already runs. */
+  app?: App;
   /** wall clock for the durations of phases still at work */
   now: number;
   /** the run's headline and explanation (Migrate's heroText) */
@@ -379,13 +381,40 @@ export function currentOf(phases: { st: PhaseSt }[]): number {
 type Part = "cluster" | "app" | "db" | "store";
 type LaneNodes = Record<Part, [NodeSt, string]>;
 
-/** Before the run: the source serves everything; the target follows the AI plan and the sandbox rehearsal. */
-function preRunNodes(v: MigrationView, files: boolean | undefined): { tgt: LaneNodes; tag: [string, Tone]; activity: MapSnapshot["activity"] } {
+const DEPLOY_NODE: Record<NonNullable<App["deploy"]>["status"][number]["status"], [NodeSt, string]> = {
+  healthy: ["ready", "배포됨"],
+  pending: ["busy", "배포 대기"],
+  syncing: ["busy", "동기화 중"],
+  degraded: ["crit", "상태 나쁨"],
+  failed: ["crit", "배포 실패"],
+};
+
+/** What the target environment already holds of the app, where the inputs say: the default instance's deployment there and the app's database. */
+function targetHolds(v: MigrationView, tgtName: string, ctx: SnapshotContext): Partial<Record<"app" | "db", [NodeSt, string]>> {
+  const out: Partial<Record<"app" | "db", [NodeSt, string]>> = {};
+  const deploy = ctx.app?.deploy;
+  const st = (deploy?.instances?.find((i) => i.default)?.status ?? deploy?.status)?.find((x) => x.env === tgtName);
+  if (st) {
+    const [node, label] = DEPLOY_NODE[st.status] ?? ["idle", "상태 모름"];
+    out.app = [node, [st.syncStatus, st.healthStatus].filter(Boolean).join(" · ") || label];
+  }
+  const ns = ctx.app?.namespace ?? v.app;
+  const d = ns ? ctx.envs?.find((e) => e.name === tgtName)?.status.databases?.find((x) => x.namespace === ns) : undefined;
+  if (d) {
+    const ready = d.readyInstances >= d.instances;
+    out.db = [ready ? "ready" : "busy", (d.replica ? "replica" : "primary") + " · " + (ready ? "정상" : "준비 중 " + d.readyInstances + "/" + d.instances)];
+  }
+  return out;
+}
+
+/** Before the run: the source serves everything; the target follows the AI plan and the sandbox rehearsal. `holds`: what the target already has. */
+function preRunNodes(v: MigrationView, files: boolean | undefined, holds: ReturnType<typeof targetHolds>): { tgt: LaneNodes; tag: [string, Tone]; activity: MapSnapshot["activity"] } {
   const plan = v.sessions.find((s) => s.kind === "plan");
   const reh = v.sessions.find((s) => s.kind === "rehearsal");
   const diag = v.sessions.find((s) => s.kind === "diagnose");
   const store = (st: NodeSt, sub: string): [NodeSt, string] => (files === false ? ["idle", "파일 이전 안 함"] : [st, sub]);
-  if (v.stage === "setup") return { tgt: { cluster: ["idle", "대상 후보"], app: ["idle", "배포 전"], db: ["idle", "생성 전"], store: store("idle", "생성 전") }, tag: ["대상 후보", "muted"], activity: "none" };
+  if (v.stage === "setup")
+    return { tgt: { cluster: ["idle", "대상 후보"], app: holds.app ?? ["idle", "배포 전"], db: holds.db ?? ["idle", "생성 전"], store: store("idle", "생성 전") }, tag: ["대상 후보", "muted"], activity: "none" };
   if (reh?.status === "running") {
     const fixing = diag?.status === "running";
     return {
@@ -518,7 +547,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
   const active = !!f?.active;
   const stale = v.live && active && v.stream?.connected === false;
 
-  const pre = r ? undefined : preRunNodes(v, files);
+  const pre = r ? undefined : preRunNodes(v, files, targetHolds(v, tgtName, ctx));
   const run = r && f ? runNodes(r, f, files, sh) : undefined;
   const srcNodes: LaneNodes = run?.src ?? {
     cluster: ["live", ""],

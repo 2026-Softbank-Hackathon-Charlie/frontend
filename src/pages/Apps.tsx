@@ -854,11 +854,20 @@ const yesNo = (v: boolean | undefined, yes: string, no: string) => (v === undefi
 function DBPair({ t, envs }: { t: AppDBTopology; envs: string[] }) {
   const r = t.readiness;
   const rows: PairRow[] = r?.environments ?? (envs.length > 2 ? envs : [t.primary, t.replica]).map((env) => ({ env, inApp: env === t.replica ? t.replicaPresent !== false : envs.includes(env) }));
+  // t.primary and t.replica are the roles the databases were created with; a migration swaps them, so the roles now come from the readiness
+  const roleEnv = (role: "primary" | "replica") => {
+    const found = r?.environments.filter((e) => e.role === role) ?? [];
+    return found.length === 1 ? found[0].env : undefined;
+  };
+  const nowPrimary = roleEnv("primary");
+  const nowReplica = roleEnv("replica");
   return (
     <Card title={envs.length > 2 ? "DB 복제 그룹" : "DB 짝"} side={r && <Chip kind={r.ready ? "ok" : "warn"}>{r.ready ? "이전 준비됨" : "이전 준비 안 됨"}</Chip>}>
       <div className="bb">
         <p className="hint">
-          {envs.length > 2 ? "등록된 세 환경의 DB 상태입니다. DB 역할을 읽지 못하면 미확인으로 표시하며, 이전 가능한 복제 경로는 실행 전에 다시 검사합니다." : "DB는 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 태어납니다. 두 환경이 모두 준비되면 이전할 수 있습니다."}
+          {envs.length > 2 ? "등록된 세 환경의 DB 상태입니다. DB 역할을 읽지 못하면 미확인으로 표시하며, 이전 가능한 복제 경로는 실행 전에 다시 검사합니다." : (nowPrimary && nowReplica
+            ? "DB는 지금 " + envName(nowPrimary) + "에서 primary로, " + envName(nowReplica) + "에서 그 replica로 있습니다."
+            : "DB는 처음 " + envName(t.primary) + "에서 primary로, " + envName(t.replica) + "에서 그 replica로 만들어졌습니다. 이전하면 역할이 서로 바뀝니다.") + " 두 환경이 모두 준비되면 이전할 수 있습니다."}
         </p>
       </div>
       <Table

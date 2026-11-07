@@ -2,7 +2,7 @@ import "../styles/overview.css";
 import type { ReactNode } from "react";
 import { deploymentRank, useAudit, useRuns, useSecurity } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { App, Run, RunResult, SecurityReport } from "../api/types";
+import type { App, AuditEntry, Run, RunResult, SecurityReport } from "../api/types";
 import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
 import { EnvGrid, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
 import { Icon } from "../components/Icon";
@@ -277,6 +277,13 @@ function SimActivity() {
   );
 }
 
+/** An audit entry in a line: no empty brackets without a role, and the path once (the target is the real one; the action may name its route with {name}). */
+export function auditText(a: AuditEntry): string {
+  const route = /^(\S+) \/\S*$/.exec(a.action);
+  const what = route ? route[1] + " " + (a.target || a.action.slice(route[1].length + 1)) : [a.action, a.target].filter(Boolean).join(" ");
+  return (a.role ? a.actor + " (" + a.role + ")" : a.actor) + ": " + what + " → " + a.status;
+}
+
 function LiveActivity() {
   const audit = useAudit(6);
   if (audit.error && !audit.data)
@@ -292,9 +299,7 @@ function LiveActivity() {
       {audit.data.map((a) => (
         <li key={a.id}>
           <span className="when">{new Date(a.time).toLocaleString("ko-KR")}</span>
-          <span className="grow">
-            {a.actor} ({a.role}): {a.action} {a.target} → {a.status}
-          </span>
+          <span className="grow">{auditText(a)}</span>
         </li>
       ))}
     </ul>

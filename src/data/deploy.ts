@@ -171,6 +171,11 @@ export function deployErrorText(e: unknown): string {
   return errorText(e);
 }
 
+/** Whether the platform keeps a gateway for this app (GET /v1/traffic?app=): an app of the apps file, or a registered one with a database pair. Any other app answers 400. */
+export function hasGateway(a: App): boolean {
+  return a.environments.length > 0 || !!a.deploy?.dbTopology;
+}
+
 /**
  * A registered app's instances, the default one first. A server from before
  * ADR 0015 sends no `instances`; the app then has only its default instance,
