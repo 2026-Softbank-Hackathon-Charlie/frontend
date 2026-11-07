@@ -7,6 +7,7 @@ import type {
   SourceRetentionResponse,
   AbortRequest,
   AIActivity,
+  AppObservation,
   AIRun,
   AIRunList,
   AIRunRequest,
@@ -321,6 +322,13 @@ export const draftPlan = (req: PlanDraftRequest, o?: RequestOptions) =>
  * Operator only; 409 ai_run_active while one runs for the app, 503 ai_runner_not_configured without it.
  */
 export const startAIRun = (req: AIRunRequest, o?: RequestOptions) => request<AIRun>("POST", "/v1/ai-runs", { ...o, body: req });
+/**
+ * What the logs show about one registered app in the last `minutes` (1 to 1440, server default 60): counts, services,
+ * a five-minute series and the repeated errors as redacted patterns. 404 app_not_found, 503 observability_not_configured,
+ * 502 observability_unavailable.
+ */
+export const getAppObservability = (app: string, minutes?: number, o?: RequestOptions) =>
+  request<AppObservation>("GET", "/v1/apps/" + encodeURIComponent(app) + "/observability" + (minutes ? "?minutes=" + minutes : ""), o);
 /**
  * What the AI runner (hopai) did in the last `minutes` (1 to 1440, server default 60), read from the observability
  * stack's logs: model calls, the read-only tools it ran, the rehearsal. 503 observability_not_configured without the

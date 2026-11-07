@@ -29,6 +29,7 @@ export type AIRun = S["AIRun"];
 export type AIRunRequest = S["AIRunRequest"];
 export type AIRunList = S["AIRunList"];
 export type AIActivity = S["AIActivity"];
+export type AppObservation = S["AppObservation"];
 export type AIActivityEvent = S["AIActivityEvent"];
 export type AIActivitySummary = S["AIActivitySummary"];
 export type App = S["App"];
