@@ -134,9 +134,9 @@ describe("which app and environment a migration starts from", () => {
     });
   });
 
-  it("lists only apps with two environments and matches runs by either namespace", () => {
+  it("keeps apps needing another environment selectable and matches runs by either namespace", () => {
     const app = (name: string, n: number) => ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: ["eks", "gke"].slice(0, n).map((env) => ({ env, cnpgCluster: name, dbHost: "h" })) }) as App;
-    expect(migratableApps([app("a", 2), app("b", 0), app("c", 1)]).map((a) => a.name)).toEqual(["a"]);
+    expect(migratableApps([app("a", 2), app("b", 0), app("c", 1)]).map((a) => a.name)).toEqual(["a", "c"]);
     expect(touches("moimroom", { source: { namespace: "charlie-apps" }, target: { namespace: "moimroom" } })).toBe(true);
     expect(touches("shop", { source: { namespace: "moim" }, target: { namespace: "moim" } })).toBe(false);
   });
