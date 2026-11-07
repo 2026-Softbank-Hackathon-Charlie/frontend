@@ -3,10 +3,12 @@ import { useRuns } from "../api/hooks";
 import type { Run } from "../api/types";
 import { Icon } from "../components/Icon";
 import { DemoMigrationSecurityComparison } from "../components/MigrationSecurityComparison";
+import { RunAIVerification } from "../components/RunAIVerification";
 import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisionPanel";
 import { EnvRoute, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { Chip, LoadError, PageHead, Skeleton } from "../components/ui";
 import { errorText, useLive } from "../data/live";
+import { envKeyOf } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { useSim } from "../sim/store";
 import { securityComparisonRun } from "../sim/securityComparison";
@@ -89,6 +91,9 @@ function ResultSummary({ r, example = false }: { r: Run; example?: boolean }) {
     {r.observe?.passed === false && <p className="result-warning">전환 후 관찰에서 게이트 위반이 감지됐습니다.{r.observe.rollbackRunId && " 롤백 실행: " + r.observe.rollbackRunId}</p>}
     {(r.statusReason || r.engine.failureError) && <p className="hint">{r.statusReason || r.engine.failureError}</p>}
       <RunDecisionPanel r={r} />
+      {r.status === "succeeded" && r.source.namespace === "moimroom-mig"
+        && envKeyOf(r.source.env) === "gcp" && envKeyOf(r.target.env) === "onprem"
+        && <RunAIVerification />}
       {example && <DemoMigrationSecurityComparison />}
       <dl className="result-details">
         <dt>Plan</dt><dd>{r.planRef} · {r.planId}</dd><dt>시작</dt><dd>{date(r.startedAt)} · {r.startedBy}</dd>
