@@ -11,7 +11,9 @@ function enrollment(status: OnpremEnrollment["status"] = "pending"): OnpremEnrol
   return { id: "enr_test", environment: "edge-01", status, createdAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 900_000).toISOString(), checks: checks.map((id) => ({ id, status: status === "ready" ? "passed" : "pending" })) };
 }
 function json(value: unknown, status = 200) {
-  return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+  // GET and revoke return the server's enrollment envelope, unlike a raw enrollment.
+  const body = value && typeof value === "object" && "id" in value && "environment" in value ? { enrollment: value } : value;
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 function setup() {
   setToken("test-operator-only");
