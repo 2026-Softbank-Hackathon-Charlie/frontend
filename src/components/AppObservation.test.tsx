@@ -42,7 +42,7 @@ it("reads the app's summary aloud, with the services, the repeated errors and wh
   expect(within(dlg).getByText(/2번/)).toBeInTheDocument();
   // the timeline has the deployment next to what the logs mark
   const steps = within(within(dlg).getByRole("region", { name: "지금까지의 진행" })).getAllByRole("listitem");
-  expect(steps.map((s) => s.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("배포 abcdef1"), expect.stringContaining("오류가 처음 나타났습니다 (1건)")]));
+  expect(steps.map((s) => s.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("배포 abcdef1"), expect.stringContaining("이 기간의 첫 오류가 나타났습니다 (1건)")]));
   // it asks the server for the hour, and shows no raw log line anywhere
   expect(calls.some((c) => c.url === "/v1/apps/pxls/observability?minutes=60")).toBe(true);
   expect(dlg.textContent).toContain("로그 원문은 보이지 않고");
@@ -103,4 +103,13 @@ describe("the 관측 button of the apps list", () => {
     render(<AppsList apps={[app]} now={Date.now()} full={false} onObserve={() => {}} />);
     expect(screen.queryByRole("button", { name: "pxls 관측" })).not.toBeInTheDocument();
   });
+});
+
+test("a new onClose from the page behind does not pull focus back into the dialog", async () => {
+  route(() => json(200, obs()));
+  const { rerender } = render(<AppObservationDialog app="pxls" onClose={() => {}} />);
+  const hour = await screen.findByRole("button", { name: "최근 6시간" });
+  hour.focus();
+  rerender(<AppObservationDialog app="pxls" onClose={() => {}} />);
+  expect(document.activeElement).toBe(hour);
 });

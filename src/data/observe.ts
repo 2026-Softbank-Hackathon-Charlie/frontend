@@ -84,7 +84,7 @@ export function timeline(o: AppObservation, deployments: Deployment[] | undefine
     if (!Number.isNaN(at) && at >= from) items.push({ at, kind: "deploy", text: `배포 ${d.commit.slice(0, 7)}`, deploy: d });
   }
   const firstErr = o.buckets.find((b) => b.errors > 0);
-  if (firstErr) items.push({ at: ms(firstErr.time), kind: "log", text: `오류가 처음 나타났습니다 (${firstErr.errors}건)` });
+  if (firstErr) items.push({ at: ms(firstErr.time), kind: "log", text: `이 기간의 첫 오류가 나타났습니다 (${firstErr.errors}건)` });
   const busiest = o.buckets.reduce<(typeof o.buckets)[number] | undefined>((m, b) => (!m || b.total > m.total ? b : m), undefined);
   if (busiest && busiest.total > 0 && o.buckets.length > 1) items.push({ at: ms(busiest.time), kind: "log", text: `로그가 가장 많았습니다 (5분에 ${num(busiest.total)}건)` });
   return items.filter((i) => !Number.isNaN(i.at)).sort((a, b) => b.at - a.at);
