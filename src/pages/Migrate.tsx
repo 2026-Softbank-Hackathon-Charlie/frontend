@@ -510,7 +510,7 @@ function AIRunLine({ run }: { run?: AIRun }) {
   return (
     <>
       {" "}
-      최근 실행: {run.source} → {run.target}, {AI_RUN_STATUS[run.status]} ({run.requestedBy}, {new Date(run.createdAt).toLocaleTimeString()})
+      최근 실행: {run.source} → {run.target}, {AI_RUN_STATUS[run.status]} ({run.requestedBy}, {new Date(run.createdAt).toLocaleTimeString("ko-KR")})
       {run.status === "failed" ? ". 실패 이유는 아래 AI 세션 기록에 있습니다." : ""}
     </>
   );

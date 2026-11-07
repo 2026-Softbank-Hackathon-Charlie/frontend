@@ -10,8 +10,10 @@ it("explains the absent write measurement without replacing it with zero", () =>
   render(<MigrationResults runs={[fakeRun({ status: "succeeded", result: result({ status: "not_configured", reason: "written_records_not_configured" }, { verified: true, missingRows: 0 }) })]} />);
   const panel = screen.getByRole("region", { name: "쓰기 기록 검증" });
   expect(within(panel).getByText("쓰기 기록 미연결")).toBeInTheDocument();
+  expect(within(panel).getByText(/쓰기 누락을 측정하지 않았습니다/)).toBeInTheDocument();
+  expect(within(panel).queryByText("미측정")).not.toBeInTheDocument();
   const rows = screen.getAllByText("쓰기 누락");
-  expect(rows).toHaveLength(2);
+  expect(rows).toHaveLength(1);
   for (const label of rows) expect(label.nextElementSibling).toHaveTextContent("미측정");
   expect(within(panel).queryByText("쓰기 검증 완료")).not.toBeInTheDocument();
 });

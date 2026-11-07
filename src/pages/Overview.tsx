@@ -223,13 +223,15 @@ function finishedItem(r: Run, current: boolean): NowItem {
   };
 }
 
-function resultParts(x: RunResult): string[] {
-  const missing = [x.missingRows, x.missingWrites, x.missingFiles].filter((n): n is number => n !== undefined);
+export function resultParts(x: RunResult): string[] {
+  const missing = (label: string, n: number | undefined) => (n !== undefined ? label + " 누락 " + fmt(n) + "건" : "");
   return [
     x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "",
     x.downtimeMillis !== undefined ? "쓰기 보류 " + (x.downtimeMillis / 1000).toFixed(1) + "초" : "",
     x.failedRequests !== undefined ? "실패 요청 " + fmt(x.failedRequests) + "건" : "",
-    missing.length > 0 ? "누락 " + fmt(missing.reduce((a, b) => a + b, 0)) + "건" : "",
+    missing("행", x.missingRows),
+    missing("쓰기", x.missingWrites),
+    missing("파일", x.missingFiles),
   ].filter(Boolean);
 }
 

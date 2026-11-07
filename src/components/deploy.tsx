@@ -162,7 +162,7 @@ export function specHint(e: AppSpecFieldError): string {
   if (!e.path) {
     if (/branch/i.test(e.message)) return "브랜치 이름이 맞는지 확인하세요.";
     if (/not visible|installation/i.test(e.message)) return "GitHub App 설치에 이 레포가 들어 있는지 확인하세요.";
-    if (/not found|no such|missing/i.test(e.message)) return "레포 루트에 platform.yaml을 두세요. 서비스마다 Dockerfile도 있어야 합니다.";
+    if (/not found|no such|missing|not at the root/i.test(e.message)) return "레포 루트에 platform.yaml을 두세요. 서비스마다 Dockerfile도 있어야 합니다.";
     if (/unknown|field/i.test(e.message)) return "규칙에 없는 키를 지우세요. 키 이름의 오타도 확인하세요.";
     return "platform.yaml이 YAML 형식인지, 규칙에 없는 키가 없는지 확인하세요.";
   }

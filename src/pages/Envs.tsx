@@ -39,8 +39,8 @@ function EnvsView({ envs, traffic, demo = false }: { envs: ReadResult<Environmen
               head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태"]}
               rows={envs.data.map((e) => [
                 td(<b>{e.displayName}</b>),
-                td(e.region ?? "-"),
-                td(e.status.kubernetesVersion ?? "-", "m"),
+                td(e.region ?? "-", "nw"),
+                td(e.status.kubernetesVersion ?? "-", "m nw"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
                 td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
                 td(<DbBackups dbs={e.status.databases} />),
