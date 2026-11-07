@@ -42,8 +42,11 @@ describe("migration demo follows the live controls", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const { sim, user } = setup();
+    expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "AI 계획·리허설 실행" }));
     expect(sim.state.mig.stage).toBe("ai");
+    expect(screen.getByTitle("이주 지도")).toBeInTheDocument();
+    expect(screen.queryByLabelText("옮겨 갈 환경")).not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
     act(() => { for (let i = 0; i < AI_END; i++) sim.tick(); });
     expect(sim.state.mig.stage).toBe("review");

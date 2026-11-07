@@ -26,7 +26,7 @@ function stateless(name = "docker-doom", envs = ["eks", "gke"]): App {
   return { ...value, name, namespace: name, environments: [], deploy: { ...value.deploy!, environments: envs, spec: { name, services: [{ name: "web", path: ".", dockerfile: "Dockerfile", port: 8080, public: true, replicas: 1 }], resources: [] } } };
 }
 
-function setup(registered = false, envs: Environment[] | null = environments, view = true, application = app(registered), writeBackend: string | null = "eks") {
+function setup(registered = false, envs: Environment[] | null = environments, view = true, application = app(registered), writeBackend: string | null = "eks", aiStart?: () => Response | Promise<Response>, publishPlan = true) {
   let savedPlan: PlanRecord | undefined;
   const calls = installFetch((c) => {
     const path = new URL(c.url, "https://test.invalid").pathname;
@@ -44,10 +44,10 @@ function setup(registered = false, envs: Environment[] | null = environments, vi
       savedPlan = { ref: "pln_onprem", status: "pending_approval", revision: 1, submittedBy: "operator", submittedAt: new Date().toISOString(), summary: { planId: "move-onprem", source: { env: "eks", namespace: "moimroom-mig", cluster: "db" }, target: { env: "onprem", namespace: "moimroom-mig", cluster: "db" }, files: false, gatewayMode: "http", fenceGate: true, maxDowntime: "30s" } };
       return json(201, savedPlan);
     }
-    if (path === "/v1/plans") return json(200, { plans: savedPlan ? [savedPlan] : [] });
+    if (path === "/v1/plans") return json(200, { plans: publishPlan && savedPlan ? [savedPlan] : [] });
     if (path === "/v1/migrations") return json(200, { runs: [] });
     if (path === "/v1/agent/sessions") return json(200, { sessions: [] });
-    if (path === "/v1/ai-runs") return json(200, { runs: [] });
+    if (path === "/v1/ai-runs") return c.method === "POST" && aiStart ? aiStart() : json(200, { runs: [] });
     if (path === "/v1/audit") return json(200, { entries: [] });
     return json(404, { error: { code: "not_found", message: "not configured in fixture" } });
   });
@@ -57,6 +57,51 @@ function setup(registered = false, envs: Environment[] | null = environments, vi
   return { calls, user: userEvent.setup() };
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); initAuth(); });
+
+it("shows settings without a map until the server accepts AI execution, then keeps the map while sessions lag", async () => {
+  let accept!: (value: Response) => void;
+  const response = new Promise<Response>((resolve) => { accept = resolve; });
+  const { user } = setup(true, environments, true, app(true), "eks", () => response);
+  const start = await screen.findByRole("button", { name: "AI 계획·리허설 실행" });
+  expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
+  expect(screen.queryByText(/플랫폼이 AI 실행기를 띄워/)).not.toBeInTheDocument();
+  await user.click(start);
+  expect(screen.getByLabelText("옮겨 갈 환경")).toBeInTheDocument();
+  expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
+  await act(async () => accept(json(202, { name: "hopai-accepted", app: "moimroom-mig", source: "eks", target: "gke", status: "running", requestedBy: "operator", createdAt: new Date().toISOString() })));
+  expect(await screen.findByTitle("이주 지도")).toBeInTheDocument();
+  expect(screen.queryByLabelText("옮겨 갈 환경")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "AI 없이 Plan 작성" })).not.toBeInTheDocument();
+  expect(screen.getByText(/실행 요청이 수락/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "승인하고 시작" })).not.toBeInTheDocument();
+});
+
+it("keeps settings and retry when the server rejects AI execution", async () => {
+  const { user } = setup(true, environments, true, app(true), "eks", () => json(409, { error: { code: "ai_run_active", message: "already running" } }));
+  await user.click(await screen.findByRole("button", { name: "AI 계획·리허설 실행" }));
+  expect(await screen.findByText(/already running/)).toBeInTheDocument();
+  expect(screen.getByLabelText("옮겨 갈 환경")).toBeInTheDocument();
+  expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "AI 계획·리허설 실행" })).toBeEnabled();
+});
+
+it("shows an accepted manual Plan without waiting for the plans list to catch up", async () => {
+  const { user } = setup(true, environments, true, app(true), "eks", undefined, false);
+  await user.click(await screen.findByRole("button", { name: "AI 없이 Plan 작성" }));
+  expect(await screen.findByTitle("이주 지도")).toBeInTheDocument();
+  expect(screen.queryByLabelText("옮겨 갈 환경")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "승인하고 시작" })).toBeInTheDocument();
+});
+
+it("keeps an accepted failed AI execution on the map with a path back to settings", async () => {
+  const { user } = setup(true, environments, true, app(true), "eks", () => json(202, { name: "hopai-failed", app: "moimroom-mig", source: "eks", target: "gke", status: "failed", requestedBy: "operator", createdAt: new Date().toISOString() }));
+  await user.click(await screen.findByRole("button", { name: "AI 계획·리허설 실행" }));
+  expect(await screen.findByTitle("이주 지도")).toBeInTheDocument();
+  expect(screen.getByText("AI 계획 실패")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
+  expect(await screen.findByLabelText("옮겨 갈 환경")).toBeInTheDocument();
+  expect(screen.queryByTitle("이주 지도")).not.toBeInTheDocument();
+});
 
 it("shows a real platform onprem candidate even before the app has it, without allowing migration", async () => {
   const { calls, user } = setup();

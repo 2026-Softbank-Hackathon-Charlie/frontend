@@ -79,6 +79,8 @@ export interface MapSnapshot {
     slo: [big: string, sub: string, crit: boolean];
   };
   phases: SnapPhase[];
+  /** Counts confirmed step results, never estimated time or an execution percentage. */
+  progress: { state: "pending" | "active" | "waiting" | "completed" | "failed" | "halted" | "rolled_back" | "stopped"; label: string; completed: number; total: number; skipped: number; unconfirmed: number; current?: string };
   /** index of the phase at work, waiting or failed; -1 before the setup is done or once every phase is past */
   cur: number;
   banners: { cls: "" | "okb" | "wab" | "inb"; title: string; text: string }[];
@@ -209,7 +211,8 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
 
   // AI plan: the plan session, else a plan someone submitted without the AI
   const plan = v.sessions.find((s) => s.kind === "plan");
-  const planSt: PhaseSt = plan ? SESSION_ST[plan.status] : v.plan ? "done" : v.stage === "ai" ? "cur" : "todo";
+  const job = v.aiRun?.current;
+  const planSt: PhaseSt = plan ? SESSION_ST[plan.status] : v.plan ? "done" : job ? job.status === "failed" ? "fail" : "wait" : v.stage === "ai" ? "cur" : "todo";
   out.push({
     key: "ai-plan",
     group: "검증",
@@ -416,6 +419,10 @@ function preRunNodes(v: MigrationView, files: boolean | undefined, holds: Return
   const store = (st: NodeSt, sub: string): [NodeSt, string] => (files === false ? ["idle", "파일 이전 안 함"] : [st, sub]);
   if (v.stage === "setup")
     return { tgt: { cluster: ["idle", "대상 후보"], app: holds.app ?? ["idle", "배포 전"], db: holds.db ?? ["idle", "생성 전"], store: store("idle", "생성 전") }, tag: ["대상 후보", "muted"], activity: "none" };
+  if (v.aiRun?.current && !plan && !reh) {
+    const failed = v.aiRun.current.status === "failed";
+    return { tgt: { cluster: [failed ? "crit" : "idle", failed ? "AI 실행 실패" : "AI 세션 기록 대기"], app: holds.app ?? ["idle", "미확인"], db: holds.db ?? ["idle", "미확인"], store: store("idle", "미확인") }, tag: [failed ? "AI 실행 실패" : "AI 세션 기록 대기", failed ? "crit" : "info"], activity: "none" };
+  }
   if (reh?.status === "running") {
     const fixing = diag?.status === "running";
     return {
@@ -429,7 +436,7 @@ function preRunNodes(v: MigrationView, files: boolean | undefined, holds: Return
       activity: "sandbox",
     };
   }
-  if (!v.plan && (plan?.status === "running" || v.stage === "ai")) {
+  if (!v.plan && (plan?.status === "running" || !plan && !v.live && v.stage === "ai")) {
     return { tgt: { cluster: ["plan", "AI 조회 중 (읽기 전용)"], app: ["plan", "계획 중"], db: ["plan", "계획 중"], store: store("plan", "계획 중") }, tag: ["AI 계획 중", "info"], activity: "probe" };
   }
   const failed = reh?.status === "failed" || plan?.status === "failed";
@@ -640,7 +647,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     : v.stage === "setup"
       ? ["idle", "이전 전"]
       : v.stage === "ai"
-        ? ["info", "AI 작업 중"]
+        ? phasesFull.some((p) => p.st === "fail") ? ["no", "AI 실행 실패"] : v.aiRun?.current?.status === "succeeded" ? ["wa", "Plan 수신 대기"] : ["info", v.aiRun?.current && !v.sessions.length ? "AI 실행 수락" : "AI 작업 중"]
         : v.plan?.status === "approved"
           ? [v.preflight?.blocked ? "no" : "wa", v.preflight?.blocked ? "시작 막힘" : "승인됨 · 시작 전"]
           : rehearsing(v)
@@ -649,6 +656,25 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
             ? ["no", "승인 불가 · 리허설 미통과"]
             : ["wa", "승인 대기"];
   const phaseTitle = r?.status === "succeeded" ? "완료" : r?.status === "rolled_back" ? "롤백" : r?.status === "halted" ? "멈춤" : v.stage === "setup" ? "이전 설정" : (curPhase?.label ?? (r ? statusText(r.status, r.phase) : "-"));
+  const progressState: MapSnapshot["progress"]["state"] = r?.status === "rolled_back" ? "rolled_back"
+    : r?.status === "halted" ? "halted"
+    : r?.status === "failed" ? "failed"
+    : r && ["aborted", "interrupted"].includes(r.status) ? "stopped"
+    : r?.status === "succeeded" ? "completed"
+    : r?.status === "running" ? "active"
+    : r?.status === "awaiting_switch" ? "waiting"
+    : phases.some((p) => p.st === "fail") ? "failed"
+    : v.stage === "setup" ? "pending"
+    : phases.some((p) => p.st === "cur") ? "active" : "waiting";
+  const progress = {
+    state: progressState,
+    label: ({ pending: "시작 전", active: "진행 중", waiting: "대기 중", completed: "이전 완료", failed: "실패", halted: "멈춤", rolled_back: "원복 완료", stopped: "중단됨" })[progressState],
+    completed: phases.filter((p) => p.st === "done").length,
+    total: phases.length,
+    skipped: phases.filter((p) => p.st === "skip").length,
+    unconfirmed: phases.filter((p) => p.st === "warn").length,
+    current: ["active", "waiting", "failed"].includes(progressState) && curPhase && ["cur", "wait", "fail"].includes(curPhase.st) ? curPhase.label : undefined,
+  };
   const slo = f?.slo;
   const errEdge = !!slo && slo.errorRate > PLATFORM_GATE.maxErrorRate && sh > 0;
   const syncMode = f?.sync ?? "none";
@@ -755,6 +781,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     errEdge,
     kpi,
     phases,
+    progress,
     cur,
     banners,
     detail,
