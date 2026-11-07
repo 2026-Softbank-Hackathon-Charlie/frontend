@@ -29,6 +29,8 @@ export interface PreflightView {
   blocked: boolean;
   residency: PreflightPart & { digest?: string };
   capacity: PreflightPart;
+  /** the parity record (platform ADR 0022, 0029): written at the start, it never blocks one */
+  parity?: PreflightPart & { digest?: string };
 }
 
 /** Capacity measurements as the platform records them (capacity.Measurements). */
@@ -225,17 +227,63 @@ function capacityPart(d: Record<string, unknown>, refused: string): PreflightPar
   };
 }
 
+/** Mirrors the platform's parity.Capability names. */
+const CAPABILITY_LABEL: Record<string, string> = {
+  identity: "인증, 권한",
+  secret: "시크릿",
+  audit: "감사 로그",
+  "metrics-alerting": "모니터링, 알림",
+  "backup-restore": "백업, 복구",
+};
+
+/** One line of paritygate.Lines: "capability status code" and, after ": ", its checks as id=status(code). */
+function parityItem(line: string): PreflightItem | undefined {
+  const x = /^(\S+) (\S+) (\S+?)(?:: ([\s\S]*))?$/.exec(line);
+  if (!x) return undefined;
+  const [, cap, st, code, checks] = x;
+  const status: CheckStatus = st === "pass" || st === "fail" ? st : st === "not_applicable" ? "skip" : "unknown";
+  return { label: CAPABILITY_LABEL[cap] ?? cap, status, detail: checks ? code + " (" + checks + ")" : code, raw: line };
+}
+
+function parityPart(d: Record<string, unknown>, refused: string): NonNullable<PreflightView["parity"]> {
+  const p = d.parity && typeof d.parity === "object" ? (d.parity as Record<string, unknown>) : undefined;
+  if (!p) return { status: "skip", summary: refused ? "이전을 시작하지 않아 검사하지 않았습니다" : "검사 기록이 없습니다", items: [] };
+  switch (p.outcome) {
+    case "recorded":
+      break;
+    case "not_configured":
+      return { status: "skip", summary: "플랫폼에 동등성 파일이 설정되지 않아 검사하지 않았습니다", items: [] };
+    case "rollback_exempt":
+      return { status: "skip", summary: "롤백이라 검사하지 않았습니다", items: [] };
+    case "no_app":
+      return { status: "skip", summary: "동등성 파일에 대상 namespace의 앱이 없어 검사하지 않았습니다", items: [] };
+    case "error":
+      return { status: "unknown", summary: "검사를 실행하지 못했습니다. 기록 전용이라 시작은 막지 않았습니다", items: [] };
+    default:
+      return { status: "skip", summary: "검사 기록이 없습니다", items: [] };
+  }
+  const lines = Array.isArray(p.results) ? p.results.filter((x): x is string => typeof x === "string") : [];
+  const items = lines.map(parityItem).filter((x): x is PreflightItem => !!x);
+  const digest = typeof p.configDigest === "string" && p.configDigest ? p.configDigest : undefined;
+  if (p.passed === true) return { status: "pass", summary: "필수 검사를 모두 통과했습니다. 기록 전용이라 시작은 막지 않습니다", items, digest };
+  // not passed: a failed check is a mismatch; otherwise something stayed unknown or the evidence expired
+  if (items.some((i) => i.status === "fail"))
+    return { status: "fail", summary: "대상이 원본의 요구와 맞지 않는 항목이 있습니다. 기록 전용이라 시작은 막지 않았습니다", items, digest };
+  return { status: "unknown", summary: "확인하지 못한 항목이 있어 통과로 보지 않습니다. 기록 전용이라 시작은 막지 않았습니다", items, digest };
+}
+
 /** The pre-start checks of an audit entry, or undefined when it holds none. */
 export function preflightOf(e: Pick<AuditEntry, "time" | "detail">): PreflightView | undefined {
   const d = e.detail ?? {};
   const refused = typeof d.error === "string" ? d.error : "";
-  const has = "residency" in d || "residencyReasons" in d || "capacity" in d || refused === "residency_denied" || refused === "capacity_insufficient";
+  const has = "residency" in d || "residencyReasons" in d || "capacity" in d || "parity" in d || refused === "residency_denied" || refused === "capacity_insufficient";
   if (!has) return undefined;
   return {
     at: e.time,
     blocked: refused === "residency_denied" || refused === "capacity_insufficient",
     residency: residencyPart(d, refused),
     capacity: capacityPart(d, refused),
+    parity: parityPart(d, refused),
   };
 }
 

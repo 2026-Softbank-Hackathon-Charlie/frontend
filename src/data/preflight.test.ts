@@ -148,6 +148,24 @@ describe("pre-start checks from the audit log", () => {
     expect(preflightOf(entry({ runId: "run_1" }))).toBeUndefined();
   });
 
+  it("reads the parity record without letting it block the start", () => {
+    const recorded = (passed: boolean, results: string[]) =>
+      preflightOf(entry({ residency: "allowed", parity: { outcome: "recorded", mode: "audit", passed, results, configDigest: "cfg123" } }))!;
+    const fail = recorded(false, ["identity fail rbac_mismatch: read-own-config=fail(denied), no-secret-list=pass(denied)", "metrics-alerting unknown alert_delivery_unverified"]);
+    expect(fail.blocked).toBe(false);
+    expect(fail.parity).toMatchObject({ status: "fail", digest: "cfg123" });
+    expect(fail.parity!.items).toEqual([
+      { label: "인증, 권한", status: "fail", detail: "rbac_mismatch (read-own-config=fail(denied), no-secret-list=pass(denied))", raw: "identity fail rbac_mismatch: read-own-config=fail(denied), no-secret-list=pass(denied)" },
+      { label: "모니터링, 알림", status: "unknown", detail: "alert_delivery_unverified", raw: "metrics-alerting unknown alert_delivery_unverified" },
+    ]);
+    expect(recorded(false, ["secret unknown probe_not_configured", "audit not_applicable none"]).parity).toMatchObject({ status: "unknown", items: [{ status: "unknown" }, { status: "skip" }] });
+    expect(recorded(true, ["identity pass ok"]).parity).toMatchObject({ status: "pass", items: [{ label: "인증, 권한", status: "pass", detail: "ok" }] });
+    expect(preflightOf(entry({ residency: "not_configured", parity: { outcome: "not_configured", mode: "audit", binding: null } }))!.parity).toMatchObject({ status: "skip", items: [] });
+    expect(preflightOf(entry({ residency: "rollback_exempt", parity: { outcome: "rollback_exempt" } }))!.parity?.status).toBe("skip");
+    expect(preflightOf(entry({ residency: "allowed", parity: { outcome: "error" } }))!.parity?.status).toBe("unknown");
+    expect(preflightOf(entry({ error: "residency_denied", residencyReasons: [] }))!.parity?.summary).toBe("이전을 시작하지 않아 검사하지 않았습니다");
+  });
+
   it("picks the newest start or rollback of the plan", () => {
     const entries = [
       entry({ planRef: "pln_2", residency: "allowed" }, { id: 4 }),

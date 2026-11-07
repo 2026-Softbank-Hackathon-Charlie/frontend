@@ -70,6 +70,22 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(residency.evidence.some(x => x.startsWith("검사 시각:"))).toBe(true);
   });
 
+  it.each([["pass", "통과", "ok"], ["fail", "불일치", "no"], ["unknown", "확인 불가", "wa"], ["skip", "검사 안 함", "idle"]] as const)("shows the recorded parity %s with its evidence", (status, label, tone) => {
+    const s = snap(view({ preflight: {
+      at: at(1), blocked: false,
+      residency: { status: "pass", summary: "ok", items: [] },
+      capacity: { status: "pass", summary: "ok", items: [] },
+      parity: { status, summary: "동등성 기록", digest: "cfg123", items: [{ label: "인증, 권한", detail: "rbac_mismatch", status }] },
+    } }));
+    const parity = s.validations[0];
+    expect(parity.status).toBe(label);
+    expect(parity.tone).toBe(tone);
+    expect(parity.summary).toBe("동등성 기록");
+    expect(parity.evidence).toContain("인증, 권한: rbac_mismatch");
+    expect(parity.evidence).toContain("설정 digest: cfg123");
+    expect(parity.evidence.some(x => x.startsWith("검사 시각:"))).toBe(true);
+  });
+
   it("before a plan, nothing is at work and the target is only a candidate", () => {
     const s = snap(view());
     expect(s.cur).toBe(-1);
