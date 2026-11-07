@@ -8,11 +8,12 @@ import { CATEGORIES, CATEGORY_LABEL } from "../data/securityMatrix";
 import { SOURCE_LABEL } from "../data/securityMatrix";
 import { evidenceUrl, OBSERVATION_LABEL, type SecurityObservation } from "../data/securityEvidence";
 import {
-  DEPLOYED_STATE, DOMAINS, SCAN_STATE, activeException, environmentLabel as envLabel, controlCounts, filterControls, filterVulnerabilities, summarizeVulnerabilities,
+  DEPLOYED_STATE, DOMAINS, SCAN_STATE, activeException, environmentLabel as envLabel, controlCounts, filterControls, filterVulnerabilities, isPrioritySeverity, summarizeVulnerabilities,
   type ControlEvaluation, type DeployedState, type ExceptionInfo, type RunningImageRow, type SecurityDataset, type SecurityFindingRow, type SecuritySeverity, type VulnerabilityFinding,
 } from "../data/security";
 import type { SecurityControlCoverage } from "../api/types";
 import { epssLabel, kevLabel, priorityReasons, sortByPriority } from "../data/vulnPriority";
+import { PRIORITY_FINDINGS } from "../router";
 import "../styles/security.css";
 
 type Environment = ControlEvaluation["environment"];
@@ -182,7 +183,8 @@ function Unavailable({ kind, reason, observation }: { kind: "통제 평가" | "�
 
 export function SecurityWorkspace({ route, data, loading = false, error, reload }: { route: string; data: SecurityDataset; loading?: boolean; error?: string; reload?: () => void }) {
   const [, segment = "overview", itemId] = route.split("/");
-  const tab = segment as Tab;
+  const priority = segment === PRIORITY_FINDINGS;
+  const tab = (priority ? "findings" : segment) as Tab;
   const live = data.mode === "live";
   const [selectedEnvironment, setEnvironment] = useState<Scope>("all");
   const [selectedApp, setApp] = useState<string | null>(null);
@@ -199,7 +201,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const [findingSeverity, setFindingSeverity] = useState("all");
   const [findingCategory, setFindingCategory] = useState("all");
   const focusRef = useRef<HTMLHeadingElement>(null);
-  const previousDetail = useRef<{ id: string; tab: Tab; scroll: number } | null>(null);
+  const previousDetail = useRef<{ id: string; segment: string; scroll: number } | null>(null);
   const appHintId = useId();
   const showApp = !live || tab === "vulnerabilities";
   const environment = data.environments.some((env) => env.id === selectedEnvironment) ? selectedEnvironment : "all";
@@ -231,6 +233,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       : "선택한 앱에서 성공한 컨테이너 스캔을 관측하지 못했습니다. 미검사·실패 상태는 실행 컨테이너 목록에서 확인할 수 있습니다."
     : data.unavailable?.vulnerabilities;
   const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (demoApp === "all" || f.app === demoApp));
+  const scopedFindings = priority ? findings.filter((f) => isPrioritySeverity(f.severity)) : findings;
   const sources = data.sources.filter((s) => environment === "all" || s.environment === environment);
   const missingSources = sources.filter((s) => s.status !== "ok" && s.status !== "idle");
   const counts = controlCounts(controls);
@@ -240,7 +243,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const vulnerabilityGroups = sortByPriority(groupVulnerabilities(activeVulnerabilities));
   const selectedControl = tab === "controls" ? controls.find((c) => c.id === itemId) : undefined;
   const selectedVulnerability = tab === "vulnerabilities" ? vulnerabilities.find((v) => v.id === itemId) : undefined;
-  const selectedFinding = tab === "findings" ? findings.find((f) => f.id === itemId) : undefined;
+  const selectedFinding = tab === "findings" ? scopedFindings.find((f) => f.id === itemId) : undefined;
 
   useEffect(() => {
     if (selectedEnvironment !== environment) setEnvironment(environment);
@@ -249,18 +252,18 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
 
   useEffect(() => {
     if (itemId) {
-      previousDetail.current = { id: itemId, tab, scroll: previousDetail.current?.scroll ?? window.scrollY };
+      previousDetail.current = { id: itemId, segment, scroll: previousDetail.current?.scroll ?? window.scrollY };
       focusRef.current?.focus();
       focusRef.current?.scrollIntoView?.({ block: "start" });
     } else if (previousDetail.current) {
       const previous = previousDetail.current;
       previousDetail.current = null;
-      if (previous.tab === tab) {
-        document.querySelector<HTMLAnchorElement>(`a[href="${detailHref(previous.tab, previous.id)}"]`)?.focus({ preventScroll: true });
+      if (previous.segment === segment) {
+        document.querySelector<HTMLAnchorElement>(`a[href="${detailHref(previous.segment, previous.id)}"]`)?.focus({ preventScroll: true });
         window.scrollTo(0, previous.scroll);
       }
     }
-  }, [itemId, tab]);
+  }, [itemId, segment]);
 
   return <div className="page sp-page">
     <PageHead icon="shield-check" title="보안" sub="모든 환경을 같은 기준으로 살펴보고, 판정의 근거까지 확인합니다." acts={<a className="btn ghost sm" href="#security/sources">점검 범위 보기</a>} />
@@ -293,7 +296,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
     {!live && app !== null && tab !== "ocsf" && <p className="hint sp-scope-note">앱에 연결된 평가·자산만 표시합니다. 계정 수준 통제는 ‘전체 앱’에서, 수집 상태는 선택한 환경 범위에서 확인합니다.</p>}
 
     {loading ? <Skeleton box rows={4} /> : error && !data.generatedAt ? <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={error} retry={reload} /> : itemId ? <>
-      <a className="sp-back" href={tabHref(tab)}><span aria-hidden="true">← </span>{TABS.find((t) => t.id === tab)?.label} 목록으로</a>
+      <a className="sp-back" href={tabHref(segment)}><span aria-hidden="true">← </span>{TABS.find((t) => t.id === tab)?.label} 목록으로</a>
       {selectedControl ? <ControlDetail value={selectedControl} headingRef={focusRef} live={data.mode === "live"} /> : selectedVulnerability ? <VulnerabilityDetail values={vulnerabilities.filter((v) => v.advisory === selectedVulnerability.advisory)} selected={selectedVulnerability} headingRef={focusRef} live={data.mode === "live"} reload={reload} /> : selectedFinding ? <FindingDetail value={selectedFinding} headingRef={focusRef} live={data.mode === "live"} reload={reload} /> : <div className="box"><h2 ref={focusRef} tabIndex={-1}>현재 조회 범위에서 항목을 찾을 수 없습니다.</h2><p>필터 범위가 달라졌거나 현재 결과에 없는 ID입니다. 이것만으로 해결되었다고 판단하지 않습니다.</p></div>}
     </> : tab === "overview" ? <>
       <div className="sp-source-summary"><b>{data.observations && !data.observations.findings.collectedAt ? "발견 항목 " + OBSERVATION_LABEL[data.observations.findings.state] : `수집된 발견 항목 ${findings.length}건`}</b><span>출처 조회 성공 {sources.filter((s) => s.status === "ok").length} / {sources.length}개</span><a href="#security/findings">발견 항목 보기 →</a></div>
@@ -343,7 +346,11 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       <p className="hint sp-footnote">{data.mode === "demo" ? "이미지 패키지 검사 범위의 예시입니다." : "이미지 패키지 검사 범위입니다."} 노드 OS·커널·Kubernetes 자체의 CVE까지 검사했다는 의미는 아닙니다.</p>
       </>}
       {scopedImages && <RunningImages rows={scopedImages} />}
-    </Section> : tab === "findings" ? <>
+    </Section> : priority ? (
+      <Section title="치명·높음 발견 항목" sub="개요에 집계된 보안 발견 항목입니다. 취약점은 별도 탭에서 확인할 수 있습니다." action={<a className="linkbtn" href="#security/findings">전체 발견 항목 보기</a>}>
+        <FindingsList findings={scopedFindings} vulnerabilities={[]} search="" kind="all" severity="all" category="all" exception="include" findingRoute={PRIORITY_FINDINGS} />
+      </Section>
+    ) : tab === "findings" ? <>
       <Section title="발견 항목" sub="우선순위 목록 밖의 항목까지, 모든 유형을 찾아봅니다.">
         <div className="sp-filters"><label className="sp-search">항목 검색<input aria-label="발견 항목 검색" placeholder="제목, 리소스 또는 출처" value={findingSearch} onChange={(e) => setFindingSearch(e.target.value)} /></label><label>유형<select aria-label="발견 항목 유형" value={findingKind} onChange={(e) => setFindingKind(e.target.value)}><option value="all">전체 유형</option>{Object.entries(KIND).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
         <div className="sp-filters">
@@ -366,15 +373,15 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   </div>;
 }
 
-function FindingsList({ findings, vulnerabilities, search, kind, severity, category, exception, reset }: { findings: SecurityFindingRow[]; vulnerabilities: VulnerabilityFinding[]; search: string; kind: string; severity: string; category: string; exception: ExceptionMode; reset: () => void }) {
+function FindingsList({ findings, vulnerabilities, search, kind, severity, category, exception, reset, findingRoute = "findings" }: { findings: SecurityFindingRow[]; vulnerabilities: VulnerabilityFinding[]; search: string; kind: string; severity: string; category: string; exception: ExceptionMode; reset?: () => void; findingRoute?: string }) {
   const shownFindings = findings.filter((f) => (kind === "all" || f.kind === kind) && (severity === "all" || f.severity === severity) && (category === "all" || f.category === category) && matches(search, f.title, f.resource, f.source) && exceptionShown(exception, f.exception));
   const shownVulnerabilities = vulnerabilities.filter((v) => (kind === "all" || kind === "vulnerability") && (severity === "all" || v.severity === severity) && category === "all" && matches(search, v.advisory, v.package) && exceptionShown(exception, v.exception));
   const excepted = [...shownFindings, ...shownVulnerabilities].map((x) => activeException(x.exception));
   const rows = [
-    ...shownFindings.map((f) => [td(<Severity value={f.severity} />), td(<>{KIND[f.kind]}{f.category && <small className="block">{CATEGORY_LABEL[f.category]}</small>}</>), td(<><a className="sp-row-link" href={detailHref("findings", f.id)}>{f.title}</a><small className="block">{f.source}</small><ExceptionChip value={f.exception} /></>), td(<SecurityEnvLabel env={f.environment} />), td(<span className="m">{f.resource}</span>)]),
+    ...shownFindings.map((f) => [td(<Severity value={f.severity} />), td(<>{KIND[f.kind]}{f.category && <small className="block">{CATEGORY_LABEL[f.category]}</small>}</>), td(<><a className="sp-row-link" href={detailHref(findingRoute, f.id)}>{f.title}</a><small className="block">{f.source}</small><ExceptionChip value={f.exception} /></>), td(<SecurityEnvLabel env={f.environment} />), td(<span className="m">{f.resource}</span>)]),
     ...shownVulnerabilities.map((v) => [td(<Severity value={v.severity} />), td("취약점"), td(<><a className="sp-row-link" href={detailHref("vulnerabilities", v.id)}>{v.advisory} · {v.package}</a><small className="block">패키지 발생 건 · {v.installedVersion}</small><ExceptionChip value={v.exception} /><VulnerabilityEvidence value={v} /></>), td(<SecurityEnvList environments={v.occurrences.map((o) => o.environment)} />), td(<span className="m">{v.imageDigest.slice(0, 23)}…</span>)]),
   ];
-  return <><p className="sp-list-meta">표시 {rows.length}건 <span>· 취약점은 이미지별 패키지 발생 건으로 포함</span></p><div className="box sp-table-box">{rows.length ? <Table head={["심각도", "유형", "항목 / 출처", "환경", "대상 리소스"]} rows={rows} rowClass={(i) => excepted[i] ? "sp-excepted" : undefined} /> : <Empty reset={reset}>현재 필터에 해당하는 발견 항목이 없습니다.</Empty>}</div></>;
+  return <><p className="sp-list-meta">표시 {rows.length}건 {findingRoute === "findings" && <span>· 취약점은 이미지별 패키지 발생 건으로 포함</span>}</p><div className="box sp-table-box">{rows.length ? <Table head={["심각도", "유형", "항목 / 출처", "환경", "대상 리소스"]} rows={rows} rowClass={(i) => excepted[i] ? "sp-excepted" : undefined} /> : <Empty reset={reset}>현재 필터에 해당하는 발견 항목이 없습니다.</Empty>}</div></>;
 }
 
 type HeadingRef = { current: HTMLHeadingElement | null };
