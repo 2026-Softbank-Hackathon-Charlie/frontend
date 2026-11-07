@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Icon, type IconName } from "./components/Icon";
 import { Chip, type ChipKind } from "./components/ui";
-import { apiTarget, chooseMode, logOut, useAuth, useLive } from "./data/live";
+import { chooseMode, logOut, useAuth, useLive } from "./data/live";
 import { Agents } from "./pages/Agents";
 import { AppDetail, appFilterOf, Apps } from "./pages/Apps";
 import { DeploymentPage } from "./pages/Deployment";
@@ -182,7 +182,6 @@ function Account({ r }: { r: string }) {
   }
   return (
     <>
-      <span className="note">실제 플랫폼 API({apiTarget()})에 연결되어 있습니다.</span>
       <span className="user">{session.principal.name}</span>
       <button type="button" className="btn ghost sm" onClick={() => void logOut()}>
         로그아웃

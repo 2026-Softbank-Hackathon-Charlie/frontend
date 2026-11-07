@@ -14,7 +14,7 @@ import "../styles/results.css";
 export function Routes() {
   const live = useLive();
   return <div className="page">
-    <PageHead icon="route" title="이전 결과" sub="경로별 집계가 아닌, 개별 이전 실행의 결과를 최신순으로 확인합니다. 측정하지 않은 값은 미측정으로 표시합니다." acts={<a className="btn primary" href="#migrate-app"><Icon name="arrow-right-left" size={16} />이전하기</a>} />
+    <PageHead icon="route" title="이전 결과" acts={<a className="btn primary" href="#migrate-app"><Icon name="arrow-right-left" size={16} />이전하기</a>} />
     {live ? <LiveResults /> : <SimResults />}
   </div>;
 }

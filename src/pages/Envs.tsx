@@ -52,7 +52,7 @@ function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: Re
   };
   return (
     <div className="page">
-      <PageHead icon="server" title="환경" sub={demo ? "클러스터와 트래픽 게이트웨이 상태입니다." : "플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다."} />
+      <PageHead icon="server" title="환경" sub={demo ? "클러스터와 트래픽 게이트웨이 상태입니다." : undefined} />
       {enrollment}
       {demo && <p className="hint">시연용 데이터입니다. 정상·부분 조회·연결 실패·백업 실패는 상태 표시를 설명하는 가상 사례이며 실제 클러스터 점검 결과가 아닙니다.</p>}
       <section className="sec">

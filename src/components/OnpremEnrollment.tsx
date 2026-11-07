@@ -49,7 +49,7 @@ export function OnpremEnrollmentEntry({ onReady, ...discovery }: { onReady?: () 
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   return <>
-    <button ref={trigger} type="button" className="btn primary" onClick={() => setOpen(true)}>온프렘 연결</button>
+    <div className="actrow"><button ref={trigger} type="button" className="btn ghost sm" onClick={() => setOpen(true)}>온프렘 연결</button></div>
     {open && <OnpremEnrollmentPanel key={session?.principal.name ?? "anonymous"} {...discovery} operator={operator} onReady={onReady} onClose={() => { setOpen(false); trigger.current?.focus(); }} />}
   </>;
 }

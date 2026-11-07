@@ -40,7 +40,6 @@ export function Apps({ filter = "all" }: { filter?: AppFilter }) {
       <PageHead
         icon="boxes"
         title="앱"
-        sub="플랫폼이 Argo CD로 관리하는 앱입니다. GitHub 레포로 새 앱을 등록하거나 플랫폼 밖에서 돌던 앱을 가져올 수 있고, 게이트웨이 뒤에서 한 곳에서만 도는 앱은 다른 클러스터로 이전할 수 있습니다."
         acts={
           <>
             <a className="btn ghost" href="#onboard">
