@@ -387,13 +387,22 @@ function mkNode(id, cx, cy, w, h, title){
   el('circle',{class:'d',cx:cx-w/2+10,cy:cy-7,r:3.5},g);
   const t = txt(g, cx-w/2+20, cy-2, 't', title, 'start');
   const s = txt(g, cx-w/2+20, cy+12, 's', '', 'start');
-  nodes[id] = { g, t, s, tip };
+  nodes[id] = { g, t, s, tip, w };
+}
+/* The sub line is monospace 10.5px (about 6.3px a character, 10.5px for CJK). A fixed character count let longer
+   lines run out of the box, so cut by width and end with an ellipsis; the tooltip keeps the whole line. */
+const subWidth = (str) => [...str].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 10.5 : 6.3), 0);
+function fitSub(str, max){
+  if (subWidth(str) <= max) return str;
+  let out = '';
+  for (const ch of str){ if (subWidth(out + ch + '…') > max) break; out += ch; }
+  return out + '…';
 }
 function setNode(id, st, sub, title){
   const n=nodes[id]; if(!n) return;
   if (n.g.getAttribute('data-st')!==st) n.g.setAttribute('data-st',st);
   if (title!=null && n.t.textContent!==title) n.t.textContent=title;
-  const s = sub==null ? '' : String(sub); const shown = s.length>22 ? s.slice(0,21)+'…' : s;
+  const s = sub==null ? '' : String(sub); const shown = fitSub(s, n.w - 30); // 20px in from the left edge, 10px to spare on the right
   if (n.s.textContent!==shown) n.s.textContent=shown;
   const tip = n.t.textContent + (s ? ' · '+s : ''); if (n.tip.textContent!==tip) n.tip.textContent=tip;
 }
