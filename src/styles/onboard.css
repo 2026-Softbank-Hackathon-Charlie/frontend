@@ -11,6 +11,8 @@
 .onboard-page .done .step-number { color: var(--ok); background: var(--ok-bg); }
 .onboard-page .done .step-text small { color: var(--ok); }
 .onboard-page .bh h2 { font-size: 16px; font-weight: 500; line-height: 1.4; }
+.onboard-page h1, .onboard-page .bh h2 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+:root[lang="ja"] .onboard-page { word-break: normal; }
 .onboard-page .onboard-unavailable .bb { display: grid; gap: var(--sp-lg); }
 .onboard-page .onboard-unavailable p { max-width: 70ch; }
 .onboard-page .onboard-note { padding: var(--sp-sm) var(--sp-md); background: var(--fill); border-radius: var(--r-control); }
@@ -27,6 +29,7 @@
 @media (min-width: 1100px) { .onboard-page .form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .onboard-page .onboard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
+  .onboard-page .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .onboard-page > .actrow, .onboard-page .onboard-unavailable .actrow { flex-direction: column; align-items: stretch; }
   .onboard-page > .actrow .btn, .onboard-page .onboard-unavailable .btn { justify-content: center; }
   /* Keep the language control in the footer flow instead of covering form/actions. */
