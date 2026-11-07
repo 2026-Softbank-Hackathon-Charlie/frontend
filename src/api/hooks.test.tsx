@@ -141,6 +141,19 @@ describe("applyRunEvent and isAfter", () => {
     expect([once.status, once.phase, once.result.downtimeMillis]).toEqual(["running", "canary", 900]);
   });
 
+  it("keeps the gate's verdict, and an inconclusive step does not fail the canary", () => {
+    const few: GateResult = { passed: false, reason: "only 7 requests reached the target (need 20); continuing to the next step", requests: 7, errorRate: 0, p95Millis: 0 };
+    const bad: GateResult = { passed: false, reason: "p95 900ms over 800ms", requests: 40, errorRate: 0, p95Millis: 900 };
+    const base = fakeRun({ canary: { options: { weights: [10, 50] }, steps: [] } });
+    const ev = (seq: number, kind: string, data: Record<string, unknown>) => ({ seq, time: at(seq), runId: "run_1", kind, data });
+    const after10 = [ev(1, "canary_step", { weight: 10, readWeights: {} }), ev(2, "gate_result", { weight: 10, verdict: "inconclusive", gate: few })].reduce(applyRunEvent, base);
+    expect(after10.canary?.steps).toEqual([{ weight: 10, startedAt: at(1), endedAt: at(2), verdict: "inconclusive", gate: few }]);
+    expect(after10.canary?.passed).toBeUndefined();
+    const after50 = [ev(3, "canary_step", { weight: 50, readWeights: {} }), ev(4, "gate_result", { weight: 50, verdict: "failed", gate: bad })].reduce(applyRunEvent, after10);
+    expect(after50.canary?.steps[1].verdict).toBe("failed");
+    expect(after50.canary?.passed).toBe(false);
+  });
+
   it("follows the observe phase after the cutover", () => {
     const ok: GateResult = { passed: true, reason: "ok", requests: 230, errorRate: 0, p95Millis: 120 };
     const bad: GateResult = { passed: false, reason: "p95 1.2s over 800ms", requests: 240, errorRate: 0, p95Millis: 1200 };
