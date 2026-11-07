@@ -62,6 +62,8 @@ export interface MapSnapshot {
   sync: { mode: "none" | "copy" | "cdc"; label: string; num: string; files: boolean };
   /** motion on the target before the run: the AI's read-only queries, or the sandbox rehearsal */
   activity: "none" | "probe" | "sandbox";
+  /** what the AI runner really did in the last `minutes`, from the observability logs; null when they cannot be read */
+  ai: AiFacts | null;
   /** the target's error rate, 0 to 1, for the red dots */
   errRate: number;
   errEdge: boolean;
@@ -89,6 +91,10 @@ export interface MapSnapshot {
 }
 
 export interface SnapshotContext {
+  /** GET /v1/ai-activity; absent in demo mode and while it cannot be read */
+  ai?: AIActivity;
+  /** how far back `ai` looks, in minutes */
+  aiMinutes?: number;
   traffic?: TrafficState;
   envs?: Environment[];
   /** wall clock for the durations of phases still at work */
@@ -651,6 +657,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
       files: files !== false,
     },
     activity: pre?.activity ?? "none",
+    ai: aiFacts(ctx.ai, ctx.aiMinutes),
     errRate: slo?.errorRate ?? 0,
     errEdge,
     kpi,

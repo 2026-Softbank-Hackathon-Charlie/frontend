@@ -5,6 +5,7 @@ import {
   ApiError,
   getSourceRetention,
   getWrittenRecords,
+  getAIActivity,
   listAIRuns,
   getApp,
   getDeployment,
@@ -30,6 +31,7 @@ import {
 } from "./client";
 import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
 import type {
+  AIActivity,
   AIRun,
   SourceRetentionResponse,
   WrittenRecordStats,
@@ -144,6 +146,10 @@ export function useAudit(limit?: number): Resource<AuditEntry[]> {
 }
 
 /** Every app: the PLATFORM_APPS_FILE ones (what plans are drafted for) in configuration order, then the other registered ones by name. */
+/** What the AI runner did in the last `minutes`. `enabled` false loads nothing; a 502 or 503 shows as `error`. */
+export function useAIActivity(pollMs = 0, minutes = 60, enabled = true): Resource<AIActivity> {
+  return usePolled(enabled ? "ai-activity:" + minutes : null, pollMs, (signal) => getAIActivity(minutes, { signal }));
+}
 /** The AI runner's runs for an app, newest first. A falsy `app` loads nothing; a 503 means the server has no runner. */
 export function useAIRuns(app: string | null | undefined, pollMs = 0): Resource<AIRun[]> {
   return usePolled(app ? "ai-runs:" + app : null, pollMs, async (signal) => (await listAIRuns(app!, { signal })).runs);
