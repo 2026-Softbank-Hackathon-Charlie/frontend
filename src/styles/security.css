@@ -115,3 +115,10 @@ a.sp-stat:hover { border-color: var(--field-line); background: var(--fill); text
 .sp-ocsf-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-sm); flex-wrap: wrap; margin-block-end: var(--sp-md); font-size: 13px; }
 .sp-ocsf-head p { margin: 0; font-variant-numeric: tabular-nums; }
 .sp-ocsf-json { max-height: 560px; overflow: auto; }
+/* Source provenance stays folded beside the result; no extra dashboard cards. */
+.sp-observations{display:flex;flex-wrap:wrap;gap:var(--sp-sm);align-items:flex-start}
+.sp-evidence{font-size:12px;min-width:0;max-width:65ch;overflow-wrap:anywhere}
+.sp-evidence summary{cursor:pointer;color:var(--muted);padding:4px 0;line-height:1.5}
+.sp-evidence summary:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.sp-evidence p{margin:6px 0;line-height:1.5;white-space:normal}
+.sp-evidence-links{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px}
