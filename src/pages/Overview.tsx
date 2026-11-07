@@ -7,6 +7,7 @@ import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deplo
 import { EnvGrid, EnvLabel, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, type ChipKind } from "../components/ui";
+import { MigrationRecommendations } from "../components/MigrationRecommendations";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
 import { isPrioritySeverity, type SecurityFindingRow } from "../data/security";
@@ -108,7 +109,7 @@ function LiveOverview() {
   const items = [...deployItems(apps.apps ?? [], apps.now), ...runItems(runs.data ?? [], Date.now()), ...securityItems(sec.data?.findings)];
   const failed = [runs.error && !runs.data ? "이전 목록" : "", sec.error && !sec.data ? "보안 점검" : "", apps.error ? "앱 목록" : ""].filter(Boolean);
   const loading = runs.loading || sec.loading || (!apps.apps && !apps.error);
-  return <OverviewView now={<NowList items={items} loading={loading} failed={failed} />} apps={apps} activity={<LiveActivity />} runs={runs.data} />;
+  return <OverviewView now={<NowList items={items} loading={loading} failed={failed} recommendations={<MigrationRecommendations />} />} apps={apps} activity={<LiveActivity />} runs={runs.data} />;
 }
 
 /* ---------- what needs attention ---------- */
@@ -127,7 +128,7 @@ interface NowItem {
 /** Waiting on a person first, then problems, work in progress, and finished work last. */
 const RANK: Record<ChipKind, number> = { warn: 0, bad: 1, run: 2, "": 3, neu: 3, ok: 4 };
 
-function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: boolean; failed?: string[] }) {
+function NowList({ items, loading, failed = [], recommendations }: { items: NowItem[]; loading?: boolean; failed?: string[]; recommendations?: ReactNode }) {
   const sorted = [...items].sort((a, b) => RANK[a.kind] - RANK[b.kind]);
   // a finished migration is there to read, not to act on
   const open = items.filter((it) => it.kind !== "ok").length;
@@ -154,9 +155,10 @@ function NowList({ items, loading, failed = [] }: { items: NowItem[]; loading?: 
         </ul>
       ) : (
         // with a source missing, "nothing to check" could be wrong: the failure line below says why instead
-        failed.length === 0 && (loading ? <Skeleton rows={2} /> : <p className="hint ov-none">지금 확인할 것이 없습니다.</p>)
+        !recommendations && failed.length === 0 && (loading ? <Skeleton rows={2} /> : <p className="hint ov-none">지금 확인할 것이 없습니다.</p>)
       )}
       {failed.length > 0 && <p className="hint ov-none">{failed.join(", ")}을 불러오지 못해 빠진 항목이 있을 수 있습니다.</p>}
+      {recommendations}
     </section>
   );
 }

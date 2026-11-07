@@ -58,6 +58,43 @@ function setup(registered = false, envs: Environment[] | null = environments, vi
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); initAuth(); });
 
+it("prefills a recommendation's registered target without starting a migration", async () => {
+  const { calls } = setup(true, environments, false);
+  window.location.hash = "#migrate-app?app=moimroom-mig&source=eks&target=onprem";
+  render(<Migrate />);
+  await waitFor(() => expect(screen.getByLabelText("원본")).toHaveValue("AWS EKS (지금 쓰기를 받는 곳)"));
+  expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("onprem");
+  expect(calls.every(c => c.method === "GET")).toBe(true);
+});
+
+it("does not prefill an outdated recommendation after the source changed", async () => {
+  setup(true, environments, false);
+  window.location.hash = "#migrate-app?app=moimroom-mig&source=gke&target=onprem";
+  render(<Migrate />);
+  await screen.findByText(/추천 이후 원본 환경이 바뀌었습니다/);
+  expect(screen.getByLabelText("원본")).toHaveValue("AWS EKS");
+  expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("gke");
+  expect(screen.getByText(/추천 이후 원본 환경이 바뀌었습니다/)).toBeInTheDocument();
+});
+
+it("does not prefill an unregistered recommended target", async () => {
+  setup(false, environments, false);
+  window.location.hash = "#migrate-app?app=moimroom-mig&source=eks&target=onprem";
+  render(<Migrate />);
+  await screen.findByText(/추천 대상이 현재 앱에 등록되어 있지 않습니다/);
+  expect(screen.getByLabelText("원본")).toHaveValue("AWS EKS");
+  expect(screen.getByLabelText("옮겨 갈 환경")).toHaveValue("gke");
+  expect(screen.getByText(/추천 대상이 현재 앱에 등록되어 있지 않습니다/)).toBeInTheDocument();
+});
+
+it("does not use a database-role fallback as confirmation of a recommendation's source", async () => {
+  setup(true, environments, false, app(true), null);
+  window.location.hash = "#migrate-app?app=moimroom-mig&source=gke&target=onprem";
+  render(<Migrate />);
+  await screen.findByText(/게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해/);
+  expect(screen.getByLabelText("옮겨 갈 환경")).not.toHaveValue("onprem");
+});
+
 it("shows settings without a map until the server accepts AI execution, then keeps the map while sessions lag", async () => {
   let accept!: (value: Response) => void;
   const response = new Promise<Response>((resolve) => { accept = resolve; });

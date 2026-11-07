@@ -69,6 +69,7 @@ import type {
 } from "./types";
 import type { OnpremEnrollment, OnpremEnrollmentCreated, OnpremEnrollmentCreateRequest } from "./onprem";
 import { isAIServiceTopology } from "../data/aiServices";
+import { recommendationReport } from "../data/recommendations";
 
 /** An API failure. `status` is 0 when no HTTP response arrived (timeout, network, CORS). */
 export class ApiError extends Error {
@@ -269,6 +270,14 @@ async function request<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: strin
 
 export const getHealth = (o?: RequestOptions) => request<Health>("GET", "/healthz", o);
 export const getMe = (o?: RequestOptions) => request<Principal>("GET", "/v1/me", o);
+
+/** Entry/refresh may start one cached analysis; status reads never start a job. */
+export const getMigrationRecommendations = (statusOnly = false, o?: RequestOptions) =>
+  request<unknown>("GET", "/v1/migration-recommendations" + (statusOnly ? "/status" : ""), o).then(value => {
+    const result = recommendationReport(value);
+    if (!result) throw new ApiError(502, "invalid_recommendations", "이전 추천 응답을 확인하지 못했습니다.");
+    return result;
+  });
 
 // --- auth ---
 
