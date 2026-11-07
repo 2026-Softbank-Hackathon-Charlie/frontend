@@ -488,8 +488,15 @@ function appOfHash(): string {
 export interface AIRunView {
   available: boolean;
   latest?: AIRun;
+  /** A start response accepted on this page, before its Plan arrives. Not a fabricated agent session. */
+  current?: AIRun;
   running: boolean;
   start(): void;
+}
+
+function planFromAIRun(plan: PlanRecord, job: AIRun, namespace?: string): boolean {
+  return !!namespace && touches(namespace, plan.summary) && isAfter(plan.submittedAt, job.createdAt)
+    && plan.summary.source.env === job.source && plan.summary.target.env === job.target;
 }
 
 export function useLiveMigration(): MigrationView {
@@ -503,6 +510,8 @@ export function useLiveMigration(): MigrationView {
   const [planRef, setPlanRef] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [engine, setEngine] = useState<EnginePlan | undefined>();
+  const [acceptedAI, setAcceptedAI] = useState<AIRun>();
+  const [acceptedPlan, setAcceptedPlan] = useState<PlanRecord>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [startKey, setStartKey] = useState(newIdempotencyKey);
@@ -552,7 +561,7 @@ export function useLiveMigration(): MigrationView {
     if (pending) setPlanRef(pending.ref);
   }, [enabled, runs.data, plans.data, runId, planRef, dismissed, ns]);
 
-  const plan = plans.data?.find((p) => p.ref === planRef);
+  const plan = plans.data?.find((p) => p.ref === planRef) ?? (acceptedPlan?.ref === planRef ? acceptedPlan : undefined);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
   const mineRuns = ns ? (runs.data ?? []).filter((r) => touches(ns, r)) : [];
@@ -563,6 +572,8 @@ export function useLiveMigration(): MigrationView {
   const watch = useRun(enabled ? runId : null, revived.epoch);
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
   const aiRuns = useAIRuns(app?.name, 5000);
+  const accepted = acceptedAI?.app === app?.name ? (aiRuns.data?.find((r) => r.name === acceptedAI.name) ?? acceptedAI) : undefined;
+  const currentAI = accepted && (!plan || !planFromAIRun(plan, accepted, ns)) ? accepted : undefined;
   const envs = app ? migrationEnvironments(app) : [];
   const databaseEnvs = app?.environments.map((e) => e.env) ?? [];
   const databaseless = !!app && isDatabaselessApp(app);
@@ -590,6 +601,17 @@ export function useLiveMigration(): MigrationView {
   // its latest state while it is still among the newest sessions, else the last one seen
   const planning = tracked ? (recent.data?.find((s) => s.id === tracked.id) ?? tracked) : undefined;
   useEffect(() => {
+    if (!currentAI || !ns) return;
+    const submitted = [...(plans.data ?? [])]
+      .filter((p) => p.status === "pending_approval" && planFromAIRun(p, currentAI, ns))
+      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
+    if (submitted) {
+      setTracked(undefined);
+      setSelected(null);
+      setPlanRef(submitted.ref);
+    }
+  }, [currentAI, plans.data, ns]);
+  useEffect(() => {
     if (!planning || !ns) return;
     // only this app's Plan: another app's Plan submitted meanwhile (another operator's migration) is not this session's
     const submitted = [...(plans.data ?? [])]
@@ -600,7 +622,7 @@ export function useLiveMigration(): MigrationView {
     setSelected(null);
     setPlanRef(submitted.ref);
   }, [planning, plans.data, ns]);
-  const ofPlan = useMemo(() => (enabled && planRef && !planning ? (sessions.data ?? []) : []), [enabled, planRef, planning, sessions.data]);
+  const ofPlan = useMemo(() => (enabled && planRef && !planning && !currentAI ? (sessions.data ?? []) : []), [enabled, planRef, planning, currentAI, sessions.data]);
   const linked = useLinkedPlanSession(ofPlan);
   const sessionList = useMemo(() => {
     if (planning) return [planning];
@@ -615,7 +637,7 @@ export function useLiveMigration(): MigrationView {
   // Before a plan: the source is where the gateway sends the app's writes now, so a second migration starts where the
   // first one left the database. A DB app may fall back to its configured database role with a visible note.
   // A database-free app has no DB role to fall back to: it requires an observed gateway backend.
-  const choosing = !run && !plan;
+  const choosing = !run && !plan && !currentAI;
   const traffic = useTraffic(5000, undefined, app?.name, enabled && choosing && !!app);
   const trafficFailed = !!traffic.error;
   const srcLoading = choosing && !!app && traffic.loading;
@@ -625,7 +647,7 @@ export function useLiveMigration(): MigrationView {
   // A database-free migration is a traffic move: only an observed member backend establishes its source.
   const observedSource = trafficFailed ? undefined : traffic.data?.writeBackend;
   const chosenSource = databaseless ? (observedSource && envs.includes(observedSource) ? observedSource : "") : (currentPrimary(databaseEnvs, topology, observedSource) ?? databaseEnvs[0] ?? "");
-  const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : chosenSource);
+  const src = run?.source.env ?? currentAI?.source ?? plan?.summary.source.env ?? (srcLoading ? "" : chosenSource);
   const srcNote =
     choosing && databaseless && !srcLoading && !chosenSource
       ? "DB가 없는 앱의 현재 쓰기 대상을 게이트웨이에서 확인하지 못했습니다. 원본을 추정하지 않으며 확인 전에는 계획을 만들 수 없습니다."
@@ -633,7 +655,7 @@ export function useLiveMigration(): MigrationView {
       ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
       : undefined;
   const targets = migrationTargets(envs, environments.data, src);
-  const target = run?.target.env ?? plan?.summary.target.env ?? (targets.some((e) => e.value === tgt) ? tgt : targets.find((e) => e.registered)?.value ?? targets[0]?.value ?? "");
+  const target = run?.target.env ?? currentAI?.target ?? plan?.summary.target.env ?? (targets.some((e) => e.value === tgt) ? tgt : targets.find((e) => e.registered)?.value ?? targets[0]?.value ?? "");
   const preparation = choosing && app
     ? envs.length < 2
       ? "이 앱은 이전할 환경이 두 곳 이상 필요합니다. 앱 상세에서 다른 환경을 추가하고 배포 상태를 확인하세요."
@@ -670,7 +692,7 @@ export function useLiveMigration(): MigrationView {
   // operator sees why and can start again, instead of falling back to the setup form.
   // A plan session hopai is writing for this app shows as the AI step until its Plan arrives, ahead of
   // an older Plan the page may have picked up.
-  const stage: MigrationView["stage"] = run ? "run" : planning ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
+  const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
 
   return {
     live: true,
@@ -705,7 +727,7 @@ export function useLiveMigration(): MigrationView {
       setPlanRef(r.planRef);
     },
     // while a plan session is on screen, an older Plan the page picked up is not the one being written
-    plan: planning ? undefined : plan,
+    plan: planning || currentAI ? undefined : plan,
     engine,
     sessions: sessionList,
     sessionEvents: (id) => (id === follow ? ses.events : (stored.events[id] ?? [])),
@@ -723,14 +745,16 @@ export function useLiveMigration(): MigrationView {
     aiRun: {
       // only once the server answered the list: without the runner it answers 503, an older platform 404
       available: aiRuns.data !== undefined,
-      latest: aiRuns.data?.[0],
-      running: aiRuns.data?.[0]?.status === "running",
+      latest: currentAI ?? aiRuns.data?.[0],
+      current: currentAI,
+      running: (currentAI ?? aiRuns.data?.[0])?.status === "running",
       start: () =>
         act(async () => {
           if (!app) return;
           if (!src || src === target || !envs.includes(target) || preparation) throw new ApiError(409, "app_environment_required", preparation ?? "이전 대상 환경을 앱에 먼저 추가하고 원본 상태를 확인하세요.");
           setAppName(app.name);
-          await startAIRun({ app: app.name, source: src, target });
+          const accepted = await startAIRun({ app: app.name, source: src, target });
+          setAcceptedAI(accepted);
           aiRuns.reload();
         }),
     },
@@ -742,6 +766,7 @@ export function useLiveMigration(): MigrationView {
         const draft = await draftPlan({ app: app.name, source: src, target });
         setEngine(draft);
         const rec = await submitPlan(draft);
+        setAcceptedPlan(rec);
         setPlanRef(rec.ref);
         setStartKey(newIdempotencyKey());
         plans.reload();
@@ -766,6 +791,8 @@ export function useLiveMigration(): MigrationView {
       act(async () => {
         if (!plan) return;
         await rejectPlan(plan.ref, { comment: "운영자 반려" });
+        setAcceptedAI(undefined);
+        setAcceptedPlan(undefined);
         setPlanRef(null);
         plans.reload();
       }),
@@ -793,6 +820,8 @@ export function useLiveMigration(): MigrationView {
 
   /** Leaves the run or plan on screen for the setup form. */
   function clear() {
+    setAcceptedAI(undefined);
+    setAcceptedPlan(undefined);
     setTracked(undefined);
     setSelected(null);
     setRunId(null);

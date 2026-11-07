@@ -5,6 +5,7 @@ import type { AgentSession, App, PlanRecord, Run } from "../api/types";
 // The live hook reads the platform through these hooks; each test sets what the lists answer.
 const lists: { runs: Run[]; plans: PlanRecord[]; sessions: AgentSession[] } = { runs: [], plans: [], sessions: [] };
 const watched: (string | null)[] = [];
+const startAI = vi.hoisted(() => vi.fn());
 const res = <T,>(data: T | undefined) => ({ data, error: undefined, loading: false, reload: () => {} });
 const app = { name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: ["gke", "eks"].map((env) => ({ env, cnpgCluster: "shop-db", dbHost: "h" })) } as App;
 
@@ -24,7 +25,7 @@ vi.mock("../api/hooks", async (orig) => ({
   useTraffic: () => res(undefined),
 }));
 vi.mock("./live", async (orig) => ({ ...(await orig<typeof import("./live")>()), usePlans: () => res(lists.plans) }));
-vi.mock("../api/client", async (orig) => ({ ...(await orig<typeof import("../api/client")>()), listAudit: () => Promise.resolve({ entries: [] }) }));
+vi.mock("../api/client", async (orig) => ({ ...(await orig<typeof import("../api/client")>()), startAIRun: startAI, listAudit: () => Promise.resolve({ entries: [] }) }));
 
 const { useLiveMigration } = await import("./migration");
 
@@ -44,6 +45,7 @@ beforeEach(() => {
   lists.plans = [];
   lists.sessions = [];
   watched.length = 0;
+  startAI.mockReset();
   window.location.hash = "#migrate-app?app=shop";
 });
 
@@ -76,6 +78,24 @@ describe("the live migration page follows a run started elsewhere", () => {
 });
 
 describe("the Plan an AI planning session submits", () => {
+  it("keeps an accepted AI request apart from a newer Plan for the same app in the reverse direction", async () => {
+    startAI.mockResolvedValue({ name: "job-new", app: "shop", source: "gke", target: "eks", status: "running", requestedBy: "op", createdAt: "2026-11-07T00:00:00Z" });
+    const { result, rerender } = renderHook(() => useLiveMigration());
+    await act(async () => { result.current.aiRun?.start(); });
+    expect(result.current.stage).toBe("ai");
+    const original = plan({ submittedAt: "2026-11-07T00:01:00Z" });
+    lists.plans = [{ ...original, ref: "pln_reverse", summary: { ...original.summary, source: original.summary.target, target: original.summary.source } }];
+    act(() => rerender());
+    expect(result.current.stage).toBe("ai");
+    expect(result.current.plan).toBeUndefined();
+    expect(result.current.src).toBe("gke");
+    expect(result.current.tgt).toBe("eks");
+    lists.plans = [plan({ ref: "pln_expected", submittedAt: "2026-11-07T00:02:00Z" }), ...lists.plans];
+    act(() => rerender());
+    expect(result.current.stage).toBe("review");
+    expect(result.current.plan?.ref).toBe("pln_expected");
+    expect(result.current.aiRun?.current).toBeUndefined();
+  });
   it("is this app's Plan, not another app's Plan submitted meanwhile", () => {
     lists.sessions = [fakeAgentSession({ id: "ags_p", title: "shop 이전 계획 (gke → eks)", createdAt: "2026-11-07T00:00:00Z" })];
     const { result, rerender } = renderHook(() => useLiveMigration());

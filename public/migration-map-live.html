@@ -84,9 +84,12 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .lbl{font-size:12px;color:var(--sb-text-muted);font-weight:600}
 
 /* stepper (progress bar) */
-.stepscroll{overflow-x:auto;margin-top:8px}
-.steps{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.steps li{display:flex;flex-direction:column;gap:6px;cursor:default}
+.stepscroll{margin-top:8px;min-width:0}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
+.steps li{display:flex;flex-direction:column;gap:6px;min-width:0;padding:10px;border:1px solid var(--sb-border-subtle);border-radius:var(--radius);cursor:default}
+.steps li.cur{border-color:var(--st-info);background:var(--sb-surface-alt)}
+.steps li.wait,.steps li.warn{border-color:var(--st-warn)}
+.steps li.fail{border-color:var(--st-crit)}
 .steps .bar{height:6px;background:var(--sb-border-subtle);border-radius:var(--radius);overflow:hidden;display:block;position:relative}
 .steps .bar i{display:block;height:100%;width:0;background:var(--st-ok);transition:width .3s}
 .steps .nm{font-size:12px;color:var(--sb-text-muted);font-weight:500;line-height:1.4}
@@ -97,13 +100,11 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .steps li.fail .nm{color:var(--st-crit);font-weight:700}
 .steps li.skip .nm{text-decoration:line-through;text-decoration-color:var(--sb-silver)}
 .steps li.warn .nm{color:var(--st-warn)}
-.steps .group{font-size:11px;color:var(--sb-text-muted);font-family:var(--font-mono);height:16px}
+.steps .group{font-size:11px;color:var(--sb-text-muted);font-family:var(--font-mono);line-height:1.4}
 .stephead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
 .stephead .seg button{font-size:13px;padding:3px 12px}
-.steps.detail li.gs{margin-left:14px;padding-left:10px;border-left:1px solid var(--sb-border-subtle)}
 /* labels wrap inside their own column instead of running into the next step (long Japanese labels too) */
-.steps.detail .group{white-space:nowrap}
-.steps.detail .nm{word-break:keep-all;overflow-wrap:anywhere}
+.steps .nm,.steps .group,.steps .cs{word-break:keep-all;overflow-wrap:anywhere}
 .steps.simple{gap:12px}
 .steps.simple .segs{display:flex;gap:2px}
 .steps.simple .segs .bar{flex:1}
@@ -113,13 +114,13 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .steps.simple li.wait .cs{color:var(--st-warn)}
 .steps.simple li.fail .cs{color:var(--st-crit)}
 .steps[hidden]{display:none}
-/* bar fill per state. A step at work has no measured percentage, so its bar sweeps instead of filling to a number. */
+.progress-summary{margin:8px 0;font-size:13px;line-height:1.6;overflow-wrap:anywhere;color:var(--sb-text-strong)}
+/* Each segment is a recorded step status, not a time-based percentage. */
 .bar i.d{width:100%!important;background:var(--st-ok)}
 .bar i.s{width:100%!important;background:var(--sb-silver)}
 .bar i.w{width:100%!important;background:var(--st-warn)}
 .bar i.f{width:100%!important;background:var(--st-crit)}
-.bar i.c{width:40%!important;background:var(--st-info);animation:sweep 1.4s ease-in-out infinite}
-@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+.bar i.c{width:100%!important;background:repeating-linear-gradient(110deg,var(--st-info) 0 6px,var(--sb-surface-alt) 6px 10px)}
 
 /* map */
 .mapwrap{overflow-x:auto;margin-top:12px;border:1px solid var(--sb-border-subtle);border-radius:var(--radius);background:var(--sb-surface-alt)}
@@ -280,6 +281,7 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
         <button type="button" data-view="detail" aria-controls="validations" aria-pressed="false">상세</button>
       </div>
     </div>
+    <p class="progress-summary" id="progressSummary" role="status" aria-live="polite" aria-atomic="true"></p>
     <div class="stepscroll">
       <ol class="steps simple" id="stepsSimple" aria-label="이주 단계 (간략)"></ol>
       <ol class="steps detail" id="steps" aria-label="이주 단계 (상세)" hidden></ol>
@@ -476,31 +478,36 @@ let stepsKey = '';
 function buildSteps(s){
   const ol=$('steps'); ol.replaceChildren();
   s.phases.forEach((p,i)=>{
-    const first = i===0 || s.phases[i-1].group!==p.group;
     const li=document.createElement('li');
-    li.dataset.gs = first && i>0 ? 'gs' : '';
-    li.innerHTML='<span class="group"></span><span class="bar"><i></i></span><span class="nm"><b></b><span></span></span>';
-    li.querySelector('.group').textContent = first ? p.group : '';
+    li.innerHTML='<span class="group"></span><span class="bar" aria-hidden="true"><i></i></span><span class="nm"><b></b><span></span></span><span class="cs"></span>';
+    li.querySelector('.group').textContent = p.group;
     li.querySelector('.nm b').textContent = String(i+1).padStart(2,'0');
     li.querySelector('.nm span').textContent = p.label;
     ol.appendChild(li);
   });
-  ol.style.gridTemplateColumns = `repeat(${s.phases.length}, minmax(86px,1fr))`;
-  ol.style.minWidth = s.phases.length*94 + 'px';
   const os=$('stepsSimple'); os.replaceChildren();
   groupsOf(s).forEach((g,gi)=>{
     const li=document.createElement('li');
-    li.innerHTML=`<span class="segs">${g.idx.map(()=>'<span class="bar"><i></i></span>').join('')}</span><span class="nm"><b></b><span></span></span><span class="cs"></span>`;
+    li.innerHTML=`<span class="segs" aria-hidden="true">${g.idx.map(()=>'<span class="bar"><i></i></span>').join('')}</span><span class="nm"><b></b><span></span></span><span class="cs"></span>`;
     li.querySelector('.nm b').textContent = String(gi+1).padStart(2,'0');
     li.querySelector('.nm span').textContent = g.name;
     os.appendChild(li);
   });
-  os.style.gridTemplateColumns = `repeat(${groupsOf(s).length}, minmax(96px,1fr))`;
-  os.style.minWidth = groupsOf(s).length*108 + 'px';
   stepsKey = s.phases.map(p=>p.key).join(',');
 }
 function groupsOf(s){ const G=[]; s.phases.forEach((p,i)=>{ let g=G.find(x=>x.name===p.group); if(!g){ g={name:p.group, idx:[]}; G.push(g); } g.idx.push(i); }); return G; }
 const BAR = { done:'d', cur:'c', wait:'w', fail:'f', skip:'s', todo:'', warn:'w' };
+const STEP_STATE = { done:'완료', cur:'진행 중', wait:'대기', fail:'실패', skip:'건너뜀', todo:'시작 전', warn:'판단 보류' };
+function renderProgress(s){
+  const p=s.progress;
+  if (!p) return;
+  const summary=[p.label, `완료 ${p.completed}/${p.total}단계`];
+  if (p.current) summary.push('현재: '+p.current);
+  if (p.skipped) summary.push('건너뜀 '+p.skipped);
+  if (p.unconfirmed) summary.push('판단 보류 '+p.unconfirmed);
+  if (s.stale) summary.push('연결 끊김 · 마지막 수신 상태');
+  $('progressSummary').textContent=summary.join(' · ');
+}
 function setView(v){
   $('validations').hidden = v!=='detail';
   $('stepsSimple').hidden = v!=='simple'; $('steps').hidden = v!=='detail';
@@ -575,9 +582,10 @@ function render(s){
   const bn = $('banners'); const bkey = JSON.stringify(s.banners);
   if (bn.dataset.k !== bkey){ bn.dataset.k = bkey; bn.replaceChildren(...s.banners.map(b=>{ const d=document.createElement('div'); d.className='banner '+b.cls; d.textContent=b.title; if (b.text){ const p=document.createElement('p'); p.textContent=b.text; d.appendChild(p); } return d; })); }
   // steps
+  renderProgress(s);
   if (stepsKey !== s.phases.map(p=>p.key).join(',')) buildSteps(s);
   const lis=$('steps').children;
-  s.phases.forEach((p,k)=>{ const li=lis[k]; li.className=(li.dataset.gs+' '+p.st).trim(); li.querySelector('i').className=BAR[p.st]; li.setAttribute('aria-current', k===s.cur?'step':'false'); li.title = p.label + (p.dur ? ' · '+p.dur : ''); });
+  s.phases.forEach((p,k)=>{ const li=lis[k]; li.className=p.st; li.querySelector('i').className=BAR[p.st]; const state=STEP_STATE[p.st]; li.querySelector('.cs').textContent=state+(p.dur?' · '+p.dur:''); li.setAttribute('aria-current', k===s.cur && ['cur','wait','fail'].includes(p.st)?'step':'false'); li.title = p.label+' · '+state+(p.dur?' · '+p.dur:''); });
   const gl=$('stepsSimple').children;
   groupsOf(s).forEach((g,gi)=>{
     const li=gl[gi], bars=li.querySelectorAll('.bar i');
@@ -585,12 +593,13 @@ function render(s){
     st.forEach((c,j)=>{ bars[j].className=BAR[c]; });
     const at=g.idx.indexOf(s.cur);
     const past = st.every(c=>c==='done'||c==='skip'||c==='warn');
+    const counts=`완료 ${st.filter(c=>c==='done').length}/${st.length}`;
     let c='', cs='';
-    if (past){ c='done'; cs='완료'; }
-    else if (at>=0){ c=st[at]; cs=(g.idx.length>1?`${at+1}/${g.idx.length} · `:'') + (c==='fail'?'실패':c==='wait'?'승인 대기':s.phases[s.cur].label); }
+    if (past){ c=st.includes('warn')?'warn':'done'; cs=st.includes('warn')?'판단 보류 포함':st.includes('skip')?'건너뜀 포함':'완료'; }
+    else if (at>=0 && st[at]!=='todo'){ c=st[at]; cs=STEP_STATE[c]+' · '+s.phases[s.cur].label; }
     else if (st.includes('fail')){ c='fail'; cs='실패'; }
-    else cs = g.idx.length>1 ? g.idx.length+'단계' : '';
-    li.className=c; li.querySelector('.cs').textContent=cs; li.setAttribute('aria-current', at>=0?'step':'false');
+    else cs = '시작 전';
+    li.className=c; li.querySelector('.cs').textContent=counts+' · '+cs; li.setAttribute('aria-current', at>=0 && ['cur','wait','fail'].includes(st[at])?'step':'false');
   });
   // toolbar: the real commands the state allows
   const ak = JSON.stringify([s.actions, s.busy]);

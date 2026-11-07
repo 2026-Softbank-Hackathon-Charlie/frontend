@@ -12,7 +12,7 @@ import { EmptyShop, EnvLabel, EnvRoute, RESULT_KIND, RUN_SHORT } from "../compon
 import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
-import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
+import { Chip, Ind, LogBox, PageHead, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
 import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
@@ -238,27 +238,6 @@ function SimMigrate() {
   return <MigrateView v={useSimMigration()} />;
 }
 
-// The setup screen's order: one line each, the full text folded below.
-const PROG: [string, string, string, string][] = [
-  ["AI 계획", "읽기 전용 도구로 두 클러스터를 조회해 Plan을 만듭니다.", "AI가 읽기 전용 도구로 두 클러스터를 조회하고 엔진 Plan을 만듭니다. 플랫폼이 검사한 뒤 승인 대기로 올립니다.", "자동"],
-  ["리허설", "샌드박스에서 미리 실행하고, 실패하면 AI가 고칩니다.", "대상 클러스터의 격리된 샌드박스에서 테스트 데이터로 미리 실행합니다. 실패하면 AI가 원인을 진단하고 수정안을 Plan 첨부로 올립니다.", "자동"],
-  ["승인", "화면에 보이는 Plan revision을 운영자가 승인합니다.", "화면에 보이는 Plan revision을 승인합니다. 그사이 첨부가 바뀌면 승인이 거절되고 다시 확인해야 합니다.", "운영자"],
-  [
-    "시작 전 검사",
-    "레지던시와 대상 용량을 확인한 뒤 시작합니다.",
-    "플랫폼이 원본의 전체 테이블과 버킷을 데이터 레지던시 정책에 대보고, 대상 접속 한도와 대기 서버 설정(대상이 원본의 대기 서버로 뜰 수 있는지)을 원본과 비교하고, 복제 따라잡기를 몇 초 동안 잽니다. 명백히 실패할 이전은 시작하지 않습니다.",
-    "자동",
-  ],
-  [
-    "실행",
-    "동기화, 읽기 카나리, 전환, 검증 순서로 진행합니다.",
-    "동기화(사전 확인, 대상 준비, 초기 복사, 변경분)를 마치면 읽기 카나리로 읽기 일부를 대상에 보내 봅니다(기본 " +
-      CANARY.weights.join("%, ") +
-      "%, 승인할 때 7단계 점진 카나리 선택 가능). 그다음 전환 승인을 기다리고, 승인하면 쓰기 보류, 승격, 전환을 거쳐 검증합니다.",
-    "3분 이내",
-  ],
-];
-
 function MigrateView({ v }: { v: MigrationView }) {
   const live = v.live;
   const { gkeDemoApp, setApp } = v;
@@ -290,77 +269,55 @@ function MigrateView({ v }: { v: MigrationView }) {
         <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<HeadActs v={v} />} />
         <Notice text={v.notice} />
         {v.preparation && <div id="mig-preparation" className="box tone-warn" role="status"><div className="bb"><p>{v.preparation}</p>{!needsEnvironment && <a className="btn ghost" href={"#app-" + encodeURIComponent(v.app)}>앱 환경 추가 화면 열기</a>}</div></div>}
-        <div className="split">
-          <div className="box">
-            <div className="bh">
-              <b>이전 설정</b>
-            </div>
-            <div className="bb">
-              <div className="form">
-                <div className="field">
-                  <label htmlFor="mig-src">원본</label>
-                  <input id="mig-src" value={v.srcLabel + (v.src && !v.srcNote ? " (지금 쓰기를 받는 곳)" : "")} readOnly aria-describedby={v.srcNote ? "mig-src-note" : undefined} />
-                  {v.srcNote && <small id="mig-src-note">{v.srcNote}</small>}
-                </div>
-                <div className="field">
-                  <label htmlFor="mig-target">옮겨 갈 환경</label>
-                  <select
-                    id="mig-target"
-                    value={v.tgt}
-                    onChange={(e) => v.setTarget(e.target.value)}
-                    aria-describedby={[gkeDemoApp && setApp ? "mig-gke-demo-note" : "", v.targetSetup ? "mig-target-registration" : ""].filter(Boolean).join(" ") || undefined}
-                  >
-                    {v.targets.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}{o.registered === false ? " (앱 환경 추가 필요)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {v.targetsError && <small role="status">{v.targetsError}</small>}
-                  {v.targetSetup && <div id="mig-target-registration" aria-live="polite">
-                    {needsEnvironment && <>
-                      <p>이 앱에 등록되지 않은 환경입니다. 클러스터가 연결돼 있어도 앱과 DB가 배포된 것은 아닙니다. 이전하기 전에 앱 환경을 추가하세요.</p>
-                      {v.targetSetup.addHref ? <a className="btn sm ghost" href={v.targetSetup.addHref}>앱 환경 추가 화면 열기</a> : <p className="hint">이 앱은 파일로 관리됩니다. 운영자가 앱의 환경 설정을 추가해야 합니다.</p>}
-                      <p className="hint">앱 상세에서 환경 추가를 선택하세요. DB 복제 원본 역할과 환경 수 제한은 서버가 확인하며, 이 화면에서 자동으로 환경을 추가하거나 DB를 전환하지 않습니다.</p>
-                    </>}
-                    {v.targetSetup.status ? <>
-                      <p className="hint">클러스터 연결: {v.targetSetup.status.reachable ? "연결됨" : "연결 안 됨"} · 관측 시각 <time dateTime={v.targetSetup.status.checkedAt}>{new Date(v.targetSetup.status.checkedAt).toLocaleString("ko-KR")}</time></p>
-                      {v.targetSetup.status.error && <p className="hint">{v.targetSetup.status.error}</p>}
-                    </> : <p className="hint">클러스터 연결 상태는 미확인입니다. 앱 등록 여부와 별도로 실행 전에 다시 검사합니다.</p>}
-                  </div>}
-                  {gkeDemoApp && setApp && (
-                    <>
-                      <small id="mig-gke-demo-note">현재 앱에는 GKE 대상이 등록되어 있지 않습니다.</small>
-                      <div>
-                        <button type="button" className="btn sm ghost" disabled={v.busy} onClick={() => setApp(gkeDemoApp)}>
-                          시연용 moimroom-mig 열기
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
+        <div className="box">
+          <div className="bh">
+            <b>이전 설정</b>
+          </div>
+          <div className="bb">
+            <div className="form">
+              <div className="field">
+                <label htmlFor="mig-src">원본</label>
+                <input id="mig-src" value={v.srcLabel + (v.src && !v.srcNote ? " (지금 쓰기를 받는 곳)" : "")} readOnly aria-describedby={v.srcNote ? "mig-src-note" : undefined} />
+                {v.srcNote && <small id="mig-src-note">{v.srcNote}</small>}
+              </div>
+              <div className="field">
+                <label htmlFor="mig-target">옮겨 갈 환경</label>
+                <select
+                  id="mig-target"
+                  value={v.tgt}
+                  onChange={(e) => v.setTarget(e.target.value)}
+                  aria-describedby={[gkeDemoApp && setApp ? "mig-gke-demo-note" : "", v.targetSetup ? "mig-target-registration" : ""].filter(Boolean).join(" ") || undefined}
+                >
+                  {v.targets.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}{o.registered === false ? " (앱 환경 추가 필요)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {v.targetsError && <small role="status">{v.targetsError}</small>}
+                {v.targetSetup && <div id="mig-target-registration" aria-live="polite">
+                  {needsEnvironment && <>
+                    <p>이 앱에 등록되지 않은 환경입니다. 클러스터가 연결돼 있어도 앱과 DB가 배포된 것은 아닙니다. 이전하기 전에 앱 환경을 추가하세요.</p>
+                    {v.targetSetup.addHref ? <a className="btn sm ghost" href={v.targetSetup.addHref}>앱 환경 추가 화면 열기</a> : <p className="hint">이 앱은 파일로 관리됩니다. 운영자가 앱의 환경 설정을 추가해야 합니다.</p>}
+                    <p className="hint">앱 상세에서 환경 추가를 선택하세요. DB 복제 원본 역할과 환경 수 제한은 서버가 확인하며, 이 화면에서 자동으로 환경을 추가하거나 DB를 전환하지 않습니다.</p>
+                  </>}
+                  {v.targetSetup.status ? <>
+                    <p className="hint">클러스터 연결: {v.targetSetup.status.reachable ? "연결됨" : "연결 안 됨"} · 관측 시각 <time dateTime={v.targetSetup.status.checkedAt}>{new Date(v.targetSetup.status.checkedAt).toLocaleString("ko-KR")}</time></p>
+                    {v.targetSetup.status.error && <p className="hint">{v.targetSetup.status.error}</p>}
+                  </> : <p className="hint">클러스터 연결 상태는 미확인입니다. 앱 등록 여부와 별도로 실행 전에 다시 검사합니다.</p>}
+                </div>}
+                {gkeDemoApp && setApp && (
+                  <>
+                    <small id="mig-gke-demo-note">현재 앱에는 GKE 대상이 등록되어 있지 않습니다.</small>
+                    <div>
+                      <button type="button" className="btn sm ghost" disabled={v.busy} onClick={() => setApp(gkeDemoApp)}>
+                        시연용 moimroom-mig 열기
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-          </div>
-          <div className="box">
-            <div className="bh">
-              <b>진행 순서</b>
-            </div>
-            <ul className="prog">
-              {PROG.map(([t, short, , right]) => (
-                <ProgItem key={t} st="wait" title={t} sub={short} right={right} />
-              ))}
-            </ul>
-            <details className="fold mg-fold mg-progmore">
-              <summary className="bh">
-                <span className="hint">단계별 자세한 설명</span>
-              </summary>
-              <dl className="kv bb">
-                {PROG.map(([t, , full]) => (
-                  <Pair key={t} k={t} v={full} />
-                ))}
-              </dl>
-            </details>
           </div>
         </div>
         {v.live && v.app && <LiveWriteCollection key={v.app} app={v.app} />}
@@ -399,9 +356,7 @@ function MigrateView({ v }: { v: MigrationView }) {
               AI 없이 Plan 작성
             </button>
             <span className="hint" id={!live ? "mig-demo-plan-why" : undefined}>
-              {live
-                ? "플랫폼이 AI 실행기를 띄워 두 클러스터를 조회해 계획하고, 샌드박스에서 리허설한 뒤 승인 대기로 올립니다(3~5분). 진행은 이 화면에 실시간으로 나옵니다."
-                : "데모는 AI 계획·리허설 시나리오를 로컬에서 재현합니다. AI 없이 Plan을 작성하는 기능은 지원하지 않습니다. 실제 AI 실행기나 클라우드를 호출하지 않습니다."}
+              {!live && "데모는 AI 계획·리허설 시나리오를 로컬에서 재현합니다. AI 없이 Plan을 작성하는 기능은 지원하지 않습니다. 실제 AI 실행기나 클라우드를 호출하지 않습니다."}
               <AIRunLine run={v.aiRun?.latest} />
             </span>
           </div>
@@ -417,7 +372,7 @@ function MigrateView({ v }: { v: MigrationView }) {
           </div>
         )}
       </>,
-      <MigrationMapFrame v={v} />,
+      null,
       null,
     );
   }
@@ -437,22 +392,14 @@ function MigrateView({ v }: { v: MigrationView }) {
   );
 }
 
-function Pair({ k, v }: { k: string; v: ReactNode }) {
-  return (
-    <>
-      <dt>{k}</dt>
-      <dd>{v}</dd>
-    </>
-  );
-}
-
 /* ---------- AI plan, rehearsal, approval ---------- */
 
 // Live: the AI runner's plan session before any Plan exists. It stays on screen after it ends until its Plan arrives.
 function PlanBox({ v }: { v: MigrationView }) {
   const s = v.live ? v.sessions[0] : undefined;
-  const failed = s?.status === "failed" || s?.status === "cancelled";
-  const done = s?.status === "succeeded";
+  const job = !s ? v.aiRun?.current : undefined;
+  const failed = s?.status === "failed" || s?.status === "cancelled" || job?.status === "failed";
+  const done = s?.status === "succeeded" || job?.status === "succeeded";
   return (
     <div className="box">
       <div className="bh">
@@ -465,9 +412,9 @@ function PlanBox({ v }: { v: MigrationView }) {
             ? "AI가 Plan을 내지 못하고 끝났습니다" + (s?.summary ? ": " + s.summary : "") + ". 아래 기록에서 이유를 확인하고 AI 실행기를 다시 시작하거나, 설정으로 돌아가 Plan을 작성하세요."
             : done
               ? "AI가 계획을 마쳤습니다. 제출된 Plan이 오면 승인 단계로 넘어갑니다."
-              : "AI가 두 클러스터를 조회하고 있습니다."}
+              : job ? "AI 실행 요청이 수락되었습니다. 실행기의 세션 기록을 기다립니다." : "AI가 두 클러스터를 조회하고 있습니다."}
         </p>
-        {s && s.status !== "running" && (
+        {(s && s.status !== "running" || job && job.status !== "running") && (
           <div className="actrow">
             <button type="button" className="btn ghost" onClick={v.reset}>
               설정으로 돌아가기

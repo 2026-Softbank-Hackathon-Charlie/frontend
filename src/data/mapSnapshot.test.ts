@@ -51,6 +51,31 @@ const snap = (v: MigrationView, traffic?: TrafficState) => buildMapSnapshot(v, {
 const keys = (v: MigrationView) => snap(v).phases.map((p) => p.key);
 
 describe("migration map snapshot: one map from the setup to the end of the run", () => {
+  it.each(["failed", "halted", "rolled_back", "aborted", "interrupted", "succeeded"] as const)("reports %s independently from the count of confirmed steps", (status) => {
+    const s = snap(view({ stage: "run", run: run({ status, phase: "done" }, { steps: { precheck: { status: "succeeded" }, presync: { status: "failed" } } }) }));
+    expect(s.progress.state).toBe(({ failed: "failed", halted: "halted", rolled_back: "rolled_back", aborted: "stopped", interrupted: "stopped", succeeded: "completed" })[status]);
+    expect(s.progress.completed).toBe(s.phases.filter((p) => p.st === "done").length);
+    expect(s.progress.completed).toBeLessThan(s.progress.total);
+    expect(s.phases.some((p) => p.st === "cur")).toBe(false);
+    expect(s.progress).not.toHaveProperty("percent");
+  });
+
+  it("uses server step transitions for active progress and keeps skipped and inconclusive results separate", () => {
+    const s = snap(view({ stage: "run", run: run({ canary: { options: { weights: [10] }, steps: [{ weight: 10, startedAt: at(2), verdict: "inconclusive" }] } }, { steps: { precheck: { status: "succeeded" }, presync: { status: "running" } } }) }));
+    expect(s.progress).toMatchObject({ state: "active", current: s.phases.find((p) => p.key === "presync")!.label, skipped: 1, unconfirmed: 1 });
+  });
+
+  it("waits for accepted AI evidence and exposes a failed Job without fabricating a session", () => {
+    const current = { name: "job", app: "shop", source: "gke", target: "eks", status: "running" as const, requestedBy: "operator", createdAt: at(1) };
+    const pending = snap(view({ stage: "ai", aiRun: { available: true, running: true, current, start: noop } }));
+    expect(pending.progress).toMatchObject({ state: "waiting", completed: 0, current: "AI 계획" });
+    expect(pending.activity).toBe("none");
+    const failed = snap(view({ stage: "ai", aiRun: { available: true, running: false, current: { ...current, status: "failed" }, start: noop } }));
+    expect(failed.progress.state).toBe("failed");
+    expect(failed.phases[0].st).toBe("fail");
+    expect(failed.activity).toBe("none");
+    expect(failed.kpi.pill).toEqual(["no", "AI 실행 실패"]);
+  });
   it("does not infer validation success from a completed migration", () => {
     const s = snap(view({ stage: "run", run: run({ status: "succeeded" }) }));
     expect(s.validations.map(x => x.status)).toEqual(["결과 미수신", "검사 기록 없음"]);
