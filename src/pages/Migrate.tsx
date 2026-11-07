@@ -193,6 +193,16 @@ function Notice({ text }: { text: string }) {
 }
 
 /** Live: which app the page migrates. Switching leaves the run or plan on screen; the other app's own work is picked up. */
+/** The header actions of the setup and the run pages: "open in HyperDX" (live data only, since the demo's app is not in any log) and the app picker. */
+function HeadActs({ v }: { v: MigrationView }) {
+  return (
+    <>
+      {v.live && <HyperDXLink text={v.app} />}
+      <AppPick v={v} />
+    </>
+  );
+}
+
 function AppPick({ v }: { v: MigrationView }) {
   if (!v.apps || !v.setApp) return null;
   const setApp = v.setApp;
@@ -263,7 +273,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   if (v.stage === "setup") {
     return page(
       <>
-        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<><HyperDXLink text={v.app} /><AppPick v={v} /></>} />
+        <PageHead icon="arrow-right-left" title={title} sub="가동 중인 앱을 데이터와 함께 옮깁니다." acts={<HeadActs v={v} />} />
         <Notice text={v.notice} />
         <div className="split">
           <div className="box">
@@ -365,7 +375,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const hero = r ? heroText(v, r, r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt)) : undefined;
   return page(
     <>
-      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<><HyperDXLink text={v.app} /><AppPick v={v} /></>} />
+      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<HeadActs v={v} />} />
       <Wizard v={v} />
       <Notice text={v.notice} />
     </>,

@@ -229,6 +229,43 @@ describe("HopCharlie console (platform API)", () => {
     expect(calls().some((c) => c.url === "/v1/traffic?app=moim")).toBe(true);
   });
 
+  describe("open in HyperDX", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("links the live migration page to a search for the app, only with an address configured", async () => {
+      vi.stubEnv("VITE_HYPERDX_URL", "https://hyperdx.example/");
+      twoApps(() => trafficTo("eks"));
+      storeSession();
+      setup("", "live");
+      window.location.hash = "#migrate-app?app=moim";
+      expect(await screen.findByRole("heading", { level: 1, name: "moim 이전" })).toBeInTheDocument();
+      const link = await screen.findByRole("link", { name: /HyperDX에서 보기/ });
+      const url = new URL(link.getAttribute("href")!);
+      expect(url.origin + url.pathname).toBe("https://hyperdx.example/search");
+      expect(url.searchParams.get("where")).toBe("moim");
+      expect(link).toHaveAttribute("target", "_blank");
+    });
+
+    it("draws no link without an address", async () => {
+      vi.stubEnv("VITE_HYPERDX_URL", "");
+      twoApps(() => trafficTo("eks"));
+      storeSession();
+      setup("", "live");
+      window.location.hash = "#migrate-app?app=moim";
+      expect(await screen.findByRole("heading", { level: 1, name: "moim 이전" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /HyperDX에서 보기/ })).toBeNull();
+    });
+
+    it("draws no link in the demo, whose app is in no log", async () => {
+      vi.stubEnv("VITE_HYPERDX_URL", "https://hyperdx.example");
+      const { user } = setup();
+      await user.click(screen.getByRole("link", { name: /^이전$/ }));
+      await user.click(await screen.findByRole("button", { name: "가져오기 완료 상태로 건너뛰기" }));
+      expect(await screen.findByRole("heading", { level: 1, name: "moimroom 이전" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /HyperDX에서 보기/ })).toBeNull();
+    });
+  });
+
   it.each(["gke", "onprem"])("offers the GKE rehearsal shortcut for the registered %s target only", async (demoTarget) => {
     const eks = moim.environments[0];
     const onprem = { env: "onprem", cnpgCluster: "moimroom-db-onprem", dbHost: "c" };
