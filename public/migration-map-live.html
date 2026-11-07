@@ -128,6 +128,7 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .lane.target .lane-box{stroke:var(--sb-border-control)}
 .lane.dim{opacity:.32}
 .lane-silver{fill:none;stroke:var(--sb-silver);stroke-width:3}
+/* services that sit in a cloud (static: what the catalog and the clusters hold, not a live probe), and the AI call out to Claude */
 .lane-t{font-family:var(--font-ui);font-size:14px;font-weight:700;fill:var(--sb-text-strong)}
 .lane-r{font-family:var(--font-mono);font-size:11px;fill:var(--sb-text-muted)}
 .lane-tag{font-family:var(--font-ui);font-size:11px;font-weight:700}
@@ -175,10 +176,13 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .pt-row{fill:var(--st-ok)}
 .pt-obj{fill:var(--sb-canvas);stroke:var(--st-ok);stroke-width:2.5px;stroke-linejoin:round;stroke-linecap:round}
 .pt-snap{fill:var(--st-warn)}
+.pt-resp{fill:var(--st-ok)}
+.edge.ro{stroke:var(--sb-silver);stroke-dasharray:4 3}
+.edge.ro.on{stroke:var(--st-warn)}
 .pt-x{fill:var(--st-warn)}
 /* the rabbits share their line's color, with an outline in the surface color so they stand out on it.
    The outline is painted under the fill (paint-order), so only the outer edge shows. */
-.pt-req,.pt-err,.pt-row,.pt-snap,.pt-x{stroke:var(--sb-canvas);stroke-width:3px;stroke-linejoin:round;paint-order:stroke}
+.pt-req,.pt-err,.pt-row,.pt-snap,.pt-resp,.pt-x{stroke:var(--sb-canvas);stroke-width:3px;stroke-linejoin:round;paint-order:stroke}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--sb-text-muted);margin-top:8px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%}
@@ -306,7 +310,8 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
       <span><i style="background:var(--st-info)"></i>사용자 요청 (읽기 비율대로)</span>
       <span><i style="background:var(--st-ok)"></i>DB 행 (CNPG 복제)</span>
       <span><i class="sq"></i>객체 (rclone)</span>
-      <span><i style="background:var(--st-warn)"></i>교차 쓰기 / AI 조회 · 샌드박스</span>
+      <span><i style="background:var(--st-warn)"></i>교차 쓰기 / AI 조회 · Claude 요청</span>
+      <span><i style="background:var(--st-ok)"></i>Claude 응답 (도구 결과로 만든 계획)</span>
       <span><i style="background:var(--st-crit)"></i>오류 응답 (대상 오류율만큼)</span>
     </div>
     <div class="runbar">
@@ -367,6 +372,8 @@ const P = {
   a2d:(y,d)=>`M 635 ${y} C 672 ${y} 672 ${y+d} 710 ${y+d}`,
   pipe:(a,b)=>`M 865 ${a} C 935 ${a} 935 ${b} 865 ${b}`,
   cross:(ty,sy)=>`M 635 ${ty} C 672 ${ty} 672 ${sy-22} 710 ${sy-22}`,
+  claudeUp:'M 112 128 L 112 94', claudeDown:'M 128 94 L 128 128', // hopai -> Claude (request) and back (answer)
+  read:(y)=>`M 205 150 C 245 150 250 ${y} 280 ${y}`, // hopai's read-only look at a cluster
 };
 function el(tag, attrs, parent){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); if(parent) parent.appendChild(e); return e; }
 function txt(parent, x, y, cls, s, anchor){ const t=el('text',{x,y,class:cls,'text-anchor':anchor||'middle'},parent); t.textContent=s; return t; }
@@ -434,6 +441,14 @@ function build(s){
   mkEdge('u2g','M 98 250 L 120 250');
   mkNode('user', 60, 250, 76, 44, '사용자');
   mkNode('gslb', 170, 250, 100, 44, '트래픽 전환');
+  // outside every cloud, as seen in HyperDX logs of charlie-platform-hopai: the AI runner (a Job in the management EKS)
+  // asks Claude, Claude answers with tool calls (get_cnpg_cluster, list_storage_classes, node_capacity, get_app) that hopai runs read-only.
+  mkNode('claude', 120, 70, 170, 44, 'Claude API');
+  mkNode('hopai', 120, 150, 170, 44, 'AI 실행기 (hopai)');
+  mkEdge('claude.up', P.claudeUp, 'edge off'); mkEdge('claude.down', P.claudeDown, 'edge off');
+  routes.claudeUp = mkHidden(P.claudeUp); routes.claudeDown = mkHidden(P.claudeDown);
+  for (const k of [s.src, s.tgt]){ mkEdge('ro.'+k, P.read(LANE_Y[k]), 'edge ro off'); routes['ro.'+k] = mkHidden(P.read(LANE_Y[k])); }
+  lanesEl.ext = txt($('gBadges'), 35, 40, 'xlabel', '외부 서비스', 'start');
   builtKey = s.src+'>'+s.tgt;
 }
 
@@ -494,6 +509,12 @@ function render(s){
     setNode(k+'.db', s.nodes[k+'.db'][0], s.nodes[k+'.db'][1]);
     setNode(k+'.store', s.nodes[k+'.store'][0], s.nodes[k+'.store'][1], L.store);
   }
+  const probe = s.activity === 'probe', sand = s.activity === 'sandbox';
+  setNode('claude', probe ? 'busy' : 'idle', probe ? '도구 호출 요청 → 계획' : 'claude-sonnet-5-5');
+  setNode('hopai', probe || sand ? 'busy' : 'idle', probe ? '클러스터 읽기 전용 조회' : sand ? '샌드박스 리허설' : '관리 EKS · Job');
+  edges['claude.up'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off')); edges['claude.down'].setAttribute('class', 'edge ' + (probe ? 'on' : 'off'));
+  for (const k of [s.src, s.tgt]) edges['ro.'+k].setAttribute('class', 'edge ro ' + (probe || (sand && k === s.tgt) ? 'on' : 'off'));
+  lanesEl.ext.setAttribute('class', 'xlabel' + (probe || sand ? ' on' : ''));
   setNode('user', s.nodes.user[0], s.nodes.user[1]);
   setNode('gslb', s.nodes.gslb[0], s.nodes.gslb[1]);
   // edges and weight badges: read share per lane
@@ -700,6 +721,11 @@ function stepParticles(dt){
     if (s.sync.mode==='cdc'){ flow('row', 2.2, dt, routes.fwd, 'pt-row', 220); if (s.sync.files) flow('obj', 0.6, dt, routes.fwd, 'pt-obj', 200, 'sq'); }
     if (s.activity==='probe'){ flow('probe.s', 1.5, dt, routes[S].inner, 'pt-snap', 180); flow('probe.t', 1.5, dt, routes[T].inner, 'pt-snap', 180); }
     if (s.activity==='sandbox') flow('smoke', 3, dt, routes[T].inner, 'pt-snap', 200);
+    if (s.activity==='probe'){
+      flow('ai.up', 1.0, dt, routes.claudeUp, 'pt-snap', 60); flow('ai.down', 1.0, dt, routes.claudeDown, 'pt-resp', 60); // asks, answers
+      for (const k of [S, T]) flow('ai.ro.'+k, 1.2, dt, routes['ro.'+k], 'pt-snap', 110);
+    }
+    if (s.activity==='sandbox') flow('ai.ro.sb', 1.2, dt, routes['ro.'+T], 'pt-snap', 110);
   }
   for (let k=parts.length-1;k>=0;k--){
     const p=parts[k]; p.d+=p.speed*p.run*p.hopRun*dt;
