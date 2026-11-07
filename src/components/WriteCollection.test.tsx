@@ -22,6 +22,8 @@ it("shows collected scope after a real reload and hides the previous app's recor
   // A keyed app switch mounts a fresh resource, as the setup screen does.
   rerender(<LiveWriteCollection key="shop-reload" app="shop" />);
   expect(await screen.findByText("3건")).toBeInTheDocument();
+  expect(screen.getByText("마지막 쓰기 기록 시각")).toBeInTheDocument();
+  expect(screen.getByText(/플랫폼 도착 시각은 제공되지 않습니다/)).toBeInTheDocument();
   expect(screen.getByText(/예약 생성 기록만 수집합니다/)).toBeInTheDocument();
   rerender(<LiveWriteCollection key="other" app="other" />);
   await screen.findByText("0건");

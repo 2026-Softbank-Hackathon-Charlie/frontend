@@ -18,7 +18,7 @@ describe("write verification evidence", () => {
     expect(screen.queryByText("쓰기 검증 완료")).not.toBeInTheDocument();
   });
 
-  it("shows measured evidence and the last collection time without inventing a stream count", () => {
+  it("shows measured evidence and the latest input write timestamp without inventing a stream count", () => {
     const latestAt = "2026-11-07T06:00:00Z";
     render(<WriteVerification verification={{ status: "measured", stream: "shop-writes", collectedRecords: 7, checked: 7, missing: 0, latestAt, scope: "client_acknowledged" }} />);
     expect(screen.getByText("쓰기 검증 완료")).toBeInTheDocument();
@@ -26,6 +26,8 @@ describe("write verification evidence", () => {
     expect(screen.getAllByText("7건")).toHaveLength(2);
     expect(screen.getByText("shop-writes")).toBeInTheDocument();
     expect(document.querySelector("time")).toHaveAttribute("datetime", latestAt);
+    expect(screen.getByText("입력의 마지막 쓰기 기록")).toBeInTheDocument();
+    expect(screen.getByText(/플랫폼 도착 시각은 제공되지 않습니다/)).toBeInTheDocument();
   });
 
   it("does not present incomplete or failed verification as a zero result", () => {

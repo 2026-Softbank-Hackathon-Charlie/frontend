@@ -50,8 +50,9 @@ export function WriteVerification({ verification: v, legacyMissing }: { verifica
       <div><dt>검증 입력 기록</dt><dd>{countText(v.collectedRecords)}</dd></div>
       <div><dt>검사 기록</dt><dd>{countText(v.checked)}</dd></div>
       <div><dt>{v.status === "failed" ? "확인된 누락 (부분 결과)" : "쓰기 누락"}</dt><dd>{v.status === "failed" ? countText(v.missing) : countText(measuredWriteMissing(v))}</dd></div>
-      <div><dt>입력의 마지막 수집</dt><dd>{latest ? <time dateTime={latest}>{new Date(latest).toLocaleString("ko-KR", { hour12: false })}</time> : v.collectedRecords === 0 ? "기록 없음" : "시각 미제공"}</dd></div>
+      <div><dt>입력의 마지막 쓰기 기록</dt><dd>{latest ? <time dateTime={latest}>{new Date(latest).toLocaleString("ko-KR", { hour12: false })}</time> : v.collectedRecords === 0 ? "기록 없음" : "시각 미제공"}</dd></div>
     </dl>}
+    {v && <p className="hint">표시 시각은 검증 입력의 쓰기 기록에 담긴 시각 중 가장 최근 값입니다. 플랫폼 도착 시각은 제공되지 않습니다.</p>}
     {v?.stream && <p className="hint">기록 스트림 <code>{v.stream}</code></p>}
     {v?.scope === "application_commits" && <p className="hint">앱 DB 커밋 기록 기준입니다. 클라이언트의 성공 응답 수신을 증명하지 않습니다.</p>}
     {v?.scope === "client_acknowledged" && <p className="hint">클라이언트가 성공 응답을 확인한 쓰기 기록 기준입니다.</p>}
