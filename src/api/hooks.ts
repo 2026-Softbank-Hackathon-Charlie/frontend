@@ -1,6 +1,7 @@
 // React hooks over the platform API. Every hook aborts its requests and
 // timers on unmount.
 import { useCallback, useEffect, useReducer, useState } from "react";
+import { getAppAIServices } from "./client";
 import {
   ApiError,
   getSourceRetention,
@@ -66,6 +67,10 @@ import type {
 } from "./types";
 
 const toApiError = (e: unknown) => (e instanceof ApiError ? e : networkError(e));
+
+export function useAppAIServices(app: string | undefined, pollMs = 10000, minutes = 5): Resource<import("../data/aiServices").AIServiceTopology> {
+  return usePolled(app ? `app-ai-services:${app}:${minutes}` : null, pollMs, signal => getAppAIServices(app!, minutes, { signal }));
+}
 
 // --- polled resources ---
 

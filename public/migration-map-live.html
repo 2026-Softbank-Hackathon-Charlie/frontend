@@ -308,11 +308,15 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
         </defs>
         <g id="gLanes"></g>
         <g id="gEdges"></g>
+        <g id="gAppAIEdges"></g>
         <g id="gParticles"></g>
         <g id="gNodes"></g>
         <g id="gBadges"></g>
+        <g id="gAppAI"></g>
       </svg>
     </div>
+    <p id="appAISummary" class="hint" role="status"></p>
+    <details class="fold"><summary>앱 AI 서비스 · 실행 위치와 관측 근거</summary><ul id="appAIList"></ul></details>
     <div class="legend">
       <span><i style="background:var(--st-info)"></i>사용자 요청 (읽기 비율대로)</span>
       <span><i style="background:var(--st-ok)"></i>DB 행 (CNPG 복제)</span>
@@ -422,6 +426,7 @@ const bez = (a,b,c,d,t) => { const u=1-t; return u*u*u*a+3*u*u*t*b+3*u*t*t*c+t*t
 function build(s){
   for (const id of ['gLanes','gEdges','gNodes','gBadges']) $(id).replaceChildren();
   resetParticles();
+  aiDrawingKey = ''; $('gAppAI').replaceChildren(); $('gAppAIEdges').replaceChildren(); aiPaths = [];
   nodes = {}; edges = {}; lanesEl = {}; badges = {}; routes = {};
   const sy = LANE_Y[s.src], ty = LANE_Y[s.tgt];
   for (const k of LANES){
@@ -471,6 +476,90 @@ function build(s){
   for (const k of [s.src, s.tgt]){ mkEdge('ro.'+k, P.read(LANE_Y[k]), 'edge ro off'); routes['ro.'+k] = mkHidden(P.read(LANE_Y[k])); }
   lanesEl.ext = txt($('gBadges'), 35, 40, 'xlabel', '외부 서비스', 'start');
   builtKey = s.src+'>'+s.tgt;
+}
+
+/* App inference services are separate from the platform's hopai/Claude planning flow.
+   At most four visual cards per placement; overflow is an explicit aggregate card
+   with every physical service retained in the accessible evidence list. */
+let aiDrawingKey = '', aiPaths = [], aiCards = [];
+const AI_ICONS = {
+  gpu: 'M2 5h20v14H2z M6 9h7v6H6z M16 9v6 M5 2v3 M10 2v3 M15 2v3 M5 19v3 M10 19v3 M15 19v3',
+  cpu: 'M5 5h14v14H5z M9 9h6v6H9z M2 8h3 M2 15h3 M19 8h3 M19 15h3',
+  managed: 'M5 17a5 5 0 0 1 0-10 7 7 0 0 1 13 0 5 5 0 0 1 0 10z M9 10h6v4H9z',
+  external: 'M3 7h8v14H3z M13 3h8v8 M10 14 21 3',
+  unknown: 'M8 7a4 4 0 1 1 6 4l-2 2v2 M12 19h.01',
+};
+function renderAppAI(s){
+  const data=s.aiServices || {nodes:[],edges:[],message:'앱 AI 서비스 관측 미수신',status:'unobserved'};
+  const items=data.nodes || [], edges=data.edges || [];
+  const key=JSON.stringify([items.map(n=>[n.serviceId,n.name,n.lane,n.icon]),edges.map(e=>[e.id,e.serviceId,e.caller])]);
+  if(key!==aiDrawingKey){
+    const retired=new Set(aiPaths.map(f=>f.path));
+    for(let i=parts.length-1;i>=0;i--) if(retired.has(parts[i].path)){ parts[i].e.used=false; parts[i].e.el.style.display='none'; parts.splice(i,1); }
+    const group=$('gAppAI'); group.replaceChildren(); $('gAppAIEdges').replaceChildren(); aiPaths=[]; aiCards=[];
+    const positions=new Map();
+    for(const placement of [...LANES,'external','unknown']){
+      const members=items.filter(n=>n.lane===placement);
+      if(!members.length) continue;
+      const inside=LANES.includes(placement);
+      const baseY=inside?LANE_Y[placement]:placement==='external'?530:625;
+      if(!inside){
+        el('rect',{x:280,y:baseY-24,width:1110,height:80,rx:2,fill:'none',stroke:'var(--sb-border-subtle)','stroke-dasharray':'5 4'},group);
+        txt(group,292,baseY-8,'lane-t',placement==='external'?'외부 AI API · 클러스터 밖':'실행 위치 미확인 · 환경을 추정하지 않음','start');
+      } else txt(group,1012,baseY-43,'lane-r','앱 AI 서비스','start');
+      const shown=members.length>4?[...members.slice(0,3),{serviceId:'group:'+placement,name:`추가 AI 서비스 ${members.length-3}개`,icon:'unknown',detail:'전체 목록에서 개별 근거 확인'}]:members;
+      shown.forEach((node,i)=>{
+        const x=inside?1100+(i%2)*185:410+i*275, y=inside?baseY-9+Math.floor(i/2)*42:baseY+28;
+        const g=el('g',{class:'node','data-st':'idle','data-ai-service':node.serviceId,'data-ai-icon':node.icon},group),w=inside?174:255;
+        el('rect',{class:'b',x:x-w/2,y:y-18,width:w,height:36,rx:3},g);
+        el('path',{d:AI_ICONS[node.icon]||AI_ICONS.unknown,transform:`translate(${x-w/2+5} ${y-12})`,fill:'none',stroke:'currentColor','stroke-width':1.5,'aria-hidden':'true'},g);
+        txt(g,x-w/2+33,y-3,'t',fitSub(node.name,w-42),'start');
+        const sub=txt(g,x-w/2+33,y+11,'s','','start'),tip=el('title',{},g);
+        const ids=node.serviceId==='group:'+placement?members.slice(3).map(n=>n.serviceId):[node.serviceId];
+        for(const id of ids) positions.set(id,{x:x-w/2,y});
+        aiCards.push({g,sub,tip,node,ids,w});
+      });
+    }
+    const grouped=new Map();
+    for(const edge of edges){
+      const p=positions.get(edge.serviceId); if(!p || !LANES.includes(edge.caller)) continue;
+      const id=edge.caller+':'+p.x+':'+p.y;
+      if(grouped.has(id)){ grouped.get(id).ids.push(edge.id); continue; }
+      const y=LANE_Y[edge.caller],d=`M 635 ${y} C 900 ${y} 920 ${p.y} ${p.x} ${p.y}`;
+      const path=el('path',{d,class:'edge','stroke-dasharray':'5 4','data-app-ai-route':id},$('gAppAIEdges'));
+      const flow={path,ids:[edge.id],active:false,key:'app-ai:'+id}; grouped.set(id,flow); aiPaths.push(flow);
+    }
+    // The dedicated edge layer stays below the existing app/database cards.
+    aiDrawingKey=key;
+  }
+  const activeIds=new Set(edges.filter(e=>e.active).map(e=>e.id));
+  for(const f of aiPaths){
+    f.active=!s.stale && f.ids.some(id=>activeIds.has(id)); f.path.setAttribute('data-active',String(f.active));
+    f.path.setAttribute('stroke-dasharray',f.active?'':'5 4'); f.path.style.stroke=f.active?'var(--st-info)':'var(--sb-border-subtle)';
+    if(!f.active) for(let i=parts.length-1;i>=0;i--) if(parts[i].path===f.path){ parts[i].e.used=false; parts[i].e.el.style.display='none'; parts.splice(i,1); }
+  }
+  for(const card of aiCards){
+    const related=edges.filter(e=>card.ids.includes(e.serviceId));
+    const active=!s.stale && related.some(e=>e.active), known=related.some(e=>typeof e.requests==='number');
+    card.g.setAttribute('data-st',active?'live':'idle');
+    card.sub.textContent=fitSub(s.stale?'관측 연결 확인 필요':active?'최근 앱 호출 관측':known?'최근 90초 호출 미관측':'호출 관측 미확인',card.w-42);
+    const physical=items.filter(n=>card.ids.includes(n.serviceId));
+    card.tip.textContent=physical.map(n=>[n.name,n.detail,...n.evidence].join(' · ')).join('\n');
+  }
+  const listKey=JSON.stringify(data);
+  if($('appAIList').dataset.key!==listKey){
+    $('appAIList').replaceChildren(...items.map(n=>{
+      const li=document.createElement('li');
+      li.textContent=[n.name,n.lane,n.icon,n.detail,...n.evidence,...edges.filter(e=>e.serviceId===n.serviceId).map(e=>`호출 환경 ${e.caller||'미확인'} · ${e.requests??'미측정'}회 · 마지막 ${e.lastSeen||'미확인'}`)].join(' · ');
+      return li;
+    })); $('appAIList').dataset.key=listKey;
+  }
+  const labels={observed:'관측됨',stale:'오래된 관측',unobserved:'미관측',unavailable:'조회 오류',not_configured:'미연결'};
+  $('appAISummary').textContent=`앱 AI · ${labels[data.status]||'미확인'}${data.observedAt?' · '+data.observedAt:''} · ${data.message||''} 토끼는 최근 90초 호출 표시이며 실시간 요청 수를 재현하지 않습니다.`;
+  const expanded=items.length>0;
+  $('map').setAttribute('viewBox',`0 0 ${expanded?1420:1020} ${items.some(n=>n.lane==='unknown')?700:items.some(n=>n.lane==='external')?605:500}`);
+  $('map').style.minWidth=expanded?'1280px':'760px';
+  for(const k of LANES) lanesEl[k].g.querySelector('.lane-box').setAttribute('width',expanded?1110:720);
 }
 
 /* ---------- stepper ---------- */
@@ -524,10 +613,11 @@ function render(s){
   if (SNAP && SNAP.scope !== s.scope) { shownEvents.clear(); $('log').replaceChildren(); RUN.sel=null; RUN.key=''; }
   SNAP = s;
   if (builtKey !== s.src+'>'+s.tgt) build(s);
+  renderAppAI(s);
   // lanes
   for (const k of LANES){
     const L = s.lanes[k], E = lanesEl[k];
-    E.g.setAttribute('class', 'lane' + (L.role==='tgt' ? ' target' : L.role ? '' : ' dim'));
+    E.g.setAttribute('class', 'lane' + (L.role==='tgt' ? ' target' : L.role || s.aiServices?.nodes.some(n=>n.lane===k) ? '' : ' dim'));
     E.name.textContent = L.name; E.region.textContent = L.region; E.region.setAttribute('x', LANE_LABEL_X + textW(L.name) + 10);
     E.tag.textContent = L.tag; E.tag.style.fill = TONE[L.tagTone] || TONE.muted;
     setNode(k+'.cluster', s.nodes[k+'.cluster'][0], s.nodes[k+'.cluster'][1], L.cluster);
@@ -761,6 +851,7 @@ function stepParticles(dt){
       for (const k of [S, T]) flow('ai.ro.'+k, 1.2, dt, routes['ro.'+k], 'pt-snap', 110);
     }
     if (s.activity==='sandbox') flow('ai.ro.sb', 1.2, dt, routes['ro.'+T], 'pt-snap', 110);
+    for(const f of aiPaths) if(f.active) flow(f.key,0.65,dt,f.path,'pt-req',240);
   }
   for (let k=parts.length-1;k>=0;k--){
     const p=parts[k]; p.d+=p.speed*p.run*p.hopRun*dt;

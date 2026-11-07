@@ -4,6 +4,8 @@
 // The map's buttons come back as {type:"hc-cmd"} and run the same actions as the rest of the page.
 import { useEffect, useRef, useState } from "react";
 import { useAIActivity, useApp, useEnvironments, useSourceRetention, useTraffic } from "../api/hooks";
+import { useAppAIServices } from "../api/hooks";
+import type { AIServiceTopology } from "../data/aiServices";
 import { useAuth } from "../data/live";
 import type { AIActivity, App, Environment, TrafficState } from "../api/types";
 import type { MigrationView } from "../data/migration";
@@ -32,11 +34,12 @@ function LiveFrame(p: MapFrameProps) {
   const app = useApp(p.v.app, 15000);
   // what hopai really did in the last hour, from the observability logs; a 502 or 503 just leaves the numbers out
   const ai = useAIActivity(10000, AI_MINUTES);
+  const aiServices = useAppAIServices(p.v.app || undefined);
   // resume is an operator command (the platform answers 403 to other roles)
   const operator = useAuth().session?.principal.role === "operator";
   const retention = useSourceRetention(p.v.run?.status === "succeeded" ? p.v.run.runId : null);
   const canRollback = p.v.run?.status !== "succeeded" || (!!retention.data && !retention.error && !["deleting", "deleted"].includes(retention.data.job?.status ?? ""));
-  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} app={app.data} ai={ai.error ? undefined : ai.data} canResume={operator} canRollback={canRollback} />;
+  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} app={app.data} ai={ai.error ? undefined : ai.data} aiServices={aiServices.data} aiServicesError={!!aiServices.error} canResume={operator} canRollback={canRollback} />;
 }
 
 const RUN: Record<MapAction, (v: MigrationView) => void> = {
@@ -48,19 +51,20 @@ const RUN: Record<MapAction, (v: MigrationView) => void> = {
   reset: (v) => v.reset(),
 };
 
-export function MapFrame({ v, hero, traffic, envs, app, ai, canResume = true, canRollback = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; app?: App; ai?: AIActivity; canResume?: boolean; canRollback?: boolean }) {
+export function MapFrame({ v, hero, traffic, envs, app, ai, aiServices, aiServicesError, canResume = true, canRollback = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; app?: App; ai?: AIActivity; aiServices?: AIServiceTopology; aiServicesError?: boolean; canResume?: boolean; canRollback?: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef(false);
   const [height, setHeight] = useState(1240);
   const [ready, setReady] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const snap = buildMapSnapshot(v, { traffic, envs, app, now, hero, ai, aiMinutes: AI_MINUTES });
+  const snap = buildMapSnapshot(v, { traffic, envs, app, now, hero, ai, aiMinutes: AI_MINUTES, aiServices, aiServicesError });
+  useEffect(() => { setNow(Date.now()); }, [aiServices]);
   if (!canResume) snap.actions = snap.actions.filter((a) => a.key !== "resume");
   if (!canRollback) snap.actions = snap.actions.filter((a) => a.key !== "rollback");
   const json = JSON.stringify(snap);
 
   // durations of the phase at work move with the clock
-  const working = snap.phases.some((x) => x.st === "cur" || x.st === "wait");
+  const working = snap.phases.some((x) => x.st === "cur" || x.st === "wait") || snap.aiServices.edges.some(e => e.active);
   useEffect(() => {
     if (!working) return;
     const t = setInterval(() => setNow(Date.now()), 1000);

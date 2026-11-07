@@ -12,6 +12,7 @@ import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
 import { canaryStepVerdict, canaryVerdict } from "./canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "./verifyReport";
+import { aiServiceMap, type AIServiceTopology, type AIServiceMap } from "./aiServices";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
 /** "warn": ran and went on without a verdict (a canary step with too few requests), not a failure. */
@@ -66,6 +67,8 @@ export interface MapSnapshot {
   activity: "none" | "probe" | "sandbox";
   /** what the AI runner really did in the last `minutes`, from the observability logs; null when they cannot be read */
   ai: AiFacts | null;
+  /** The migrating app's inference dependencies, distinct from hopai planning activity. */
+  aiServices: AIServiceMap;
   /** the target's error rate, 0 to 1, for the red dots */
   errRate: number;
   errEdge: boolean;
@@ -95,6 +98,8 @@ export interface MapSnapshot {
 }
 
 export interface SnapshotContext {
+  aiServices?: AIServiceTopology;
+  aiServicesError?: boolean;
   /** GET /v1/ai-activity; absent in demo mode and while it cannot be read */
   ai?: AIActivity;
   /** how far back `ai` looks, in minutes */
@@ -779,6 +784,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     },
     activity: pre?.activity ?? "none",
     ai: aiFacts(ctx.ai, ctx.aiMinutes),
+    aiServices: aiServiceMap(ctx.aiServices, v.app, ctx.now ?? Date.now(), ctx.aiServicesError),
     errRate: slo?.errorRate ?? 0,
     errEdge,
     kpi,
