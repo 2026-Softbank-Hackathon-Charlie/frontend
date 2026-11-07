@@ -43,7 +43,7 @@ reservation_inserts는 예약 생성만 포함하며 수정·삭제·다른 쓰�
 
 현재 frontend main의 생성 schema에는 platform main보다 앞선 앱 환경 관리 계약이 포함되어 있다.
 전체 재생성은 그 계약을 제거하므로 backend OpenAPI에서 생성된 WriteVerification, RunResult의
-새 optional 필드와 WrittenRecord/WrittenRecordsRequest/WrittenRecordStats 추가분만 반영한다. 새로운 부분은 backend 생성 결과와
+새 optional 필드, WrittenRecord/WrittenRecordsRequest/WrittenRecordStats와 쓰기 기록 POST 계약만 반영한다. 새로운 부분은 backend 생성 결과와
 비교하고 기존 계약은 유지한다.
 
 운영 배포와 실제 브라우저 검증 여부는 PR의 검증 결과에 따로 기록한다.
