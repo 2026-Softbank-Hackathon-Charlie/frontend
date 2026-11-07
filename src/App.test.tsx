@@ -53,6 +53,22 @@ describe("HopCharlie console (simulation)", () => {
     expect(screen.getByRole("link", { name: "개요" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("opens the exact high and critical findings counted in the overview", async () => {
+    const { user } = setup();
+    expect(screen.getByRole("link", { name: "보안" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "치명·높음 발견 항목 2건 보기" }));
+    expect(await screen.findByRole("heading", { name: "치명·높음 발견 항목" })).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByText("root 계정에 MFA가 설정되지 않음")).toBeInTheDocument();
+    const cloudTrail = within(table).getByRole("link", { name: "CloudTrail 쓰기 관리 이벤트 기록 미설정" });
+    await user.click(cloudTrail);
+    await user.click(await screen.findByRole("link", { name: "발견 항목 목록으로" }));
+    expect(await screen.findByRole("heading", { name: "치명·높음 발견 항목" })).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "전체 발견 항목 보기" }));
+    expect(await screen.findByRole("link", { name: /CVE-2021-44228/ })).toBeInTheDocument();
+  });
+
   it("runs a migration end to end from the UI", async () => {
     const { sim, user } = setup();
     await user.click(screen.getByRole("link", { name: /^이전$/ }));

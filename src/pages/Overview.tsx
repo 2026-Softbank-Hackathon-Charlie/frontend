@@ -2,17 +2,19 @@ import "../styles/overview.css";
 import type { ReactNode } from "react";
 import { deploymentRank, useAudit, useRuns, useSecurity } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
-import type { App, AuditEntry, Run, RunResult, SecurityReport } from "../api/types";
+import type { App, AuditEntry, Run, RunResult } from "../api/types";
 import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
 import { EnvGrid, EnvLabel, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, type ChipKind } from "../components/ui";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
+import { isPrioritySeverity, type SecurityFindingRow } from "../data/security";
+import { PRIORITY_FINDINGS } from "../router";
 import { SAMPLE } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { iso, statusText, TARGET_SEC } from "../sim/mig";
-import { SIM_SECURITY } from "../sim/security";
+import { DEMO_SECURITY_FINDINGS } from "../sim/securityWorkspace";
 import { migLabel, type SimState } from "../sim/state";
 import { useSim } from "../sim/store";
 
@@ -95,7 +97,7 @@ function SimOverview() {
   // the current run first; once it succeeds, history holds a copy of it
   const runs = current ? [current, ...m.history.filter((r) => r.runId !== current.runId)] : m.history;
   // run times are on the migration's simulated clock
-  const items = [...simWork(S), ...deployItems(apps.apps ?? [], apps.now), ...runItems(runs, Date.parse(iso(m.now)), current?.runId), ...securityItems(SIM_SECURITY)];
+  const items = [...simWork(S), ...deployItems(apps.apps ?? [], apps.now), ...runItems(runs, Date.parse(iso(m.now)), current?.runId), ...securityItems(DEMO_SECURITY_FINDINGS)];
   return <OverviewView now={<NowList items={items} />} apps={apps} activity={<SimActivity />} />;
 }
 
@@ -103,7 +105,7 @@ function LiveOverview() {
   const apps = useLiveApps();
   const runs = useRuns(5_000);
   const sec = useSecurity(60_000);
-  const items = [...deployItems(apps.apps ?? [], apps.now), ...runItems(runs.data ?? [], Date.now()), ...securityItems(sec.data)];
+  const items = [...deployItems(apps.apps ?? [], apps.now), ...runItems(runs.data ?? [], Date.now()), ...securityItems(sec.data?.findings)];
   const failed = [runs.error && !runs.data ? "이전 목록" : "", sec.error && !sec.data ? "보안 점검" : "", apps.error ? "앱 목록" : ""].filter(Boolean);
   const loading = runs.loading || sec.loading || (!apps.apps && !apps.error);
   return <OverviewView now={<NowList items={items} loading={loading} failed={failed} />} apps={apps} activity={<LiveActivity />} runs={runs.data} />;
@@ -238,14 +240,15 @@ export function resultParts(x: RunResult): string[] {
 }
 
 /** One row for the findings of high severity or worse. */
-function securityItems(r: SecurityReport | undefined): NowItem[] {
-  const c = r?.summary.bySeverity;
-  if (!r || !c || c.critical + c.high === 0) return [];
-  const counts = [c.critical ? "치명 " + c.critical + "건" : "", c.high ? "높음 " + c.high + "건" : ""].filter(Boolean).join(", ");
-  const top = r.findings.filter((f) => f.severity === "critical" || f.severity === "high");
+function securityItems(findings: Pick<SecurityFindingRow, "severity" | "title" | "environment">[] = []): NowItem[] {
+  const top = findings.filter((f) => isPrioritySeverity(f.severity));
+  if (!top.length) return [];
+  const critical = top.filter((f) => f.severity === "critical").length;
+  const high = top.length - critical;
+  const counts = [critical ? "치명 " + critical + "건" : "", high ? "높음 " + high + "건" : ""].filter(Boolean).join(", ");
   const names = top.slice(0, 2).map((f) => f.title + " (" + envName(f.environment) + ")");
   if (top.length > 2) names.push("외 " + (top.length - 2) + "건");
-  return [{ kind: "bad", chip: c.critical ? "보안 치명" : "보안 높음", title: "보안 점검에서 " + counts + "이 나왔습니다", sub: names.join(", "), href: "#security", go: "점검 결과 보기" }];
+  return [{ kind: "bad", chip: "보안 발견 항목", title: "발견 항목 · " + counts, sub: names.join(", "), href: "#security/" + PRIORITY_FINDINGS, go: "치명·높음 발견 항목 " + top.length + "건 보기" }];
 }
 
 const ONB_STEP = ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"];

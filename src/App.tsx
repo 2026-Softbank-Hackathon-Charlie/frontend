@@ -17,7 +17,6 @@ import { Routes } from "./pages/Routes";
 import { Security } from "./pages/Security";
 import { appRoute, navCurrent, navigate, useRoute } from "./router";
 import { activeDeployments } from "./sim/deploy";
-import { DEMO_SECURITY_FINDINGS, DEMO_SECURITY_VULNERABILITIES } from "./sim/securityWorkspace";
 import { migActive, migLabel } from "./sim/state";
 import { useSim } from "./sim/store";
 
@@ -78,24 +77,17 @@ function SimSideNav({ r }: { r: string }) {
       r={r}
       apps={busyApps ? { kind: "run", text: "진행 중" } : null}
       migrate={migActive(S) ? { kind: waiting ? "warn" : "run", text: migLabel(S) } : null}
-      security={highBadge([...DEMO_SECURITY_FINDINGS, ...DEMO_SECURITY_VULNERABILITIES].filter((f) => f.severity === "high" || f.severity === "critical").length)}
     />
   );
 }
 
-/** "높음 N" for findings rated high or critical; none when there are none. */
-function highBadge(n: number): NavItem[2] {
-  return n > 0 ? { kind: "bad", text: "높음 " + n } : null;
-}
-
-// Live mode keeps the API traffic it had before the redesign, so the side menu shows no badges there
-// (a security badge would add GET /v1/security to every console load).
+// Live navigation doesn't fetch extra data for sidebar badges.
 function LiveSideNav({ r }: { r: string }) {
-  return <SideNav r={r} apps={null} migrate={null} security={null} device />;
+  return <SideNav r={r} apps={null} migrate={null} device />;
 }
 
 /** Grouped side menu: overview, then work, results and infrastructure. Badges carry live state. */
-function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; security: NavItem[2]; device?: boolean }) {
+function SideNav({ r, apps, migrate, device }: { r: string; apps: NavItem[2]; migrate: NavItem[2]; device?: boolean }) {
   const c = navCurrent(r);
   const groups: [string | null, NavItem[]][] = [
     [null, [["overview", NAV_LABEL.overview, null]]],
@@ -117,7 +109,7 @@ function SideNav({ r, apps, migrate, security, device }: { r: string; apps: NavI
       "인프라",
       [
         ["envs", NAV_LABEL.envs, null],
-        ["security", NAV_LABEL.security, security],
+        ["security", NAV_LABEL.security, null],
       ],
     ],
   ];
