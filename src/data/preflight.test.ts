@@ -1,5 +1,5 @@
-import type { AuditEntry } from "../api/types";
-import { bin, latestPreflight, preflightOf } from "./preflight";
+import type { AuditEntry, AuditList } from "../api/types";
+import { AUDIT_PAGES, bin, latestPreflight, latestPreflightOfApp, preflightOf, searchAudit } from "./preflight";
 
 const at = "2026-11-03T10:00:00Z";
 const entry = (detail: Record<string, unknown>, extra: Partial<AuditEntry> = {}): AuditEntry => ({
@@ -189,6 +189,148 @@ describe("pre-start checks from the audit log", () => {
     expect(latestPreflight(entries, "pln_1")?.residency.status).toBe("skip");
     expect(latestPreflight(entries.slice(3), "pln_1")?.blocked).toBe(true);
     expect(latestPreflight(entries, "pln_9")).toBeUndefined();
+  });
+
+  // The start of 2026-11-07T09:05:42Z as the platform wrote it: no residency policy, capacity off, parity recorded but not passed.
+  const realStart = (): Record<string, unknown> => ({
+    autoSwitch: false,
+    canary: null,
+    capacity: { outcome: "not_configured" },
+    observe: null,
+    parity: {
+      mode: "audit",
+      outcome: "recorded",
+      passed: false,
+      baselineStatus: "not_configured",
+      configDigest: "cfg-real",
+      observedAt: "2026-11-07T09:05:42Z",
+      binding: { planRef: "pln_9b4ee0acb2ee", revision: 2 },
+      results: [
+        "identity unknown identity_policy_incomplete: rbac-self-access-review=unknown(authorization_unavailable), rbac-no-secret-list=unknown(authorization_unavailable), rbac-summary=unknown(rbac_incomplete), cloud-policy=unknown(cloud_policy_not_configured)",
+        "secret unknown resource_checks_incomplete: runtime=unknown(resource_unavailable), object-storage=unknown(resource_unavailable), secret-usability=unknown(secret_usability_not_verified)",
+        "audit unknown probe_not_configured",
+        "metrics-alerting unknown probe_not_configured",
+        "backup-restore unknown resource_checks_incomplete: backup-config=pass(barman_archiver_configured), wal-archiving=pass(archiving_reported_healthy), recent-backup=unknown(resource_unavailable), restore=unknown(restore_not_verified)",
+      ],
+    },
+    pgVersion: { source: "16", target: "16" },
+    planRef: "pln_9b4ee0acb2ee",
+    residency: "not_configured",
+    runId: "moimroom-mig-gke-to-eks-20261107-090542",
+  });
+
+  it("reads the real start record: parity unknown with its items, no residency policy, capacity off", () => {
+    const p = preflightOf(entry(realStart(), { time: "2026-11-07T09:05:42.760231Z" }))!;
+    expect(p.blocked).toBe(false);
+    expect(p.at).toBe("2026-11-07T09:05:42.760231Z");
+    expect(p.residency).toMatchObject({ status: "skip", summary: "플랫폼에 레지던시 정책이 설정되지 않아 검사하지 않았습니다", items: [] });
+    expect(p.capacity).toMatchObject({ status: "skip", summary: "플랫폼에서 용량 측정이 꺼져 있습니다" });
+    expect(p.parity).toMatchObject({ status: "unknown", digest: "cfg-real" });
+    expect(p.parity!.summary).toContain("확인하지 못한 항목이 있어");
+    expect(p.parity!.items.map((i) => [i.label, i.status])).toEqual([
+      ["인증, 권한", "unknown"],
+      ["시크릿", "unknown"],
+      ["감사 로그", "unknown"],
+      ["모니터링, 알림", "unknown"],
+      ["백업, 복구", "unknown"],
+    ]);
+    expect(p.parity!.items[0].detail).toBe(
+      "identity_policy_incomplete (rbac-self-access-review=unknown(authorization_unavailable), rbac-no-secret-list=unknown(authorization_unavailable), rbac-summary=unknown(rbac_incomplete), cloud-policy=unknown(cloud_policy_not_configured))",
+    );
+    expect(p.parity!.items[2].detail).toBe("probe_not_configured");
+    expect(p.parity!.items[4].detail).toContain("backup-config=pass(barman_archiver_configured)");
+  });
+
+  describe("an app's latest earlier start (the setup form holds no plan)", () => {
+    const start = (id: number, detail: Record<string, unknown>, extra: Partial<AuditEntry> = {}) => entry({ residency: "not_configured", ...detail }, { id, ...extra });
+    const own = { runIds: ["run_a"], planRefs: ["pln_a"] };
+
+    it("takes the newest one of the app by its runId or planRef, never another app's", () => {
+      const entries = [
+        start(9, { planRef: "pln_b", runId: "run_b" }),
+        start(8, { planRef: "pln_a", runId: "run_a" }),
+        start(7, { planRef: "pln_a0", runId: "run_a0" }),
+      ];
+      const past = latestPreflightOfApp(entries, own)!;
+      expect(past).toMatchObject({ runId: "run_a", planRef: "pln_a" });
+      expect(past.view.residency.status).toBe("skip");
+      // a refused start has a planRef and no run; an entry naming neither the app's run nor plan is skipped
+      expect(latestPreflightOfApp([start(5, { planRef: "pln_a", error: "residency_denied", residencyReasons: [] })], own)).toMatchObject({ planRef: "pln_a", runId: undefined, view: { blocked: true } });
+      expect(latestPreflightOfApp([start(5, { planRef: "pln_b", runId: "run_b" }), start(4, {})], own)).toBeUndefined();
+      expect(latestPreflightOfApp(entries, { runIds: [], planRefs: [] })).toBeUndefined();
+    });
+
+    it("counts a rollback of the app's run, and skips entries that are not starts or hold no checks", () => {
+      const rollback = start(6, { fromRun: "run_a", planRef: "pln_x", runId: "run_x", residency: "rollback_exempt" }, { action: "POST /v1/migrations/{runId}/rollback" });
+      const entries = [
+        entry({ planRef: "pln_a", runId: "run_a" }, { id: 8, action: "POST /v1/plans/{ref}/approve" }),
+        entry({ planRef: "pln_a", runId: "run_a" }, { id: 7 }), // a start of the app without any check fields
+        rollback,
+        start(5, { planRef: "pln_a", runId: "run_a" }),
+      ];
+      expect(latestPreflightOfApp(entries, own)).toMatchObject({ runId: "run_x", view: { residency: { summary: expect.stringContaining("롤백") } } });
+      expect(latestPreflightOfApp(entries.slice(3), own)).toMatchObject({ runId: "run_a" });
+    });
+
+    it("finds the real record among the app's runs and plans", () => {
+      const past = latestPreflightOfApp([entry(realStart(), { id: 2430 })], { runIds: ["moimroom-mig-gke-to-eks-20261107-090542"], planRefs: [] })!;
+      expect(past.runId).toBe("moimroom-mig-gke-to-eks-20261107-090542");
+      expect(past.view.parity?.status).toBe("unknown");
+      expect(latestPreflightOfApp([entry(realStart(), { id: 2430 })], { runIds: ["other-app-run"], planRefs: ["pln_other"] })).toBeUndefined();
+    });
+  });
+
+  describe("searching the audit log page after page", () => {
+    // the log newest first: ids 1000 down to 1, `size` per page, nextBefore the last id of a page (none on the last)
+    const log = (total: number, size: number) => {
+      const asked: (number | undefined)[] = [];
+      const list = async (before?: number): Promise<AuditList> => {
+        asked.push(before);
+        const ids = Array.from({ length: total }, (_, i) => total - i).filter((id) => before === undefined || id < before).slice(0, size);
+        const rest = ids.length === size && ids[ids.length - 1] > 1;
+        return { entries: ids.map((id) => entry({}, { id })), nextBefore: rest ? ids[ids.length - 1] : undefined };
+      };
+      return { list, asked };
+    };
+    const find = (id: number) => (es: AuditEntry[]) => (es.some((e) => e.id === id) ? id : undefined);
+
+    it("goes back with before until the entry turns up", async () => {
+      const { list, asked } = log(600, 200);
+      expect(await searchAudit(list, find(150))).toBe(150); // on the third page
+      expect(asked).toEqual([undefined, 401, 201]);
+    });
+
+    it("reads one page when the entry is on it", async () => {
+      const { list, asked } = log(600, 200);
+      expect(await searchAudit(list, find(590))).toBe(590);
+      expect(asked).toEqual([undefined]);
+    });
+
+    it("stops at the page cap", async () => {
+      const { list, asked } = log(5000, 200);
+      expect(await searchAudit(list, find(1))).toBeUndefined();
+      expect(asked).toHaveLength(AUDIT_PAGES);
+      expect(await searchAudit(log(5000, 200).list, find(1), 2)).toBeUndefined();
+    });
+
+    it("stops at the end of the log and when a page does not move back", async () => {
+      const short = log(250, 200);
+      expect(await searchAudit(short.list, find(9999))).toBeUndefined();
+      expect(short.asked).toEqual([undefined, 51]);
+      let calls = 0;
+      const stuck = async (): Promise<AuditList> => (calls++, { entries: [entry({}, { id: 5 })], nextBefore: 5 });
+      expect(await searchAudit(stuck, find(9999))).toBeUndefined();
+      expect(calls).toBe(2);
+    });
+
+    it("lets a failed page reject, so the caller keeps showing no checks", async () => {
+      let n = 0;
+      const failing = async (): Promise<AuditList> => {
+        if (n++ === 1) throw new Error("403");
+        return { entries: [entry({}, { id: 5 })], nextBefore: 5 };
+      };
+      await expect(searchAudit(failing, find(9999))).rejects.toThrow("403");
+    });
   });
 
   it("formats binary sizes", () => {

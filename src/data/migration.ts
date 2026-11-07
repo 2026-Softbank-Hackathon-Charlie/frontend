@@ -23,7 +23,7 @@ import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
-import { latestPreflight, preflightOf, type PreflightView } from "./preflight";
+import { AUDIT_PAGE, latestPreflight, latestPreflightOfApp, preflightOf, searchAudit, type PastPreflight, type PreflightView } from "./preflight";
 
 export interface EnvOption {
   value: string;
@@ -118,6 +118,8 @@ export interface MigrationView {
   counters?: { ok: number; held: number; heldDone: number };
   /** the platform's residency and capacity checks of the latest start or rollback of this plan */
   preflight?: PreflightView;
+  /** live, no plan on screen: the checks of this app's latest earlier start or rollback (an earlier run, not this plan's) */
+  past?: PastPreflight;
   /** start options of the plan on screen; the simulation does not model observe and leaves them out */
   start?: { options: StartOptions; set(o: StartOptions): void };
   busy: boolean;
@@ -217,12 +219,35 @@ function usePreflight(planRef: string | null, runId: string | null, attempt: str
       return;
     }
     const ctrl = new AbortController();
-    listAudit({ limit: 100 }, { signal: ctrl.signal })
-      .then((res) => !ctrl.signal.aborted && setData(latestPreflight(res.entries, planRef)))
+    // the start sinks in the log under refused requests, so the search goes back a few pages
+    searchAudit((before) => listAudit({ limit: AUDIT_PAGE, before }, { signal: ctrl.signal }), (entries) => latestPreflight(entries, planRef))
+      .then((view) => !ctrl.signal.aborted && setData(view))
       .catch(() => {}); // a viewer without audit access just sees no checks
     return () => ctrl.abort();
   }, [planRef, runId, attempt, nonce]);
   return { data, reload: () => setNonce((n) => n + 1) };
+}
+
+/**
+ * While no plan is on screen (the setup form, also after a run succeeded, which the page does not stay on): the
+ * checks of the app's latest earlier start or rollback. The app's runs and plans (by their ids, joined into `own`)
+ * tell its audit entries from another app's. Past entries do not change, so it reads again only when the app gets
+ * a run or plan of its own.
+ */
+function usePastPreflight(active: boolean, own: { runIds: string[]; planRefs: string[] }): PastPreflight | undefined {
+  const [data, setData] = useState<PastPreflight | undefined>();
+  const key = own.runIds.join(",") + "|" + own.planRefs.join(",");
+  useEffect(() => {
+    setData(undefined);
+    if (!active || key === "|") return;
+    const ctrl = new AbortController();
+    searchAudit((before) => listAudit({ limit: AUDIT_PAGE, before }, { signal: ctrl.signal }), (entries) => latestPreflightOfApp(entries, own))
+      .then((past) => !ctrl.signal.aborted && setData(past))
+      .catch(() => {});
+    return () => ctrl.abort();
+    // `own` is a function of `key`
+  }, [active, key]);
+  return data;
 }
 
 const ACTIVE = new Set(["running", "awaiting_switch"]);
@@ -496,6 +521,11 @@ export function useLiveMigration(): MigrationView {
   const plan = plans.data?.find((p) => p.ref === planRef);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
+  const mineRuns = ns ? (runs.data ?? []).filter((r) => touches(ns, r)) : [];
+  const past = usePastPreflight(!planRef && !runId, {
+    runIds: mineRuns.map((r) => r.runId),
+    planRefs: [...mineRuns.map((r) => r.planRef), ...(ns ? (plans.data ?? []).filter((p) => touches(ns, p.summary)).map((p) => p.ref) : [])],
+  });
   const watch = useRun(enabled ? runId : null, revived.epoch);
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
   const aiRuns = useAIRuns(app?.name, 5000);
@@ -630,6 +660,7 @@ export function useLiveMigration(): MigrationView {
     events: watch.events,
     stream: { connected: watch.connected, error: watch.error ? errorText(watch.error) : undefined },
     preflight: preflight.data,
+    past,
     start: { options: startOptions, set: (options) => setPicked({ planRef, options }) },
     busy,
     notice: notice || (apps.error ? errorText(apps.error) : ""),

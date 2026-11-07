@@ -2,6 +2,7 @@ import { at, fakeAgentSession, fakeRun } from "../api/fakes";
 import type { AgentEvent, AIActivity, PlanRecord, Run, RunEvent, TrafficState } from "../api/types";
 import { aiFacts, buildMapSnapshot, currentOf } from "./mapSnapshot";
 import type { MigrationView } from "./migration";
+import { preflightOf } from "./preflight";
 
 const noop = () => {};
 const plan = (p: Partial<PlanRecord> = {}): PlanRecord =>
@@ -97,6 +98,75 @@ describe("migration map snapshot: one map from the setup to the end of the run",
       capacity: { status: "pass", summary: "ok", items: [] },
     } }));
     expect(s.validations[0]).toMatchObject({ status: "결과 미수신", tone: "idle" });
+  });
+
+  describe("the setup form shows the app's latest earlier start on the validation cards", () => {
+    const runId = "moimroom-mig-gke-to-eks-20261107-090542";
+    // the start record of 2026-11-07T09:05:42Z: no residency policy, parity recorded but not passed
+    const past = () => ({
+      runId,
+      planRef: "pln_9b4ee0acb2ee",
+      view: preflightOf({
+        time: "2026-11-07T09:05:42.760231Z",
+        detail: {
+          capacity: { outcome: "not_configured" },
+          residency: "not_configured",
+          parity: {
+            mode: "audit",
+            outcome: "recorded",
+            passed: false,
+            baselineStatus: "not_configured",
+            configDigest: "cfg-real",
+            results: [
+              "identity unknown identity_policy_incomplete: rbac-self-access-review=unknown(authorization_unavailable), cloud-policy=unknown(cloud_policy_not_configured)",
+              "audit unknown probe_not_configured",
+              "backup-restore unknown resource_checks_incomplete: backup-config=pass(barman_archiver_configured), restore=unknown(restore_not_verified)",
+            ],
+          },
+        },
+      })!,
+    });
+
+    it("shows parity as not verifiable with each item, and residency as not checked, marked as an earlier run's", () => {
+      const [parity, residency] = snap(view({ stage: "setup", past: past() })).validations;
+      expect(parity).toMatchObject({ status: "확인 불가", tone: "wa" });
+      expect(parity.summary).toContain("확인하지 못한 항목이 있어");
+      expect(parity.evidence[0]).toBe("지난 실행의 기록입니다 (실행 " + runId + ")");
+      expect(parity.evidence[1]).toMatch(/^검사 시각: /);
+      expect(parity.evidence).toContain("감사 로그: probe_not_configured");
+      expect(parity.evidence.some((x) => x.startsWith("인증, 권한: identity_policy_incomplete (rbac-self-access-review=unknown(authorization_unavailable)"))).toBe(true);
+      expect(parity.evidence.some((x) => x.startsWith("백업, 복구: resource_checks_incomplete (backup-config=pass("))).toBe(true);
+      expect(parity.evidence).toContain("설정 digest: cfg-real");
+      expect(residency).toMatchObject({ status: "검사 안 함", tone: "idle", summary: "플랫폼에 레지던시 정책이 설정되지 않아 검사하지 않았습니다" });
+      expect(residency.evidence[0]).toBe("지난 실행의 기록입니다 (실행 " + runId + ")");
+    });
+
+    it("names the plan when the entry had no run, and keeps the note on a parity card that was skipped", () => {
+      const refused = { planRef: "pln_1", view: preflightOf({ time: at(1), detail: { error: "residency_denied", residencyReasons: [] } })! };
+      const [parity, residency] = snap(view({ past: refused })).validations;
+      expect(parity).toMatchObject({ status: "검사 안 함", evidence: ["지난 실행의 기록입니다 (계획 pln_1)"] });
+      expect(residency).toMatchObject({ status: "차단" });
+      expect(snap(view({ past: { view: refused.view } })).validations[0].evidence).toEqual(["지난 실행의 기록입니다"]);
+    });
+
+    it("leaves the cards as they were without an earlier record, and with a plan's own checks (never mixed)", () => {
+      expect(snap(view({ stage: "setup" })).validations.map((x) => x.status)).toEqual(["결과 미수신", "검사 기록 없음"]);
+      const own = preflightOf({ time: at(2), detail: { residency: "allowed", parity: { outcome: "recorded", passed: true, results: ["identity pass ok"] } } })!;
+      const [parity, residency] = snap(view({ stage: "review", plan: plan(), preflight: own, past: past() })).validations;
+      expect(parity).toMatchObject({ status: "통과" });
+      expect(residency).toMatchObject({ status: "허용" });
+      expect([...parity.evidence, ...residency.evidence].some((x) => x.includes("지난 실행"))).toBe(false);
+    });
+
+    it("changes nothing but the cards: a blocked earlier start does not block the setup form", () => {
+      const blocked = { runId, view: preflightOf({ time: at(1), detail: { error: "residency_denied", residencyReasons: [] } })! };
+      const withPast = snap(view({ stage: "setup", past: blocked }));
+      const without = snap(view({ stage: "setup" }));
+      expect(withPast.validations[1].status).toBe("차단");
+      const { validations: _a, ...rest } = withPast;
+      const { validations: _b, ...base } = without;
+      expect(rest).toEqual(base);
+    });
   });
 
   describe("what the AI runner really did (GET /v1/ai-activity)", () => {

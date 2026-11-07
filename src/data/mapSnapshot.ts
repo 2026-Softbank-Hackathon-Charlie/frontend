@@ -638,6 +638,11 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     );
   }
 
+  // With no plan on screen the app's latest earlier start stands in for the validation cards, named as an earlier
+  // run's record; a plan on screen shows its own checks (or none yet), never an earlier run's.
+  const checks = v.preflight ?? v.past?.view;
+  const pastNote = !v.preflight && v.past ? ["지난 실행의 기록입니다" + (v.past.runId ? " (실행 " + v.past.runId + ")" : v.past.planRef ? " (계획 " + v.past.planRef + ")" : "")] : [];
+
   // detail panel
   const detail: MapSnapshot["detail"] =
     r?.status === "succeeded" && !curPhase
@@ -705,14 +710,15 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
         title: "동등성 검증",
         purpose: "옮겨 간 환경에서도 원본에 필요한 운영 기능을 제공하는지 확인합니다.",
         criteria: "인증·권한 / 시크릿 / 감사 로그 / 모니터링·알림 / 백업·복구",
-        status: !v.preflight?.parity ? "결과 미수신" : ({ pass: "통과", fail: "불일치", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[v.preflight.parity.status],
-        tone: !v.preflight?.parity ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[v.preflight.parity.status],
-        summary: v.preflight?.parity?.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 이전 완료나 샌드박스 리허설 성공만으로 동등성 통과를 판단하지 않습니다.",
+        status: !checks?.parity ? "결과 미수신" : ({ pass: "통과", fail: "불일치", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[checks.parity.status],
+        tone: !checks?.parity ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[checks.parity.status],
+        summary: checks?.parity?.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 이전 완료나 샌드박스 리허설 성공만으로 동등성 통과를 판단하지 않습니다.",
         // a skipped check has no time, items or digest of its own: the summary says why it did not run
-        evidence: v.preflight?.parity?.status === "skip" ? [] : v.preflight?.parity ? [
-          "검사 시각: " + new Date(v.preflight.at).toLocaleString("ko-KR"),
-          ...v.preflight.parity.items.map(i => i.label + ": " + i.detail),
-          ...(v.preflight.parity.digest ? ["설정 digest: " + v.preflight.parity.digest] : []),
+        evidence: checks?.parity?.status === "skip" ? pastNote : checks?.parity ? [
+          ...pastNote,
+          "검사 시각: " + new Date(checks.at).toLocaleString("ko-KR"),
+          ...checks.parity.items.map(i => i.label + ": " + i.detail),
+          ...(checks.parity.digest ? ["설정 digest: " + checks.parity.digest] : []),
           "기록 전용: 결과와 상관없이 이전 시작을 막지 않습니다.",
         ] : ["원본의 운영 요구사항과 대상 환경의 실제 점검 결과를 비교합니다.", "검사 결과와 적용 모드에 따른 시작 차단 여부는 플랫폼 기록에서 확인해야 합니다."],
       },
@@ -720,13 +726,14 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
         title: "레지던시 검증",
         purpose: "원본 데이터를 목적지 국가로 옮겨도 되는지 정책에 대조합니다.",
         criteria: "원본 전체 테이블·버킷 / 데이터 분류 / 목적지 국가의 허용 여부",
-        status: !v.preflight ? "검사 기록 없음" : ({ pass: "허용", fail: "차단", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[v.preflight.residency.status],
-        tone: !v.preflight ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[v.preflight.residency.status],
-        summary: v.preflight?.residency.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 기록 없음은 허용을 뜻하지 않습니다.",
-        evidence: v.preflight ? [
-          "검사 시각: " + new Date(v.preflight.at).toLocaleString("ko-KR"),
-          ...v.preflight.residency.items.map(i => i.label + (i.detail ? " · " + i.detail : "")),
-          ...(v.preflight.residency.digest ? ["정책 digest: " + v.preflight.residency.digest] : []),
+        status: !checks ? "검사 기록 없음" : ({ pass: "허용", fail: "차단", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[checks.residency.status],
+        tone: !checks ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[checks.residency.status],
+        summary: checks?.residency.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 기록 없음은 허용을 뜻하지 않습니다.",
+        evidence: checks ? [
+          ...pastNote,
+          "검사 시각: " + new Date(checks.at).toLocaleString("ko-KR"),
+          ...checks.residency.items.map(i => i.label + (i.detail ? " · " + i.detail : "")),
+          ...(checks.residency.digest ? ["정책 digest: " + checks.residency.digest] : []),
         ] : ["시작 직전에 플랫폼이 검사하며, 정책 위반 시 이전을 시작하지 않습니다.", "정책 미설정·롤백 면제는 실제 검사 통과와 구분합니다."],
       },
     ],
