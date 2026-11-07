@@ -242,6 +242,7 @@ const PROG: [string, string, string, string][] = [
 
 function MigrateView({ v }: { v: MigrationView }) {
   const live = v.live;
+  const { gkeDemoApp, setApp } = v;
   const title = (v.app || "앱") + " 이전";
   if (!v.ready) {
     return (
@@ -277,13 +278,28 @@ function MigrateView({ v }: { v: MigrationView }) {
                 </div>
                 <div className="field">
                   <label htmlFor="mig-target">옮겨 갈 환경</label>
-                  <select id="mig-target" value={v.tgt} onChange={(e) => v.setTarget(e.target.value)}>
+                  <select
+                    id="mig-target"
+                    value={v.tgt}
+                    onChange={(e) => v.setTarget(e.target.value)}
+                    aria-describedby={gkeDemoApp && setApp ? "mig-gke-demo-note" : undefined}
+                  >
                     {v.targets.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
                     ))}
                   </select>
+                  {gkeDemoApp && setApp && (
+                    <>
+                      <small id="mig-gke-demo-note">현재 앱에는 GKE 대상이 등록되어 있지 않습니다.</small>
+                      <div>
+                        <button type="button" className="btn sm ghost" disabled={v.busy} onClick={() => setApp(gkeDemoApp)}>
+                          시연용 moimroom-mig 열기
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
