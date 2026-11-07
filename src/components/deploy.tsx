@@ -322,8 +322,8 @@ const tagClass = (t: EnvTag) => "chip" + (t ? " " + t : "");
 function envChips(a: App, def: AppInstance | undefined) {
   const deploying = !!def?.lastDeployment && !isFinalDeploymentStatus(def.lastDeployment.status);
   return ENV_ORDER.map((k) => {
-    const label = k === "onprem" ? "온프레미스" : ENV[k].short;
-    const titleLabel = k === "onprem" ? label : ENV[k].name;
+    const label = k === "onprem" ? "On-prem" : ENV[k].short;
+    const titleLabel = k === "onprem" ? "온프레미스" : ENV[k].name;
     let st: [EnvTag, string] = ["off", "그 환경에 없음"];
     const s = def?.status.find((x) => envKeyOf(x.env) === k);
     if (s) st = s.status === "pending" && deploying ? ["run", "배포 중"] : ENV_STATUS[s.status];
