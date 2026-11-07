@@ -5,6 +5,8 @@ import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { LiveSourceRetention } from "../components/SourceRetention";
+import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
+import { LiveWriteCollection } from "../components/WriteCollection";
 import { EmptyShop } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
@@ -340,6 +342,7 @@ function MigrateView({ v }: { v: MigrationView }) {
             </details>
           </div>
         </div>
+        {v.live && v.app && <LiveWriteCollection key={v.app} app={v.app} />}
         {pc && (
           <div className="box fillbox" role="status" id="mig-blocked">
             <div className="bb">
@@ -1259,7 +1262,7 @@ function heroText(v: MigrationView, r: Run, el: number): [string, string] {
               : (o.rollbackError ? "자동 롤백을 시작하지 못했습니다: " + o.rollbackError + ". " : "") + "롤백할지 정하세요."),
         ];
       const x = r.result;
-      const clean = x.verified === true && [x.failedRequests, x.missingRows, x.missingWrites, x.missingFiles].every((n) => !n);
+      const clean = x.verified === true && [x.failedRequests, x.missingRows, measuredWriteMissing(writeVerificationOf(x), x.missingWrites), x.missingFiles].every((n) => n === 0);
       const took = dur(el) + " 만에 " + (r.rollbackOf ? "되돌렸" : "옮겼");
       return [
         clean ? took + "고, 실패 요청과 누락은 없습니다." : took + "습니다. 리포트에서 실패 요청과 누락을 확인하세요.",
@@ -1453,6 +1456,8 @@ function ObserveBox({ r }: { r: Run }) {
 // The ended run's numbers, each checked against its target.
 function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
   const x = r.result;
+  const verification = writeVerificationOf(x);
+  const missingWrites = measuredWriteMissing(verification, x.missingWrites);
   const n = (k: number | undefined, unit: string) => (k === undefined ? "측정 안 됨" : fmt(k) + unit);
   const zero = (k: number | undefined) => (k === undefined ? undefined : k === 0);
   const max = goSec(v.plan?.summary.maxDowntime ?? "");
@@ -1473,9 +1478,10 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
         />
         <Num label="실패 요청" value={n(x.failedRequests, "건")} note={"요청 " + fmt(x.requests ?? 0) + "건 중"} ok={zero(x.failedRequests)} />
         <Num label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" ok={zero(x.missingRows)} />
-        <Num label="누락 쓰기" value={n(x.missingWrites, "건")} note={v.counters ? "k6 성공 응답 " + fmt(v.counters.ok) + "건과 대조" : "k6가 성공 응답을 받은 쓰기와 대조"} ok={zero(x.missingWrites)} />
+        <Num label="누락 쓰기" value={n(missingWrites, "건")} note={verification?.scope === "application_commits" ? "앱 DB 커밋 기록과 대조" : verification?.scope === "client_acknowledged" ? "성공 응답을 확인한 기록과 대조" : "보고된 쓰기 기록과 대조"} ok={zero(missingWrites)} />
         <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />
       </div>
+      <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>
       {!x.verified && <div className="bb hint">검증이 끝나지 않았거나 문제가 있습니다.</div>}
     </div>
   );

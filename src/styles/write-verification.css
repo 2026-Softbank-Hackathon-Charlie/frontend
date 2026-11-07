@@ -1,0 +1,8 @@
+.write-verification { display: grid; gap: var(--sp-sm); min-width: 0; }
+.write-verification-heading { display: flex; align-items: center; gap: var(--sp-sm); flex-wrap: wrap; }
+.write-verification-heading h3 { margin: 0; font-size: 14px; }
+.write-verification-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--sp-md); margin: 0; }
+.write-verification-metrics dt { color: var(--muted); font-size: 12px; }
+.write-verification-metrics dd { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.write-verification code { overflow-wrap: anywhere; }
+@media (max-width: 700px) { .write-verification-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); } }

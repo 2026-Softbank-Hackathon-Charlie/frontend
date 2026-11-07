@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState } from "react";
 import {
   ApiError,
   getSourceRetention,
+  getWrittenRecords,
   listAIRuns,
   getApp,
   getDeployment,
@@ -31,6 +32,7 @@ import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun }
 import type {
   AIRun,
   SourceRetentionResponse,
+  WrittenRecordStats,
   AgentEvent,
   AgentSession,
   App,
@@ -110,6 +112,11 @@ function usePolled<T>(key: string | null, pollMs: number, load: (signal: AbortSi
 
 export function useSourceRetention(runId: string | null | undefined, pollMs = 15000): Resource<SourceRetentionResponse> {
   return usePolled(runId ? "retention:" + runId : null, pollMs, signal => getSourceRetention(runId!, { signal }));
+}
+
+/** Current stream totals, never a frozen run's verification input. */
+export function useWrittenRecords(stream: string | null, pollMs = 5000): Resource<WrittenRecordStats> {
+  return usePolled(stream ? "written-records:" + stream : null, pollMs, signal => getWrittenRecords(stream!, { signal }));
 }
 
 /** `enabled` false loads nothing. */

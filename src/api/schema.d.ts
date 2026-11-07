@@ -1638,6 +1638,35 @@ export interface components {
       missingFiles?: number;
       /** @description the verify report found no problems */
       verified?: boolean;
+      /** @description Snapshot of this run's collected write inputs and verification outcome. */
+      writeVerification?: components["schemas"]["WriteVerification"];
+    };
+    WriteVerification: {
+      /** @enum {string} */
+      status: "not_configured" | "no_records" | "not_reached" | "measured" | "failed";
+      stream?: string;
+      /**
+       * Format: int64
+       * @description Input records frozen for this run, never the current live stream count.
+       */
+      collectedRecords?: number;
+      /** Format: date-time */
+      latestAt?: string;
+      /**
+       * Format: int64
+       * @description Maximum observed sequence included in the verification input. Late reports are not included.
+       */
+      cutoffSeq?: number;
+      /** Format: int64 */
+      checked?: number;
+      /** Format: int64 */
+      missing?: number;
+      /** @enum {string} */
+      scope?: "application_commits" | "client_acknowledged" | "unspecified";
+      /** @enum {string} */
+      coverage?: "reservation_inserts" | "reported_records";
+      /** @description Stable reason code; no raw provider errors. */
+      reason?: string;
     };
     CanaryResult: {
       options: components["schemas"]["CanaryOptions"];
@@ -2829,6 +2858,8 @@ export interface components {
     };
     /** @description One write a load generator saw succeed, in the engine's written-records format. */
     WrittenRecord: {
+      /** @description Optional stable producer event identifier; retries of identical events are deduplicated within the stream. */
+      eventId?: string;
       /**
        * @description schema.table or table
        * @example orders.orders
@@ -2846,6 +2877,12 @@ export interface components {
       at?: string;
     };
     WrittenRecordsRequest: {
+      /** @description Source database generation; required for application commit receipts. */
+      generation?: string;
+      /** @enum {string} */
+      scope?: "application_commits" | "client_acknowledged" | "unspecified";
+      /** @enum {string} */
+      coverage?: "reservation_inserts" | "reported_records";
       records: components["schemas"]["WrittenRecord"][];
     };
     WrittenRecordsAccepted: {
@@ -2853,6 +2890,13 @@ export interface components {
       accepted: number;
     };
     WrittenRecordStats: {
+      generation?: string;
+      /** Format: int64 */
+      lastSeq?: number;
+      /** @enum {string} */
+      scope?: "application_commits" | "client_acknowledged" | "unspecified";
+      /** @enum {string} */
+      coverage?: "reservation_inserts" | "reported_records";
       stream: string;
       /** Format: int64 */
       count: number;

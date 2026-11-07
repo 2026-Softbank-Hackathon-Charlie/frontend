@@ -7,6 +7,7 @@ import { Chip, LoadError, PageHead, Skeleton } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { dur, fmt } from "../sim/format";
 import { useSim } from "../sim/store";
+import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import "../styles/results.css";
 
 export function Routes() {
@@ -53,12 +54,14 @@ export function MigrationResults({ runs }: { runs: Run[] }) {
 
 function ResultSummary({ r }: { r: Run }) {
   const x = r.result;
+  const verification = writeVerificationOf(x);
   return <li className="box result-card">
     <header><div><h2>{r.source.namespace || r.planId}</h2><p>{envName(r.source.env)} <span aria-label="에서 대상으로">→</span> {envName(r.target.env)}</p></div><Chip kind={RESULT_KIND[r.status] ?? ""}>{RUN_SHORT[r.status]}</Chip></header>
     <p className="hint"><time dateTime={r.endedAt ?? r.updatedAt}>{date(r.endedAt ?? r.updatedAt)}</time> · {r.endedAt ? "종료" : "마지막 갱신"} · <code>{r.runId}</code>{r.rollbackOf && <> · 롤백 원본 {r.rollbackOf}</>}</p>
     <dl className="result-metrics">
-      {([["전체 소요", millis(x.durationMillis)], ["쓰기 보류", millis(x.downtimeMillis)], ["실패 요청", count(x.failedRequests)], ["행 누락", count(x.missingRows)], ["쓰기 누락", count(x.missingWrites)], ["파일 누락", count(x.missingFiles)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      {([["전체 소요", millis(x.durationMillis)], ["쓰기 보류", millis(x.downtimeMillis)], ["실패 요청", count(x.failedRequests)], ["행 누락", count(x.missingRows)], ["쓰기 누락", count(measuredWriteMissing(verification, x.missingWrites))], ["파일 누락", count(x.missingFiles)]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
     </dl>
+    <WriteVerification verification={verification} legacyMissing={x.missingWrites} />
     {r.status === "halted" && <p className="result-warning">승격 이후 상태 확인이 필요합니다. 원복 완료를 의미하지 않습니다.</p>}
     {r.observe?.passed === false && <p className="result-warning">전환 후 관찰에서 게이트 위반이 감지됐습니다.{r.observe.rollbackRunId && " 롤백 실행: " + r.observe.rollbackRunId}</p>}
     {(r.statusReason || r.engine.failureError) && <p className="hint">{r.statusReason || r.engine.failureError}</p>}
