@@ -1,0 +1,27 @@
+.run-decision { min-width: 0; }
+.run-decision .bh h3, .run-decision h4 { margin: 0; font-size: inherit; }
+.run-decision .bh { flex-wrap: wrap; }
+.run-decision-body { display: grid; gap: var(--sp-md); }
+.run-decision-body p { margin: 0; }
+.run-decision-facts, .run-decision-steps {
+  display: grid;
+  gap: var(--sp-sm);
+  margin: 0;
+}
+.run-decision-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.run-decision-steps { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.run-decision-facts div, .run-decision-steps div { border-top: 1px solid var(--line-soft); padding-top: var(--sp-xs); }
+.run-decision-facts dt, .run-decision-steps dd { color: var(--muted); font-size: 12px; }
+.run-decision-facts dd { margin: 2px 0 0; font-weight: 600; }
+.run-decision-steps dt { font-size: 13px; font-weight: 600; }
+.run-decision-steps dd { margin: 0; }
+.run-decision-reason { overflow-wrap: anywhere; }
+.run-decision-checks { border-top: 1px solid var(--line-soft); padding-top: var(--sp-sm); }
+.run-decision-checks ol { padding-inline-start: 1.35rem; margin: var(--sp-xs) 0; }
+.run-decision-canary summary { cursor: pointer; }
+.run-decision-canary table { width: 100%; border-collapse: collapse; margin-top: var(--sp-xs); }
+.run-decision-canary th, .run-decision-canary td { padding: var(--sp-xs); border-bottom: 1px solid var(--line-soft); text-align: left; }
+.result-card .run-decision { margin-top: var(--sp-sm); }
+@media (max-width: 600px) {
+  .run-decision-facts, .run-decision-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
