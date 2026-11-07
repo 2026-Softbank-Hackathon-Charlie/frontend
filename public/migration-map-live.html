@@ -101,7 +101,9 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .stephead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
 .stephead .seg button{font-size:13px;padding:3px 12px}
 .steps.detail li.gs{margin-left:14px;padding-left:10px;border-left:1px solid var(--sb-border-subtle)}
-.steps.detail .nm{white-space:nowrap}
+/* labels wrap inside their own column instead of running into the next step (long Japanese labels too) */
+.steps.detail .group{white-space:nowrap}
+.steps.detail .nm{word-break:keep-all;overflow-wrap:anywhere}
 .steps.simple{gap:12px}
 .steps.simple .segs{display:flex;gap:2px}
 .steps.simple .segs .bar{flex:1}
