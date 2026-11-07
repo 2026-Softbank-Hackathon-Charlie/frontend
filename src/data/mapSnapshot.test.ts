@@ -141,6 +141,18 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(s.phases.at(-1)!.key).toBe("rb");
   });
 
+  it("shows an inconclusive canary step (too few requests) as a warning, not a failure", () => {
+    const gate = { passed: false, reason: "only 7 requests reached the target (need 20); continuing to the next step", requests: 7, errorRate: 0, p95Millis: 0 };
+    const c: Run["canary"] = { options: { weights: [10, 50] }, steps: [{ weight: 10, startedAt: at(1), endedAt: at(2), verdict: "inconclusive", gate }, { weight: 50, startedAt: at(2) }] };
+    const ev: RunEvent = { seq: 1, time: at(2), runId: "run_1", kind: "gate_result", data: { weight: 10, verdict: "inconclusive", gate } };
+    const s = snap(view({ stage: "run", run: run({ status: "running", phase: "canary", canary: c }), events: [ev] }));
+    const p = s.phases.find((x) => x.key === "canary-0")!;
+    expect(p.st).toBe("warn");
+    expect(p.lines.map(([, cls]) => cls)).toEqual(["w"]);
+    expect(s.events.at(-1)!.cls).toBe("w");
+    expect(s.phases[s.cur].key).toBe("canary-1");
+  });
+
   it("does not leave a step running on an ended run, and moves no data", () => {
     const s = snap(view({ stage: "run", run: run({ status: "failed", phase: "done" }, { failureStep: "presync", steps: { presync: { status: "running" } } }) }));
     expect(s.phases.find((x) => x.key === "presync")!.st).toBe("fail");

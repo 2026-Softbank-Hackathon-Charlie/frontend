@@ -12,7 +12,8 @@ import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
-export type PhaseSt = "done" | "cur" | "wait" | "fail" | "todo" | "skip";
+/** "warn": ran and went on without a verdict (a canary step with too few requests), not a failure. */
+export type PhaseSt = "done" | "cur" | "wait" | "fail" | "todo" | "skip" | "warn";
 export type LineCls = "cmd" | "m" | "ok" | "w" | "err" | "a";
 export type Line = [text: string, cls: LineCls];
 export type MapAction = "approve" | "switch" | "abort" | "resume" | "rollback" | "reset";
@@ -97,7 +98,7 @@ export interface SnapshotContext {
 }
 
 const LANE_NAME: Record<EnvKey, string> = { aws: "AWS", gcp: "Google Cloud", onprem: "온프레미스" };
-const PILL: Record<PhaseSt, [string, string]> = { done: ["ok", "통과"], cur: ["info", "진행 중"], wait: ["wa", "대기"], fail: ["no", "실패"], skip: ["idle", "건너뜀"], todo: ["idle", "대기"] };
+const PILL: Record<PhaseSt, [string, string]> = { done: ["ok", "통과"], cur: ["info", "진행 중"], wait: ["wa", "대기"], fail: ["no", "실패"], skip: ["idle", "건너뜀"], todo: ["idle", "대기"], warn: ["wa", "판단 보류"] };
 const CHECK_ST: Record<CheckStatus, PhaseSt> = { pass: "done", fail: "fail", unknown: "skip", info: "done", skip: "skip" };
 const SESSION_ST: Record<AgentSession["status"], PhaseSt> = { succeeded: "done", running: "cur", failed: "fail", cancelled: "skip" };
 
@@ -138,7 +139,7 @@ export function runEventText(e: RunEvent): string {
 function runCls(e: RunEvent): LineCls {
   if (e.kind === "step_failed" || e.kind === "halt" || e.kind === "rollback") return "err";
   if (e.kind === "step_succeeded" || e.kind === "done") return "ok";
-  if (e.kind === "gate_result" || e.kind === "observe_step") return (e.data?.gate as { passed?: boolean } | undefined)?.passed || e.data?.verdict === "ok" ? "ok" : "err";
+  if (e.kind === "gate_result" || e.kind === "observe_step") return (e.data?.gate as { passed?: boolean } | undefined)?.passed || e.data?.verdict === "ok" ? "ok" : e.data?.verdict === "inconclusive" ? "w" : "err";
   if (e.kind === "step_started") return "cmd";
   if (e.kind === "status_changed") return "a";
   if (e.kind === "canary_step") return "w";
@@ -263,17 +264,17 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
       const s = c?.steps[i];
       const g = s?.gate;
       const verdict = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
-      const st: PhaseSt = !s ? "todo" : verdict === "ok" ? "done" : verdict === "inconclusive" ? "skip" : verdict === "failed" ? "fail" : active ? "cur" : "fail";
+      const st: PhaseSt = !s ? "todo" : verdict === "ok" ? "done" : verdict === "inconclusive" ? "warn" : verdict === "failed" ? "fail" : active ? "cur" : "fail";
       const checks: [string, string, PhaseSt][] = g
         ? [
-            ["요청 수 ≥ " + PLATFORM_GATE.minRequests, fmtN(g.requests), g.requests >= PLATFORM_GATE.minRequests ? "done" : "skip"],
+            ["요청 수 ≥ " + PLATFORM_GATE.minRequests, fmtN(g.requests), g.requests >= PLATFORM_GATE.minRequests ? "done" : "warn"],
             ["오류율 ≤ " + PLATFORM_GATE.maxErrorRate * 100 + "%", (g.errorRate * 100).toFixed(2) + "%", g.errorRate <= PLATFORM_GATE.maxErrorRate ? "done" : "fail"],
             ["p95 ≤ " + PLATFORM_GATE.maxP95Millis + "ms", g.p95Millis + "ms", g.p95Millis <= PLATFORM_GATE.maxP95Millis ? "done" : "fail"],
           ]
         : s
           ? [["게이트 판정", "관찰 중", "cur"]]
           : [];
-      if (g && !g.passed && g.reason) checks.push(["판정", g.reason, "fail"]);
+      if (g && !g.passed && g.reason) checks.push(["판정", g.reason, st === "warn" ? "warn" : "fail"]);
       const span = (e: RunEvent) => !!s && !isAfter(s.startedAt, e.time) && (!s.endedAt || !isAfter(e.time, s.endedAt));
       out.push({
         key: "canary-" + i,
@@ -316,7 +317,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
       st: r!.phase === "observe" && active ? "cur" : o.passed === true ? "done" : o.passed === false ? "fail" : o.stoppedReason ? "skip" : "todo",
       startedAt: o.steps[0]?.startedAt,
       endedAt: o.steps.at(-1)?.endedAt,
-      checks: o.steps.map((s, i): [string, string, PhaseSt] => [i + 1 + "단계", s.gate ? (s.gate.errorRate * 100).toFixed(2) + "% · " + s.gate.p95Millis + "ms" : s.verdict, s.verdict === "ok" ? "done" : s.verdict === "violated" ? "fail" : "skip"]),
+      checks: o.steps.map((s, i): [string, string, PhaseSt] => [i + 1 + "단계", s.gate ? (s.gate.errorRate * 100).toFixed(2) + "% · " + s.gate.p95Millis + "ms" : s.verdict, s.verdict === "ok" ? "done" : s.verdict === "violated" ? "fail" : "warn"]),
       lines: events.filter((e) => e.kind === "observe_step" || e.kind === "observe_rollback").map(runLine),
     });
   }

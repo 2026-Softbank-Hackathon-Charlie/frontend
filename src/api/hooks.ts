@@ -278,14 +278,17 @@ export function applyRunEvent(run: Run, ev: RunEvent): Run {
     case "gate_result": {
       const x = d as Partial<GateResultData>;
       if (!run.canary || typeof x.weight !== "number" || !x.gate) return run;
-      const { weight, gate } = x;
+      const { weight, gate, verdict } = x;
       const steps = [...run.canary.steps];
       const t = ev.time;
       let i = steps.length - 1;
       while (i >= 0 && !(steps[i].weight === weight && !isAfter(steps[i].startedAt, t))) i--;
-      if (i >= 0) steps[i] = { ...steps[i], endedAt: steps[i].endedAt ?? t, gate };
-      else steps.push({ weight, startedAt: t, endedAt: t, gate });
-      const passed = gate.passed ? run.canary.passed : false;
+      // an inconclusive step (too few requests) has gate.passed false but is not a failure: the run goes on
+      const v = verdict ? { verdict } : {};
+      if (i >= 0) steps[i] = { ...steps[i], endedAt: steps[i].endedAt ?? t, gate, ...v };
+      else steps.push({ weight, startedAt: t, endedAt: t, gate, ...v });
+      const failed = verdict ? verdict === "failed" : !gate.passed;
+      const passed = failed ? false : run.canary.passed;
       return { ...run, canary: { ...run.canary, steps, passed } };
     }
     // After the cutover: the server emits observe_step when a step has ended,

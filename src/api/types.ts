@@ -130,6 +130,8 @@ export interface CanaryStepData {
 }
 export interface GateResultData {
   weight: number;
+  /** Older servers leave it out; then gate.passed decides. */
+  verdict?: CanaryStep["verdict"];
   gate: GateResult;
 }
 /** `observe_step`: one gate evaluation of the target after the cutover. */

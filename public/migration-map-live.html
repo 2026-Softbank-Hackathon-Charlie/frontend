@@ -96,6 +96,7 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .steps li.wait .nm{color:var(--st-warn);font-weight:700}
 .steps li.fail .nm{color:var(--st-crit);font-weight:700}
 .steps li.skip .nm{text-decoration:line-through;text-decoration-color:var(--sb-silver)}
+.steps li.warn .nm{color:var(--st-warn)}
 .steps .group{font-size:11px;color:var(--sb-text-muted);font-family:var(--font-mono);height:16px}
 .stephead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
 .stephead .seg button{font-size:13px;padding:3px 12px}
@@ -452,7 +453,7 @@ function buildSteps(s){
   stepsKey = s.phases.map(p=>p.key).join(',');
 }
 function groupsOf(s){ const G=[]; s.phases.forEach((p,i)=>{ let g=G.find(x=>x.name===p.group); if(!g){ g={name:p.group, idx:[]}; G.push(g); } g.idx.push(i); }); return G; }
-const BAR = { done:'d', cur:'c', wait:'w', fail:'f', skip:'s', todo:'' };
+const BAR = { done:'d', cur:'c', wait:'w', fail:'f', skip:'s', todo:'', warn:'w' };
 function setView(v){
   $('validations').hidden = v!=='detail';
   $('stepsSimple').hidden = v!=='simple'; $('steps').hidden = v!=='detail';
@@ -523,7 +524,7 @@ function render(s){
     const st=g.idx.map(k=>s.phases[k].st);
     st.forEach((c,j)=>{ bars[j].className=BAR[c]; });
     const at=g.idx.indexOf(s.cur);
-    const past = st.every(c=>c==='done'||c==='skip');
+    const past = st.every(c=>c==='done'||c==='skip'||c==='warn');
     let c='', cs='';
     if (past){ c='done'; cs='완료'; }
     else if (at>=0){ c=st[at]; cs=(g.idx.length>1?`${at+1}/${g.idx.length} · `:'') + (c==='fail'?'실패':c==='wait'?'승인 대기':s.phases[s.cur].label); }
@@ -585,8 +586,8 @@ function renderLog(s){
 
 /* ---------- run console (GitHub Actions style) ---------- */
 const RUN = { open: store.get('hc.runOpen')==='1', sel: null, key:'', jobsKey:'' };
-const ICON = { done:['d','✓'], cur:['c','●'], wait:['w','◐'], fail:['f','✕'], skip:['s','–'], todo:['t','○'] };
-const PILL = { done:['ok','성공'], cur:['info','실행 중'], wait:['wa','대기'], fail:['no','실패'], skip:['idle','건너뜀'], todo:['idle','대기'] };
+const ICON = { done:['d','✓'], cur:['c','●'], wait:['w','◐'], fail:['f','✕'], skip:['s','–'], todo:['t','○'], warn:['w','!'] };
+const PILL = { done:['ok','성공'], cur:['info','실행 중'], wait:['wa','대기'], fail:['no','실패'], skip:['idle','건너뜀'], todo:['idle','대기'], warn:['wa','판단 보류'] };
 function buildJobs(s){
   const ul=$('jobs'); ul.replaceChildren(); let lastG='';
   s.phases.forEach((p)=>{
