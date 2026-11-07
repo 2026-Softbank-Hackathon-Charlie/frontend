@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { useApps, useEnvironments, useTraffic, type Resource } from "../api/hooks";
 import type { DatabaseCluster, Environment, TrafficState } from "../api/types";
+import { EnvLabel } from "../components/shared";
 import { Chip, type ChipKind, LoadError, PageHead, Skeleton, Table, td } from "../components/ui";
 import { hasGateway } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
@@ -45,6 +46,10 @@ type ReadResult<T> = Pick<Resource<T>, "data" | "error" | "reload">;
 /** Both modes render the platform contract. Only the source of observations differs. */
 function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: ReadResult<Environment[]>; traffic: ReadResult<TrafficState>; scope?: ReactNode; demo?: boolean; enrollment?: ReactNode }) {
   const t = traffic.data;
+  const backendLabel = (name: string, label = name) => {
+    const environment = envs.data?.find((e) => e.gatewayBackend === name);
+    return <EnvLabel env={environment?.name ?? name} label={label} provider={environment?.provider} />;
+  };
   return (
     <div className="page">
       <PageHead icon="server" title="환경" sub={demo ? "클러스터와 트래픽 게이트웨이 상태입니다." : "플랫폼 API가 보고하는 클러스터와 트래픽 게이트웨이 상태입니다. 10초마다 다시 읽습니다."} />
@@ -61,7 +66,7 @@ function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: Re
             <Table
               head={["환경", "위치", "Kubernetes", "노드", "DB (CNPG)", "DB 백업", "게이트웨이 백엔드", "상태"]}
               rows={envs.data.map((e) => [
-                td(<b>{e.displayName}</b>),
+                td(<b><EnvLabel env={e.name} label={e.displayName} provider={e.provider} /></b>),
                 td(e.region ?? "-", "nw"),
                 td(e.status.kubernetesVersion ?? "-", "m nw"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
@@ -93,9 +98,9 @@ function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: Re
             <div className="bb">
               <dl className="kv">
                 <dt>쓰기 대상</dt>
-                <dd className="m">{t.writeBackend}</dd>
+                <dd className="m">{backendLabel(t.writeBackend)}</dd>
                 <dt>읽기 비율</dt>
-                <dd className="m">{Object.entries(t.readWeights).map(([k, w]) => k + " " + w + "%").join(", ")}</dd>
+                <dd className="m">{Object.entries(t.readWeights).map(([name, weight], i) => <Fragment key={name}>{i > 0 && ", "}{backendLabel(name, name + " " + weight + "%")}</Fragment>)}</dd>
                 <dt>쓰기 보류</dt>
                 <dd>{t.writesHeld ? "보류 중 (" + fmt(t.heldWrites) + "건, 상한 " + t.maxHold + ")" : "없음"}</dd>
               </dl>
@@ -105,7 +110,7 @@ function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: Re
               rows={t.backends.map((b) => {
                 const st = t.stats[b.name];
                 return [
-                  td(b.name, "m"),
+                  td(backendLabel(b.name), "m"),
                   td(<Chip kind={b.healthy ? "ok" : "bad"}>{b.healthy ? "정상" : "비정상"}</Chip>),
                   td(st ? fmt(st.requests) : "-", "num"),
                   td(st ? (st.errorRate * 100).toFixed(2) + "%" : "-", "num"),

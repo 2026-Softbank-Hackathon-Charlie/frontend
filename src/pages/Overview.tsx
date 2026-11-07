@@ -4,12 +4,12 @@ import { deploymentRank, useAudit, useRuns, useSecurity } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AuditEntry, Run, RunResult, SecurityReport } from "../api/types";
 import { ago, AppsList, DEPLOY_LABEL, elapsedSec, ms } from "../components/deploy";
-import { EnvGrid, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
+import { EnvGrid, EnvLabel, envName, RESULT_KIND, RouteMatrix, RUN_SHORT } from "../components/shared";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, PageHead, Skeleton, type ChipKind } from "../components/ui";
 import { instancesOf, useLiveApps, useSimApps, type AppsModel } from "../data/deploy";
 import { errorText, useLive } from "../data/live";
-import { ENV, SAMPLE } from "../sim/data";
+import { SAMPLE } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { iso, statusText, TARGET_SEC } from "../sim/mig";
 import { SIM_SECURITY } from "../sim/security";
@@ -117,7 +117,7 @@ interface NowItem {
   /** one sentence */
   title: string;
   /** one muted line */
-  sub?: string;
+  sub?: ReactNode;
   href: string;
   go: string;
 }
@@ -183,7 +183,7 @@ function deployItems(apps: App[], now: number): NowItem[] {
 }
 
 const isActive = (r: Run) => r.status === "running" || r.status === "awaiting_switch";
-const routeOf = (r: Run) => envName(r.source.env) + "에서 " + envName(r.target.env) + "로";
+const routeOf = (source: string, target: string) => <><EnvLabel env={source} label={envName(source) + "에서"} /> <EnvLabel env={target} label={envName(target) + "로"} /></>;
 // the namespace is the app's name
 const whatOf = (r: Run) => r.source.namespace + (r.rollbackOf ? " 롤백" : " 이전");
 
@@ -206,20 +206,22 @@ function runItems(runs: Run[], now: number, current?: string): NowItem[] {
 
 function activeItem(r: Run): NowItem {
   const base = { href: "#migrate-app", go: "진행 보기" };
-  if (r.status === "awaiting_switch") return { ...base, kind: "warn", chip: "전환 대기", title: whatOf(r) + "이 전환 승인을 기다리고 있습니다", sub: routeOf(r) + ", 데이터를 맞췄고 전환할 수 있습니다" };
-  return { ...base, kind: "run", chip: r.rollbackOf ? "롤백 중" : "이전 중", title: whatOf(r) + "이 진행 중입니다", sub: routeOf(r) + ", " + statusText(r.status, r.phase) };
+  const route = routeOf(r.source.env, r.target.env);
+  if (r.status === "awaiting_switch") return { ...base, kind: "warn", chip: "전환 대기", title: whatOf(r) + "이 전환 승인을 기다리고 있습니다", sub: <>{route}, 데이터를 맞췄고 전환할 수 있습니다</> };
+  return { ...base, kind: "run", chip: r.rollbackOf ? "롤백 중" : "이전 중", title: whatOf(r) + "이 진행 중입니다", sub: <>{route}, {statusText(r.status, r.phase)}</> };
 }
 
 function finishedItem(r: Run, current: boolean): NowItem {
   const ok = r.status === "succeeded";
   const link = current ? { href: "#migrate-app", go: ok ? "리포트 보기" : "열기" } : { href: "#routes", go: "결과 보기" };
-  if (ok) return { ...link, kind: "ok", chip: r.rollbackOf ? "롤백 완료" : "이전 완료", title: whatOf(r) + "을 마쳤습니다", sub: [routeOf(r), ...resultParts(r.result)].join(", ") };
+  const route = routeOf(r.source.env, r.target.env);
+  if (ok) return { ...link, kind: "ok", chip: r.rollbackOf ? "롤백 완료" : "이전 완료", title: whatOf(r) + "을 마쳤습니다", sub: <>{route}{resultParts(r.result).map((part) => ", " + part).join("")}</> };
   return {
     ...link,
     kind: RESULT_KIND[r.status] || "neu",
     chip: RUN_SHORT[r.status],
     title: whatOf(r) + (r.status === "rolled_back" ? "이 원복되었습니다" : "이 멈췄습니다"),
-    sub: routeOf(r) + ", " + (r.statusReason || statusText(r.status)),
+    sub: <>{route}, {r.statusReason || statusText(r.status)}</>,
   };
 }
 
@@ -256,10 +258,10 @@ function simWork(S: SimState): NowItem[] {
   else if (o.step === 4 && !o.approved)
     out.push({ kind: "warn", chip: "승인 대기", title: "기존 앱 가져오기 PR이 승인을 기다리고 있습니다", sub: "AI가 만든 PR을 확인하고 승인하면 머지와 배포를 시작합니다", href: "#onboard", go: "PR 보기" });
   const m = S.mig;
-  const route = ENV[m.src].name + "에서 " + ENV[m.tgt].name + "로";
-  if (m.stage === "ai") out.push({ kind: "run", chip: "AI 작업 중", title: SAMPLE.id + " 이전 계획을 AI가 만들고 있습니다", sub: route + ", " + migLabel(S), href: "#migrate-app", go: "진행 보기" });
+  const route = routeOf(m.src, m.tgt);
+  if (m.stage === "ai") out.push({ kind: "run", chip: "AI 작업 중", title: SAMPLE.id + " 이전 계획을 AI가 만들고 있습니다", sub: <>{route}, {migLabel(S)}</>, href: "#migrate-app", go: "진행 보기" });
   else if (m.stage === "review" && m.plan)
-    out.push({ kind: "warn", chip: "승인 대기", title: SAMPLE.id + " 이전 Plan이 승인을 기다리고 있습니다", sub: route + ", Plan " + m.plan.ref + " (revision " + m.plan.revision + ")", href: "#migrate-app", go: "Plan 보기" });
+    out.push({ kind: "warn", chip: "승인 대기", title: SAMPLE.id + " 이전 Plan이 승인을 기다리고 있습니다", sub: <>{route}, Plan {m.plan.ref} (revision {m.plan.revision})</>, href: "#migrate-app", go: "Plan 보기" });
   return out;
 }
 

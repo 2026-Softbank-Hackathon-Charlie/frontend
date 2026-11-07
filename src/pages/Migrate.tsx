@@ -8,7 +8,7 @@ import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisio
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
-import { EmptyShop, EnvLabel, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
+import { EmptyShop, EnvLabel, EnvRoute, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
@@ -91,7 +91,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
                     <Chip kind="run">AI 작업 중</Chip>
                   ) : v.lastRun ? (
                     <Chip kind={RESULT_KIND[v.lastRun.status] ?? ""}>
-                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", " + envName(v.lastRun.source.env) + " → " + envName(v.lastRun.target.env) + ", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, v.now ?? Date.now())}
+                      {"최근 이전 " + RUN_SHORT[v.lastRun.status] + ", "}<EnvRoute source={v.lastRun.source.env} target={v.lastRun.target.env} />{", " + ago(v.lastRun.endedAt ?? v.lastRun.updatedAt, v.now ?? Date.now())}
                     </Chip>
                   ) : (
                     <Chip>이전 전</Chip>
@@ -428,7 +428,7 @@ function MigrateView({ v }: { v: MigrationView }) {
   const hero = r ? heroText(v, r, r.result.durationMillis !== undefined ? r.result.durationMillis / 1000 : secs(r.startedAt, r.endedAt ?? r.updatedAt)) : undefined;
   return page(
     <>
-      <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<HeadActs v={v} />} />
+      <PageHead icon="arrow-right-left" title={title} sub={<><EnvRoute source={v.src} target={v.tgt} sourceLabel={v.srcLabel} targetLabel={v.tgtLabel} />{where}</>} acts={<HeadActs v={v} />} />
       <Wizard v={v} />
       <Notice text={v.notice} />
       {r && <RunDecisionPanel r={r} />}
@@ -496,12 +496,12 @@ function PlanFacts({ v }: { v: MigrationView }) {
         <dd className="m">{p.revision}</dd>
         <dt>원본</dt>
         <dd className="m">
-          {s.source.env} / {s.source.namespace} / {s.source.cluster}
+          <EnvLabel env={s.source.env} label={s.source.env} /> / {s.source.namespace} / {s.source.cluster}
           {s.source.dbHost ? " (" + s.source.dbHost + ")" : ""}
         </dd>
         <dt>대상</dt>
         <dd className="m">
-          {s.target.env} / {s.target.namespace} / {s.target.cluster}
+          <EnvLabel env={s.target.env} label={s.target.env} /> / {s.target.namespace} / {s.target.cluster}
           {s.target.dbHost ? " (" + s.target.dbHost + ")" : ""}
         </dd>
         <dt>파일 이전</dt>
@@ -606,7 +606,7 @@ function ApproveBox({ v }: { v: MigrationView }) {
         <dl className="kv">
           <dt>경로</dt>
           <dd>
-            {v.srcLabel} → {v.tgtLabel}
+            <EnvRoute source={v.src} target={v.tgt} sourceLabel={v.srcLabel} targetLabel={v.tgtLabel} />
           </dd>
           <dt>파일</dt>
           <dd>{s.files ? "함께 옮김 (rclone)" : "옮기지 않음"}</dd>

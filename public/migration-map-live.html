@@ -127,7 +127,7 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
 .lane-box{fill:var(--sb-canvas);stroke:var(--sb-border-subtle);stroke-width:1}
 .lane.target .lane-box{stroke:var(--sb-border-control)}
 .lane.dim{opacity:.32}
-.lane-silver{fill:none;stroke:var(--sb-silver);stroke-width:3}
+.lane-server{color:var(--sb-text-strong)}
 /* services that sit in a cloud (static: what the catalog and the clusters hold, not a live probe), and the AI call out to Claude */
 .lane-t{font-family:var(--font-ui);font-size:14px;font-weight:700;fill:var(--sb-text-strong)}
 .lane-r{font-family:var(--font-mono);font-size:11px;fill:var(--sb-text-muted)}
@@ -290,6 +290,11 @@ svg.map{display:block;width:100%;min-width:760px;height:auto}
     <div class="mapwrap">
       <svg class="map" id="map" viewBox="0 0 1020 500" role="img" aria-label="이주 지도">
         <defs>
+          <symbol id="lane-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <rect x="2" y="2" width="20" height="8" rx="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2"/>
+            <path d="M6 6h.01M6 18h.01"/>
+          </symbol>
           <!-- the particles: a rabbit (one path, so its outline has no inner seams) and a carrot, both facing right in a 24x24 box -->
           <symbol id="pt-rabbit" viewBox="0 0 24 24">
             <path d="M3.5 15a7.5 4.6 0 1 0 15 0a7.5 4.6 0 1 0-15 0zM15.1 11.5a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0-6.8 0zM16.3 5.5a1.3 3.6 0 1 0 2.6 0a1.3 3.6 0 1 0-2.6 0zM19.2 6a1.2 3.2 0 1 0 2.4 0a1.2 3.2 0 1 0-2.4 0zM1.1 13.2a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0zM10.4 19.4a3.6 1.5 0 1 0 7.2 0a3.6 1.5 0 1 0-7.2 0z"/>
@@ -363,6 +368,7 @@ applyMotion();
 
 /* ---------- map geometry (the original's) ---------- */
 const LANE_Y = { aws:100, gcp:250, onprem:400 };
+const LANE_LABEL_X = 318;
 const LANES = ['aws','gcp','onprem'];
 const P = {
   route:(y,d)=>`M 98 250 L 220 250 C 255 250 255 ${y} 295 ${y} L 635 ${y} C 672 ${y} 672 ${y+d} 710 ${y+d}`,
@@ -420,9 +426,13 @@ function build(s){
     const y = LANE_Y[k];
     const g = el('g',{class:'lane'}, $('gLanes'));
     el('rect',{class:'lane-box',x:280,y:y-62,width:720,height:124,rx:2},g);
-    el('rect',{class:'lane-silver',x:290,y:y-52,width:8,height:8},g);
-    const name = txt(g, 306, y-43, 'lane-t', '', 'start');
-    const region = txt(g, 306, y-43, 'lane-r', '', 'start');
+    if (k === 'onprem') {
+      el('use',{class:'lane-server',href:'#lane-server',x:292,y:y-56,width:16,height:16,'aria-hidden':'true'},g);
+    } else {
+      el('image',{href:'env/'+k+'.svg',x:290,y:y-56,width:20,height:16,'aria-hidden':'true'},g);
+    }
+    const name = txt(g, LANE_LABEL_X, y-43, 'lane-t', '', 'start');
+    const region = txt(g, LANE_LABEL_X, y-43, 'lane-r', '', 'start');
     const tag = txt(g, 990, y-43, 'lane-tag', '', 'end');
     el('rect',{class:'data-box',x:703,y:y-50,width:164,height:100,rx:2},g);
     lanesEl[k] = { g, name, region, tag };
@@ -511,7 +521,7 @@ function render(s){
   for (const k of LANES){
     const L = s.lanes[k], E = lanesEl[k];
     E.g.setAttribute('class', 'lane' + (L.role==='tgt' ? ' target' : L.role ? '' : ' dim'));
-    E.name.textContent = L.name; E.region.textContent = L.region; E.region.setAttribute('x', 306 + textW(L.name) + 10);
+    E.name.textContent = L.name; E.region.textContent = L.region; E.region.setAttribute('x', LANE_LABEL_X + textW(L.name) + 10);
     E.tag.textContent = L.tag; E.tag.style.fill = TONE[L.tagTone] || TONE.muted;
     setNode(k+'.cluster', s.nodes[k+'.cluster'][0], s.nodes[k+'.cluster'][1], L.cluster);
     setNode(k+'.app', s.nodes[k+'.app'][0], s.nodes[k+'.app'][1], s.app);

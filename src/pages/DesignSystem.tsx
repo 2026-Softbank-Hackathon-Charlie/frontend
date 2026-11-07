@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EnvLabel } from "../components/shared";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, td } from "../components/ui";
 
 // The console's design system, drawn from the same tokens and classes the screens use.
@@ -257,8 +258,8 @@ export function DesignSystem() {
               <div className="seg new" style={{ flexBasis: "50%" }}>GCP GKE 50%</div>
             </div>
             <div className="legend">
-              <span><i className="sw" style={{ background: "var(--old)" }} />AWS EKS <b>50%</b></span>
-              <span><i className="sw" style={{ background: "var(--fg)" }} />GCP GKE <b>50%</b></span>
+              <span><i className="sw" style={{ background: "var(--old)" }} /><EnvLabel env="eks" label="AWS EKS" /> <b>50%</b></span>
+              <span><i className="sw" style={{ background: "var(--fg)" }} /><EnvLabel env="gke" label="GCP GKE" /> <b>50%</b></span>
             </div>
           </Specimen>
 

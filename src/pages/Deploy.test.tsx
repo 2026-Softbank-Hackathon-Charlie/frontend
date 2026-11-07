@@ -470,10 +470,12 @@ describe("GitHub deploy screens (platform API)", () => {
       if (u.pathname === "/v1/traffic") return json(200, { writeBackend: "eks" });
       return undefined;
     });
-    const cell = (name: string) => screen.getByText(name, { selector: ".appd-envh b" }).closest(".appd-env") as HTMLElement;
+    const cell = (name: string) => screen.getByText(name, { selector: ".appd-envh b span" }).closest(".appd-env") as HTMLElement;
     await waitFor(() => expect(within(cell("AWS EKS")).getByText("트래픽 받는 중")).toBeInTheDocument());
+    expect(within(cell("AWS EKS")).getByAltText("")).toHaveAttribute("src", "/env/aws.svg");
     expect(within(cell("AWS EKS")).getByText("DB primary")).toBeInTheDocument();
     expect(within(cell("GCP GKE")).getByText("대기")).toBeInTheDocument();
+    expect(within(cell("GCP GKE")).getByAltText("")).toHaveAttribute("src", "/env/gcp.svg");
     expect(within(cell("GCP GKE")).getByText("DB replica(읽기 전용)")).toBeInTheDocument();
     expect(calls.some((c) => c.url === "/v1/traffic?app=moimroom")).toBe(true);
   });

@@ -112,7 +112,7 @@ describe("migration list", () => {
 
   it("shows the app's latest finished run instead of before migration", () => {
     list((ago) => [fakeRun({ status: "succeeded", phase: "done", source: { env: "eks", namespace: "shop", cluster: "shop-db" }, target: { env: "gke", namespace: "shop", cluster: "shop-db" }, endedAt: ago(180) })]);
-    expect(screen.getByText("최근 이전 성공, AWS EKS → GCP GKE, 3분 전")).toBeInTheDocument();
+    expect(screen.getByText(/^최근 이전 성공, /)).toHaveTextContent("최근 이전 성공, AWS EKS → GCP GKE, 3분 전");
     expect(screen.queryByText("이전 전")).not.toBeInTheDocument();
   });
 
@@ -134,7 +134,7 @@ describe("migration list", () => {
     });
     expect(sim.state.mig.history[0]?.status).toBe("succeeded");
     render(<SimProvider sim={sim} intervalMs={0}><MigrateList /></SimProvider>);
-    expect(screen.getByText(/^최근 이전 성공, .+ → .+, 방금$/)).toBeInTheDocument();
+    expect(screen.getByText(/^최근 이전 성공, /)).toHaveTextContent(/^최근 이전 성공, .+ → .+, 방금$/);
   });
 
   it("shows before migration only without any run", () => {

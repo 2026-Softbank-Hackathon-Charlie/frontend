@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AppSpecValidation } from "../api/types";
 import { SpecResult } from "../components/deploy";
 import { Icon } from "../components/Icon";
+import { EnvLabel } from "../components/shared";
 import { PageHead } from "../components/ui";
 import { useLiveNewApp, useSimNewApp, type NewAppModel } from "../data/deploy";
 import { useLive } from "../data/live";
@@ -114,7 +115,7 @@ function NewAppForm({ m }: { m: NewAppModel }) {
                 <div className="checks">
                   {envs.map((e) => (
                     <label key={e.value}>
-                      <input type="checkbox" id={"dep-env-" + e.value} checked={!isOff(e.value)} onChange={(x) => setOff({ ...off, [e.value]: !x.target.checked })} /> {e.label}
+                      <input type="checkbox" id={"dep-env-" + e.value} checked={!isOff(e.value)} onChange={(x) => setOff({ ...off, [e.value]: !x.target.checked })} /> <EnvLabel env={e.value} label={e.label} />
                     </label>
                   ))}
                 </div>

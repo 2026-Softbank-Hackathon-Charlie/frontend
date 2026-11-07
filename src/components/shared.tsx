@@ -21,14 +21,18 @@ export function envName(name: string, envs?: Environment[]): string {
 }
 
 /** An environment's label after its provider logo (AWS, GCP) or a server icon for on-prem; no icon for an unknown name. */
-export function EnvLabel({ env, label }: { env: string; label: string }) {
-  const k = envKeyOf(env);
+export function EnvLabel({ env, label, provider }: { env: string; label: string; provider?: string }) {
+  const k = envKeyOf(env) ?? (provider ? envKeyOf(provider) : undefined);
   return (
     <span className="icon-label">
       {k === "onprem" ? <Icon name="server" size={16} /> : k && <img className="icon env-logo" src={"/env/" + k + ".svg"} alt="" width={20} height={16} />}
       <span>{label}</span>
     </span>
   );
+}
+
+export function EnvRoute({ source, target, sourceLabel = envName(source), targetLabel = envName(target) }: { source: string; target: string; sourceLabel?: string; targetLabel?: string }) {
+  return <span className="env-route"><EnvLabel env={source} label={sourceLabel} /> <span aria-label="에서 대상으로">→</span> <EnvLabel env={target} label={targetLabel} /></span>;
 }
 
 function envShort(name: string): string {
@@ -42,11 +46,11 @@ export function EnvGrid() {
 }
 
 /** One cluster: name and state, a location line and three small figures. */
-function EnvCard({ name, chip, loc, figs, note }: { name: string; chip: ReactNode; loc: string; figs: [string, ReactNode][]; note?: string }) {
+function EnvCard({ env, name, provider, chip, loc, figs, note }: { env: string; name: string; provider?: string; chip: ReactNode; loc: string; figs: [string, ReactNode][]; note?: string }) {
   return (
     <div className="box envcard">
       <div className="cellh">
-        <b className="icon-label"><Icon name="server" size={16} /><span>{name}</span></b>
+        <b><EnvLabel env={env} label={name} provider={provider} /></b>
         {chip}
       </div>
       <span className="hint">{loc}</span>
@@ -72,6 +76,7 @@ function SimEnvGrid() {
         return (
           <EnvCard
             key={k}
+            env={k}
             name={e.name}
             chip={<Chip kind="ok">정상</Chip>}
             loc={e.region + ", 노드 " + e.nodes + "대, Kubernetes " + e.k8s}
@@ -133,7 +138,9 @@ function LiveEnvGrid() {
       {envs.data.map((e) => (
         <EnvCard
           key={e.name}
+          env={e.name}
           name={e.displayName}
+          provider={e.provider}
           chip={<Chip kind={e.status.reachable ? "ok" : "bad"}>{e.status.reachable ? "정상" : "연결 안 됨"}</Chip>}
           loc={[e.region ?? "위치 정보 없음", e.status.kubernetesVersion ? "Kubernetes " + e.status.kubernetesVersion : ""].filter(Boolean).join(", ")}
           figs={[
@@ -196,7 +203,7 @@ export function RoutesView({ routes, withCount }: { routes: MatrixRoute[]; withC
   const rows = routes.map((r) => {
     const x = r.result;
     return [
-      td(envShort(r.source) + " → " + envShort(r.target), "nw"),
+      td(<EnvRoute source={r.source} target={r.target} sourceLabel={envShort(r.source)} targetLabel={envShort(r.target)} />, "nw"),
       td(r.status ? <Chip kind={RESULT_KIND[r.status] ?? ""}>{statusText(r.status)}</Chip> : <Chip>미실행</Chip>),
       td(x?.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-", "num"),
       td(x?.downtimeMillis !== undefined ? (x.downtimeMillis / 1000).toFixed(1) + "초" : "-", "num"),
@@ -271,7 +278,7 @@ function MatrixView({ routes }: { routes: MatrixRoute[] }) {
               <td />
               {ENV_ORDER.map((t) => (
                 <th key={t} scope="col">
-                  {ENV[t].short}로
+                  <EnvLabel env={t} label={ENV[t].short + "로"} />
                 </th>
               ))}
             </tr>
@@ -279,7 +286,7 @@ function MatrixView({ routes }: { routes: MatrixRoute[] }) {
           <tbody>
             {ENV_ORDER.map((s) => (
               <tr key={s}>
-                <th scope="row">{ENV[s].short}에서</th>
+                <th scope="row"><EnvLabel env={s} label={ENV[s].short + "에서"} /></th>
                 {ENV_ORDER.map((t) => (s === t ? <td key={t} className="x" /> : <td key={t}>{routeCell(s, t, at(s, t))}</td>))}
               </tr>
             ))}

@@ -1,4 +1,5 @@
 // Pieces of the GitHub deploy screens (new app, app list and detail, deployment) that more than one page uses.
+import { Fragment } from "react";
 import type { SpecCheck } from "../api/hooks";
 import { isFinalDeploymentStatus } from "../api/sse";
 import type { App, AppInstance, AppSpec, AppSpecFieldError, Deployment, DeploymentEnvironmentStatus, DeploymentStatus, DeploymentTrigger } from "../api/types";
@@ -6,7 +7,7 @@ import { instancesOf } from "../data/deploy";
 import { migrationEntryLabel } from "../data/migrationMembership";
 import { errorText } from "../data/live";
 import { ENV, ENV_ORDER, envKeyOf } from "../sim/data";
-import { envName } from "./shared";
+import { EnvLabel, envName } from "./shared";
 import { Chip, ProgItem, Table, td, type ChipKind } from "./ui";
 
 /* ---------- labels ---------- */
@@ -43,7 +44,15 @@ export const ENV_STATUS: Record<DeploymentEnvironmentStatus, [ChipKind, string]>
 };
 export function EnvChip({ s, env }: { s: DeploymentEnvironmentStatus; env?: string }) {
   const [kind, text] = ENV_STATUS[s];
-  return <Chip kind={kind}>{env ? envName(env) + " " + text : text}</Chip>;
+  return <Chip kind={kind}>{env ? <EnvLabel env={env} label={envName(env) + " " + text} /> : text}</Chip>;
+}
+
+export function DeploymentEnvLabels({ environments }: Pick<Deployment, "environments">) {
+  return environments.map(({ env }, i) => (
+    <Fragment key={env}>
+      {i > 0 && ", "}<EnvLabel env={env} label={envName(env)} />
+    </Fragment>
+  ));
 }
 
 export const TRIGGER_LABEL: Record<DeploymentTrigger, string> = { register: "등록", manual: "수동", push: "push", redeploy: "재배포", environment: "환경 변경" };
@@ -320,7 +329,7 @@ function envChips(a: App, def: AppInstance | undefined) {
     else if (!def && a.environments.some((e) => envKeyOf(e.env) === k)) st = ["", "등록됨, 상태 모름"];
     return (
       <span key={k} className={tagClass(st[0])} title={ENV[k].name + " " + st[1]}>
-        {ENV[k].short}
+        <EnvLabel env={k} label={ENV[k].short} />
         <span className="sr-only"> {st[1]}</span>
       </span>
     );
@@ -403,7 +412,7 @@ export function AppsList({ apps, now, busy = {}, full, onObserve }: { apps: App[
         <div className="legend envlegend" aria-hidden="true">
           {LEGEND.map(([tag, text]) => (
             <span key={text}>
-              <span className={tagClass(tag)}>EKS</span> {text}
+              <span className={tagClass(tag)}><EnvLabel env="eks" label="EKS" /></span> {text}
             </span>
           ))}
         </div>

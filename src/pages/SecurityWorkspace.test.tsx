@@ -43,6 +43,22 @@ function open(route = "#security") {
 }
 
 describe("shared security workspace", () => {
+  it("shows provider icons for cloud scopes and keeps a custom environment label", () => {
+    const checkedAt = liveReport.generatedAt;
+    const data = securityData({
+      ...liveReport,
+      sources: [
+        ...liveReport.sources,
+        { name: "aws-iam", provider: "aws", environment: "aws-account", status: "ok", checkedAt, findings: 0 },
+        { name: "gcp-scc", provider: "gcp", environment: "gcp-project", status: "ok", checkedAt, findings: 0 },
+      ],
+    });
+    render(<SecurityWorkspace route="security/sources" data={data} />);
+    expect(screen.getByRole("row", { name: /AWS Cloud/ }).querySelector("img")).toHaveAttribute("src", "/env/aws.svg");
+    expect(screen.getByRole("row", { name: /GCP Cloud/ }).querySelector("img")).toHaveAttribute("src", "/env/gcp.svg");
+    expect(screen.getByRole("row", { name: /edge-02.*partial read/ })).toBeInTheDocument();
+  });
+
   it("preserves original severity/category filtering and scopes storage keys to the environment", async () => {
     installFetch(() => json(200, liveReport));
     window.history.replaceState(null, "", "/#security/findings");
