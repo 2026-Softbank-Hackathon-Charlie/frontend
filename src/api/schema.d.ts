@@ -1777,7 +1777,28 @@ export interface components {
       engine: components["schemas"]["EngineState"];
       /** @description the run this run rolls back (POST /v1/migrations/{runId}/rollback) */
       rollbackOf?: string;
+      securityComparison?: components["schemas"]["RunSecurityComparison"];
     };
+    /** @description Point-in-time policy assessments recorded by this migration. A missing side was not recorded. */
+    RunSecurityComparison: {
+      /** @example HC-POL-02 */
+      controlId: string;
+      source?: components["schemas"]["RunSecurityAssessment"];
+      target?: components["schemas"]["RunSecurityAssessment"];
+    };
+    /** @description An observation of the registered app workload immediately before a migration step. */
+    RunSecurityAssessment: {
+      /** Format: date-time */
+      assessedAt: string;
+      policyVersion: string;
+      result: components["schemas"]["SecurityControlResult"];
+      workload: string;
+      reason: components["schemas"]["RunSecurityAssessmentReason"];
+      /** @description Bounded Kubernetes observation without a raw response or credentials. */
+      evidence?: string;
+    };
+    /** @enum {string} */
+    RunSecurityAssessmentReason: "clear" | "privileged" | "forbidden" | "unavailable" | "workload_not_ready";
     SourceRetentionResponse: {
       job?: {
         runId: string;

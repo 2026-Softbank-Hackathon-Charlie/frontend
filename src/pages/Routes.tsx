@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useRuns } from "../api/hooks";
 import type { Run } from "../api/types";
 import { Icon } from "../components/Icon";
-import { DemoMigrationSecurityComparison } from "../components/MigrationSecurityComparison";
+import { DemoMigrationSecurityComparison, SavedMigrationSecurityComparison } from "../components/MigrationSecurityComparison";
 import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisionPanel";
 import { EnvRoute, envName, RESULT_KIND, RUN_SHORT } from "../components/shared";
 import { Chip, LoadError, PageHead, Skeleton } from "../components/ui";
@@ -89,7 +89,7 @@ function ResultSummary({ r, example = false }: { r: Run; example?: boolean }) {
     {r.observe?.passed === false && <p className="result-warning">전환 후 관찰에서 게이트 위반이 감지됐습니다.{r.observe.rollbackRunId && " 롤백 실행: " + r.observe.rollbackRunId}</p>}
     {(r.statusReason || r.engine.failureError) && <p className="hint">{r.statusReason || r.engine.failureError}</p>}
       <RunDecisionPanel r={r} />
-      {example && <DemoMigrationSecurityComparison />}
+      {example ? <DemoMigrationSecurityComparison /> : <SavedMigrationSecurityComparison run={r} />}
       <dl className="result-details">
         <dt>Plan</dt><dd>{r.planRef} · {r.planId}</dd><dt>시작</dt><dd>{date(r.startedAt)} · {r.startedBy}</dd>
         <dt>요청 수</dt><dd>{invalidCounts ? "집계 이상" : count(x.requests)}</dd><dt>실패 단계</dt><dd>{r.engine.failureStep ?? "기록 없음"}</dd>
