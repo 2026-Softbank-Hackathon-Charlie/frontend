@@ -1,6 +1,6 @@
 import { fakeRun } from "../api/fakes";
 import type { Run } from "../api/types";
-import { filesClean, missingOf, verifyReportOf } from "./verifyReport";
+import { filesClean, missingOf, verifiedReportOf, verifyReportOf, verifyVerdict } from "./verifyReport";
 
 const withReport = (report: unknown): Run => {
   const r = fakeRun();
@@ -43,6 +43,24 @@ describe("the verify step's report", () => {
     expect(verifyReportOf(fakeRun())).toBeUndefined();
     expect(verifyReportOf(withReport("ok"))).toBeUndefined();
     expect(verifyReportOf(withReport(null))).toBeUndefined();
+  });
+
+  it("calls a report clean only with at least one counted table and nothing missing", () => {
+    const files = { matching: 634, differences: 0, missingOnTarget: 0, ok: true };
+    const t = (x: object) => ({ table: "app.t", ...x });
+    expect(verifyVerdict({ ok: true, missingRows: 0, tables: [], files })).toMatchObject({ clean: false, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 0, missing: 0, skipped: "no pk" }), t({ checked: 5 })] })).toMatchObject({ clean: false, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 5, missing: 0 })], files })).toMatchObject({ clean: true, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 5, missing: 0 })], files: { ...files, differences: 1 } })).toMatchObject({ clean: false, bad: true });
+    expect(verifyVerdict({ ok: false, missingRows: 3, tables: [] })).toMatchObject({ clean: false, bad: true, missing: 3 });
+  });
+
+  it("reads the report only of a run that verified and was not rolled back", () => {
+    const r = withReport({ ok: true, tables: [] });
+    expect(verifiedReportOf({ ...r, status: "succeeded" })).toBeDefined();
+    expect(verifiedReportOf({ ...r, status: "rolled_back" })).toBeUndefined();
+    r.engine.steps.verify.status = "failed";
+    expect(verifiedReportOf({ ...r, status: "failed" })).toBeUndefined();
   });
 
   it("calls the files clean only when nothing differs and nothing is missing", () => {

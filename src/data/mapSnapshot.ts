@@ -10,7 +10,7 @@ import { approvalBlock, PLATFORM_GATE, rehearsing, type MigrationView } from "./
 import { isAfter } from "../api/hooks";
 import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
-import { filesClean, missingOf, verifyReportOf } from "./verifyReport";
+import { filesClean, verifiedReportOf, verifyVerdict } from "./verifyReport";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
 /** "warn": ran and went on without a verdict (a canary step with too few requests), not a failure. */
@@ -174,7 +174,7 @@ export function runEventText(e: RunEvent): string {
   if (e.kind === "gate_result" || e.kind === "observe_step") {
     const g = d.gate as { passed?: boolean; errorRate?: number; p95Millis?: number; requests?: number; reason?: string } | undefined;
     const verdict = typeof d.verdict === "string" ? d.verdict : g?.passed ? "pass" : "fail";
-    return verdict + (g ? " · requests=" + g.requests + " err=" + ((g.errorRate ?? 0) * 100).toFixed(2) + "% p95=" + g.p95Millis + "ms" + (g.reason ? " · " + g.reason : "") : "");
+    return verdict + (g ? " · requests=" + g.requests + " err=" + ((g.errorRate ?? 0) * 100).toFixed(2) + "% p95=" + (g.p95Millis === undefined ? g.p95Millis : Math.round(g.p95Millis)) + "ms" + (g.reason ? " · " + g.reason : "") : "");
   }
   if (e.kind === "observe_rollback") return d.rollbackRunId ? "rollback run " + d.rollbackRunId : "rollback error: " + d.error;
   return "";
@@ -496,16 +496,17 @@ function runNodes(r: Run, f: MapFacts, files: boolean | undefined, share: number
   } else if ((r.status === "failed" || r.status === "aborted") && !f.promoted) tgt.app = ["standby", "트래픽 0%"];
 
   // once verified, the target's DB and bucket say what the engine compared instead of the role
-  const report = !rolledBack && s.verify === "succeeded" ? verifyReportOf(r) : undefined;
-  const checked = report?.tables.filter((t) => !t.skipped && !t.error) ?? [];
-  const errors = report?.tables.filter((t) => t.error).length ?? 0;
-  const missing = missingOf(checked);
+  const report = verifiedReportOf(r, s.verify);
+  const verdict = report && verifyVerdict(report);
   let dbVerified = false;
-  if (errors > 0) {
-    tgt.db = ["crit", "테이블 검증 오류 " + errors + "개"];
+  if (verdict?.errors) {
+    tgt.db = ["crit", "테이블 검증 오류 " + verdict.errors + "개"];
     dbVerified = true;
-  } else if (checked.length && missing !== undefined) {
-    tgt.db = [missing > 0 ? "crit" : "live", "테이블 " + checked.length + "개 · 누락 " + fmtN(missing)];
+  } else if (verdict?.checked.length && verdict.missing !== undefined) {
+    tgt.db = [verdict.missing > 0 ? "crit" : "live", "테이블 " + verdict.checked.length + "개 · 누락 " + fmtN(verdict.missing)];
+    dbVerified = true;
+  } else if (verdict?.missing) {
+    tgt.db = ["crit", "누락 행 " + fmtN(verdict.missing)];
     dbVerified = true;
   }
   const fc = report?.files;

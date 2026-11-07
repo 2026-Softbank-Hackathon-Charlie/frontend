@@ -117,6 +117,33 @@ describe("data verification on the result", () => {
     expect(screen.getByText("일치하는 파일")).toBeInTheDocument();
   });
 
+  it("does not claim nothing was lost from the live report with no tables counted", () => {
+    // the shape the platform returns today (moimroom-mig-gke-to-eks-20261107-115247)
+    render(<VerifyBox r={verified({ durability: "asynchronous", files, missingRows: 0, ok: true, tables: [] })} />);
+    expect(screen.getByText("데이터 검증")).toBeInTheDocument();
+    expect(screen.queryByText("손실 없음")).not.toBeInTheDocument();
+    expect(screen.queryByText("차이 있음")).not.toBeInTheDocument();
+  });
+
+  it("does not claim nothing was lost when every table was skipped or has no count", () => {
+    render(<VerifyBox r={verified({ ok: true, files, tables: [{ table: "app.audit", checked: 0, missing: 0, skipped: "no primary key" }, { table: "app.spaces", checked: 48 }] })} />);
+    expect(screen.queryByText("손실 없음")).not.toBeInTheDocument();
+  });
+
+  it("says rows are missing when the report has no tables but a missing total", () => {
+    render(<VerifyBox r={verified({ ok: false, missingRows: 3, tables: [] })} />);
+    expect(screen.getByText("차이 있음")).toBeInTheDocument();
+    expect(screen.getByText("원본에 있고 대상에 없는 행 3행이 보고되었습니다. 테이블별 내역은 없습니다.")).toBeInTheDocument();
+  });
+
+  it("hides the evidence of a rolled back run and of a verify step that did not succeed", () => {
+    const report = { ok: true, missingRows: 0, files, tables: [{ table: "app.spaces", checked: 48, missing: 0 }] };
+    const rolledBack = ended({ status: "rolled_back" }, { outcome: "rolled_back", steps: { verify: { status: "succeeded", evidence: { report } } } });
+    const failed = ended({ status: "failed" }, { outcome: "failed", steps: { verify: { status: "failed", evidence: { report } } } });
+    expect(render(<VerifyBox r={rolledBack} />).container).toBeEmptyDOMElement();
+    expect(render(<VerifyBox r={failed} />).container).toBeEmptyDOMElement();
+  });
+
   it("shows nothing without a verify report", () => {
     const { container } = render(<VerifyBox r={ended({ status: "succeeded" })} />);
     expect(container).toBeEmptyDOMElement();

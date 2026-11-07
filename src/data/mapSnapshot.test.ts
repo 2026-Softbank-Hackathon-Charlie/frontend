@@ -450,6 +450,14 @@ describe("migration map snapshot: the verify step's evidence on the target", () 
     expect(done({ files: { differences: 1, matching: 633, missingOnTarget: 2, ok: false } }).nodes["aws.store"]).toEqual(["crit", "파일 차이 3개"]);
   });
 
+  it("shows a missing total without tables, and nothing for a rolled back run", () => {
+    expect(done({ ok: false, missingRows: 3, tables: [] }).nodes["aws.db"]).toEqual(["crit", "누락 행 3"]);
+    const steps = { verify: { status: "succeeded" as const, evidence: { report: { ok: true, files, tables: [{ table: "app.spaces", checked: 48, missing: 0 }] } } } };
+    const s = snap(view({ stage: "run", plan: plan({ status: "started" }), run: run({ status: "rolled_back", phase: "done", endedAt: at(20) }, { outcome: "rolled_back", steps }) }));
+    expect(s.nodes["aws.db"][1]).not.toMatch(/테이블/);
+    expect(s.nodes["aws.store"][1]).not.toMatch(/파일/);
+  });
+
   it("keeps the DB line while the engine reports no tables", () => {
     const s = done({ ok: true, missingRows: 0, files, tables: [] });
     expect(s.nodes["aws.db"]).toEqual(["live", "shop-db · primary · 승격됨"]);

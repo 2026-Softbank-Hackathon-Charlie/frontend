@@ -36,3 +36,30 @@ export function filesClean(f: FileCheck): boolean | undefined {
   if (f.differences === undefined || f.missingOnTarget === undefined) return f.ok;
   return f.differences === 0 && f.missingOnTarget === 0 && f.ok !== false;
 }
+
+/** What the report shows, the same on the result card and the map. */
+export type VerifyVerdict = {
+  /** tables whose missing rows were counted (not skipped, no error) */
+  checked: TableCheck[];
+  errors: number;
+  /** missing rows over the checked tables, else the report's own total */
+  missing?: number;
+  /** something is wrong: missing rows, a table error or files that differ */
+  bad: boolean;
+  /** nothing was lost, with evidence: at least one table counted, no row missing, and the files match when checked */
+  clean: boolean;
+};
+
+export function verifyVerdict(rep: VerifyReport): VerifyVerdict {
+  const checked = rep.tables.filter((t) => !t.skipped && !t.error && t.missing !== undefined);
+  const errors = rep.tables.filter((t) => t.error).length;
+  const missing = missingOf(checked) ?? rep.missingRows;
+  const fOk = rep.files ? filesClean(rep.files) : true;
+  const bad = (missing ?? 0) > 0 || (rep.missingRows ?? 0) > 0 || errors > 0 || fOk === false;
+  return { checked, errors, missing, bad, clean: !bad && checked.length > 0 && fOk === true };
+}
+
+/** The report of a run whose verify step succeeded and that was not rolled back; the evidence of any other run proves nothing. */
+export function verifiedReportOf(r: Pick<Run, "engine" | "status">, verifyStatus: string | undefined = r.engine.steps.verify?.status): VerifyReport | undefined {
+  return r.status !== "rolled_back" && verifyStatus === "succeeded" ? verifyReportOf(r) : undefined;
+}

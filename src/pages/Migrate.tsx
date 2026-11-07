@@ -14,7 +14,7 @@ import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, ProgItem, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
 import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
-import { filesClean, missingOf, verifyReportOf } from "../data/verifyReport";
+import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
@@ -1496,20 +1496,21 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
 
 // The verify step's evidence: what the engine compared on both sides, table by table and file by file.
 export function VerifyBox({ r }: { r: Run }) {
-  const rep = verifyReportOf(r);
-  if (!rep || (!rep.tables.length && !rep.files)) return null;
-  const missing = missingOf(rep.tables);
+  const rep = verifiedReportOf(r);
+  const rowsOnly = !!rep && !rep.tables.length && (rep.missingRows ?? 0) > 0;
+  if (!rep || (!rep.tables.length && !rep.files && !rowsOnly)) return null;
+  const { bad, clean } = verifyVerdict(rep);
   const f = rep.files;
   const fOk = f && filesClean(f);
-  const bad = (missing !== undefined && missing > 0) || fOk === false || rep.tables.some((t) => t.error);
   const n = (k: number | undefined, unit: string) => (k === undefined ? "-" : fmt(k) + unit);
   return (
     <div className="box">
       <div className="bh">
         <b>데이터 검증</b>
-        {bad ? <Chip kind="bad">차이 있음</Chip> : rep.ok ? <Chip kind="ok">손실 없음</Chip> : null}
+        {bad ? <Chip kind="bad">차이 있음</Chip> : clean ? <Chip kind="ok">손실 없음</Chip> : null}
         <span className="hint">검증 단계가 원본과 대상을 직접 비교한 결과</span>
       </div>
+      {rowsOnly && <div className="bb hint">{"원본에 있고 대상에 없는 행 " + fmt(rep.missingRows!) + "행이 보고되었습니다. 테이블별 내역은 없습니다."}</div>}
       {rep.tables.length > 0 && (
         <Table
           head={["테이블", "원본에서 확인한 행", "대상에서 빠진 행", "결과"]}
