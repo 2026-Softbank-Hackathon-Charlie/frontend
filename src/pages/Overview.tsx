@@ -16,6 +16,7 @@ import { SAMPLE } from "../sim/data";
 import { dur, fmt } from "../sim/format";
 import { iso, statusText, TARGET_SEC } from "../sim/mig";
 import { DEMO_SECURITY_FINDINGS } from "../sim/securityWorkspace";
+import { ONB_STATE_LABEL } from "../sim/onboard";
 import { migLabel, type SimState } from "../sim/state";
 import { useSim } from "../sim/store";
 
@@ -252,15 +253,15 @@ function securityItems(findings: Pick<SecurityFindingRow, "severity" | "title" |
   return [{ kind: "bad", chip: "보안 발견 항목", title: "발견 항목 · " + counts, sub: names.join(", "), href: "#security/" + PRIORITY_FINDINGS, go: "치명·높음 발견 항목 " + top.length + "건 보기" }];
 }
 
-const ONB_STEP = ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"];
-
 /** Simulation-only work: importing an app, and the AI planning or the plan waiting for approval before a run exists. */
 function simWork(S: SimState): NowItem[] {
   const out: NowItem[] = [];
   const o = S.onb;
-  if (o.run) out.push({ kind: "run", chip: "가져오는 중", title: "기존 앱 가져오기가 진행 중입니다", sub: ONB_STEP[o.step], href: "#onboard", go: "진행 보기" });
-  else if (o.step === 4 && !o.approved)
-    out.push({ kind: "warn", chip: "승인 대기", title: "기존 앱 가져오기 PR이 승인을 기다리고 있습니다", sub: "AI가 만든 PR을 확인하고 승인하면 머지와 배포를 시작합니다", href: "#onboard", go: "PR 보기" });
+  const od = o.doc;
+  if (od?.state === "awaiting_approval")
+    out.push({ kind: "warn", chip: "승인 대기", title: "기존 앱 가져오기 PR이 승인을 기다리고 있습니다", sub: "리포트, PR, 시험 결과, 원본에 더할 변경을 확인하고 승인하면 원본 연결을 시작합니다", href: "#onboard", go: "PR 보기" });
+  else if (od && od.state !== "done")
+    out.push({ kind: o.run ? "run" : "warn", chip: o.run ? "가져오는 중" : "확인 필요", title: "기존 앱 가져오기가 진행 중입니다", sub: ONB_STATE_LABEL[od.state] + " 단계", href: "#onboard", go: "진행 보기" });
   const m = S.mig;
   const route = routeOf(m.src, m.tgt);
   if (m.stage === "ai") out.push({ kind: "run", chip: "AI 작업 중", title: SAMPLE.id + " 이전 계획을 AI가 만들고 있습니다", sub: <>{route}, {migLabel(S)}</>, href: "#migrate-app", go: "진행 보기" });

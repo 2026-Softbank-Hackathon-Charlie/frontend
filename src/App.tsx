@@ -30,6 +30,7 @@ function Page({ r }: { r: string }) {
   if (r.startsWith("deploy-")) return <DeploymentPage id={r.slice(7)} />;
   if (r === "new") return <NewApp />;
   if (r === "onboard") return <Onboard />;
+  if (r.startsWith("onboard-")) return <Onboard id={r.slice("onboard-".length)} />;
   if (r === "migrate") return <MigrateList />;
   if (r === "migrate-app") return <Migrate />;
   if (r === "routes") return <Routes />;

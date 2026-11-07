@@ -1,12 +1,13 @@
 // Demo simulation state machine. Time advances in tick() (called every 100ms);
 // deploy, onboarding, AI plan and rehearsal advance 1 simulated second per tick.
 // The migration lives in mig.ts and the GitHub deploys in deploy.ts; both produce the same shapes as the platform API.
-import { ENV, ONB_END, ONB_LOG, SAMPLE, STATELESS_SAMPLE, onbFinishLog, sampleBucketName, type EnvKey, type LogEntry, type OnbStep } from "./data";
+import { ENV, SAMPLE, STATELESS_SAMPLE, sampleBucketName, type EnvKey } from "./data";
 import * as dep from "./deploy";
-import { dur, fmt, mmss } from "./format";
+import { dur, fmt } from "./format";
 import * as mig from "./mig";
+import * as onb from "./onboard";
 import * as sec from "./secrets";
-import type { AppCreateRequest, AppSecretsUpdate, Run } from "../api/types";
+import type { AppCreateRequest, AppSecretsUpdate, OnboardingRequest, Run } from "../api/types";
 
 /** [mm:ss, message] */
 export type LogLine = [string, string];
@@ -25,21 +26,6 @@ export interface App {
   res: ResRow[];
 }
 
-interface Feed {
-  t: number;
-  log: LogLine[];
-  li: number;
-}
-
-export interface OnbState extends Feed {
-  step: OnbStep;
-  run: boolean;
-  /** cluster the imported app is first deployed to; its sandbox runs there too */
-  env: EnvKey;
-  done: Record<2 | 3 | 4, boolean>;
-  approved: boolean;
-}
-
 export interface SimState {
   apps: Record<string, App>;
   appOrder: string[];
@@ -47,7 +33,9 @@ export interface SimState {
   act: [string, string][];
   /** apps registered from GitHub and their deployments */
   deploy: dep.DeploySim;
-  onb: OnbState;
+  onb: onb.OnbSim;
+  /** last message for the onboarding page (e.g. a stale approval) */
+  onbNotice: string;
   mig: mig.MigSim;
   /** where the demo's app without a database (STATELESS_SAMPLE) runs now */
   statelessLoc: EnvKey;
@@ -65,25 +53,18 @@ export function fresh(): SimState {
       ["어제", "온프레미스 k3s 환경 등록"],
     ],
     deploy: dep.freshDeploy(),
-    onb: { step: 1, run: false, t: 0, log: [], li: 0, env: "aws", done: { 2: false, 3: false, 4: false }, approved: false },
+    onb: onb.freshOnb("aws"),
+    onbNotice: "",
     mig: mig.freshMig("aws"),
     statelessLoc: "aws",
     migNotice: "",
   };
 }
 
-/** Append every log entry whose time has come. */
-export function feed(o: Feed, list: LogEntry[], t: number, off = 0): void {
-  while (o.li < list.length && list[o.li][0] <= t + 1e-9) {
-    o.log.push([mmss(off + list[o.li][0]), list[o.li][1]]);
-    o.li++;
-  }
-}
-
 /* ---------- onboarding ---------- */
 
-// The onboarding draft imports shop from EC2 (3장 7번 결정 전 시안); the migration continues with the team's
-// sample app, so what came from the draft says so instead of reading as moimroom's own history.
+// The demo onboarding (sim/onboard.ts) brings the sample app from its compose VM; once done the app is registered
+// on the chosen cluster and the migration demo continues with it.
 function finishOnboard(S: SimState): void {
   if (S.apps[SAMPLE.id]) return;
   const env = S.onb.env;
@@ -91,40 +72,18 @@ function finishOnboard(S: SimState): void {
     id: SAMPLE.id,
     repo: SAMPLE.repo,
     loc: env,
-    deploys: [["9d2b71f", "가져오기 시안(shop): 플랫폼 배포 형태로 변경 (PR #14, AI 수정안)", "방금", dur(ONB_END[4])]],
+    deploys: [["c07e4b8", "기존 앱 가져오기: 플랫폼 계약에 맞춤 (PR #12, hopai)", "방금", dur(14)]],
     res: [
       ["서비스", SAMPLE.services.join(", "), "Deployment " + SAMPLE.services.length + "개, 레플리카 " + SAMPLE.replicas + "개, 이미지는 ECR"],
       ["PostgreSQL", SAMPLE.db, "CloudNativePG, " + ENV[env].name],
       ["파일 저장소", sampleBucketName(env), ENV[env].storage + ", 파일 " + fmt(SAMPLE.files) + "개"],
-      ["가져오기 시안 (shop)", "shop-app-1, shop-db, shop-files", "기존 EC2·RDS·S3, 읽기 전용 보존"],
+      ["가져온 원본", "i-0abc1234def567890, moimroom-legacy-files", "compose VM은 중지(삭제 아님), 디스크와 버킷은 남김"],
     ],
   };
   S.appOrder.unshift(SAMPLE.id);
-  S.act.unshift(["방금", "가져오기 시안(shop) 완료, 샘플 앱 " + SAMPLE.id + " 배포 (" + ENV[env].name + ")"]);
+  S.act.unshift(["방금", "기존 앱 가져오기 완료: " + SAMPLE.id + " (" + ENV[env].name + ")"]);
   if (!migActive(S)) S.mig = mig.freshMig(env, S.mig);
 }
-function startOnb(S: SimState): void {
-  const o = S.onb;
-  o.t = 0;
-  o.li = 0;
-  o.log = [];
-  o.run = true;
-  feed(o, onbLog(S), 0);
-}
-function onbLog(S: SimState): LogEntry[] {
-  return S.onb.step === 4 ? onbFinishLog(S.onb.env) : ONB_LOG[S.onb.step as 2 | 3];
-}
-function skipOnboard(S: SimState): void {
-  const o = S.onb;
-  o.step = 4;
-  o.run = false;
-  o.approved = true;
-  o.done = { 2: true, 3: true, 4: true };
-  o.log = onbFinishLog(o.env).map((l) => [mmss(l[0]), l[1]]);
-  o.li = o.log.length;
-  finishOnboard(S);
-}
-
 /* ---------- migration (derived values) ---------- */
 
 /** Something is in progress on the migration page (AI work, waiting for approval, or a live run). */
@@ -182,8 +141,8 @@ export function appsIn(S: SimState, k: EnvKey): number {
 export function running(S: SimState): [string, string][] {
   const l: [string, string][] = [];
   for (const d of dep.activeDeployments(S.deploy)) l.push([d.instance + " 배포 중", "#deploy-" + d.id]);
-  if (S.onb.run) l.push(["기존 앱 가져오기: " + ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"][S.onb.step], "#onboard"]);
-  else if (S.onb.step === 4 && !S.onb.approved) l.push(["기존 앱 가져오기: PR 승인 대기", "#onboard"]);
+  const od = S.onb.doc;
+  if (od && od.state !== "done") l.push(["기존 앱 가져오기: " + onb.ONB_STATE_LABEL[od.state] + (S.onb.run ? " 중" : " 대기"), "#onboard"]);
   if (migActive(S)) l.push([S.mig.app + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-app"]);
   return l;
 }
@@ -191,17 +150,7 @@ export function running(S: SimState): [string, string][] {
 /* ---------- time ---------- */
 
 export function tick(S: SimState): void {
-  const o = S.onb;
-  if (o.run) {
-    const step = o.step as 2 | 3 | 4;
-    o.t += 1;
-    feed(o, onbLog(S), o.t);
-    if (o.t >= ONB_END[step]) {
-      o.run = false;
-      o.done[step] = true;
-      if (step === 4) finishOnboard(S);
-    }
-  }
+  onb.onbTick(S.onb);
   for (const line of dep.deployTick(S.deploy)) S.act.unshift(["방금", line]);
   const ended = mig.migTick(S.mig);
   if (ended) finishMigration(S, ended);
@@ -219,10 +168,12 @@ export type Action =
   | { type: "instance-delete"; name: string; instance: string }
   | { type: "env-add"; name: string; env: string }
   | { type: "env-remove"; name: string; env: string }
-  | { type: "onb-start" }
-  | { type: "onb-sbx" }
-  | { type: "onb-pr" }
-  | { type: "onb-approve" }
+  | { type: "onb-start"; req: OnboardingRequest }
+  | { type: "onb-approve"; headSha: string }
+  | { type: "onb-resume" }
+  | { type: "onb-cutover" }
+  | { type: "onb-decommission" }
+  | { type: "onb-delete" }
   | { type: "onb-skip" }
   | { type: "onb-env"; env: EnvKey }
   | { type: "mig-app"; app: string }
@@ -274,25 +225,28 @@ export function apply(S: SimState, a: Action): void {
       if (dep.removeInstance(S.deploy, a.name, a.instance)) S.act.unshift(["방금", a.instance + " 삭제 (gitops에서 apps/" + a.instance + "/ 제거)"]);
       break;
     case "onb-start":
-      S.onb.step = 2;
-      startOnb(S);
-      break;
-    case "onb-sbx":
-      S.onb.step = 3;
-      startOnb(S);
-      break;
-    case "onb-pr":
-      S.onb.step = 4;
-      S.onb.run = false;
-      S.onb.log = [];
-      S.onb.li = 0;
+      S.onbNotice = "";
+      onb.onbStart(S.onb, a.req);
       break;
     case "onb-approve":
-      S.onb.approved = true;
-      startOnb(S);
+      S.onbNotice = onb.onbApprove(S.onb, a.headSha) === "stale" ? "PR이 그사이 바뀌었습니다. 새 PR head로 시험한 결과를 확인하고 다시 승인하세요." : "";
+      break;
+    case "onb-resume":
+      onb.onbResume(S.onb);
+      break;
+    case "onb-cutover":
+      onb.onbCutover(S.onb);
+      break;
+    case "onb-decommission":
+      if (onb.onbDecommission(S.onb) === "ok") finishOnboard(S);
+      break;
+    case "onb-delete":
+      onb.onbDelete(S.onb);
+      S.onbNotice = "";
       break;
     case "onb-skip":
-      skipOnboard(S);
+      onb.onbSkip(S.onb);
+      finishOnboard(S);
       break;
     case "onb-env":
       S.onb.env = a.env;

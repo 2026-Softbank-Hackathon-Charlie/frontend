@@ -320,7 +320,7 @@ export function EmptyShop() {
     <div className="box">
       <div className="empty-state">
         <b>이전할 수 있는 앱이 아직 없습니다.</b>
-        <p className="hint">기존 앱 가져오기(시안)를 마치면 샘플 앱 {SAMPLE.id}이 플랫폼에 올라오고, 클러스터 사이로 옮길 수 있습니다.</p>
+        <p className="hint">기존 앱 가져오기를 마치면 샘플 앱 {SAMPLE.id}이 플랫폼에 올라오고, 클러스터 사이로 옮길 수 있습니다.</p>
         <div className="actrow">
           <a className="btn primary" href="#onboard">
             기존 앱 가져오기

@@ -34,9 +34,10 @@ describe("sample app", () => {
     expect(S.apps.moimroom.repo).toBe("2026-Softbank-Hackathon-Charlie/moimroom");
     expect(S.apps.moimroom.res[0]).toEqual(["서비스", "web", "Deployment 1개, 레플리카 2개, 이미지는 ECR"]);
     expect(S.apps.moimroom.res[2][1]).toBe("hopcharlie-eks-moimroom");
-    // what the onboarding draft brought along says it came from the draft (shop), not from moimroom
-    expect(S.apps.moimroom.res[3][0]).toBe("가져오기 시안 (shop)");
-    expect(S.apps.moimroom.deploys[0][1]).toMatch(/^가져오기 시안\(shop\): /);
+    // the onboarded source VM stays (stopped, not deleted), and the first deploy is the contract PR's
+    expect(S.apps.moimroom.res[3][0]).toBe("가져온 원본");
+    expect(S.apps.moimroom.deploys[0][1]).toMatch(/^기존 앱 가져오기: /);
+    expect(S.onb.doc?.state).toBe("done");
   });
 });
 
@@ -179,21 +180,44 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(S.mig.tgt).not.toBe("gcp");
   });
 
-  it("onboarding imports the app onto the chosen cluster", () => {
+  it("onboarding goes through the platform's states, waiting for a person where the API does", () => {
     const S = fresh();
     apply(S, { type: "mig-plan" }); // no app yet: ignored
     expect(S.mig.stage).toBe("setup");
     apply(S, { type: "onb-env", env: "gcp" });
-    apply(S, { type: "onb-start" });
-    run(S, 44);
-    expect(S.onb.done[2]).toBe(true);
-    apply(S, { type: "onb-sbx" });
-    run(S, 98);
-    apply(S, { type: "onb-pr" });
-    apply(S, { type: "onb-approve" });
-    run(S, 75);
+    apply(S, { type: "onb-start", req: { repo: "2026-Softbank-Hackathon-Charlie/moimroom", serviceUrl: "https://moimroom.hopcharlie.dev", targetEnv: "gke" } });
+    const d = () => S.onb.doc!;
+    run(S, 60);
+    expect(d().state).toBe("awaiting_approval");
+    expect(d().plannedLegacyChanges?.length).toBeGreaterThan(0);
+    apply(S, { type: "onb-approve", headSha: "0000000" }); // not the PR head: refused
+    expect(d().state).toBe("awaiting_approval");
+    expect(S.onbNotice).toMatch(/PR이 그사이 바뀌었습니다/);
+    apply(S, { type: "onb-approve", headSha: d().pr!.headSha });
+    expect(d().state).toBe("connecting");
+    run(S, 40);
+    expect(d().state).toBe("syncing"); // the DNS record is still there
+    expect(d().legacyDeployStopped).toBe(true);
+    expect(d().legacyChanges).toHaveLength(d().plannedLegacyChanges!.length);
+    apply(S, { type: "onb-resume" });
+    run(S, 20);
+    expect(d().state).toBe("ready");
+    apply(S, { type: "onb-cutover" });
+    expect(d().runId).toBeTruthy();
+    run(S, 30);
+    expect(d().state).toBe("decommissioning");
+    apply(S, { type: "onb-decommission" });
+    expect(d().state).toBe("done");
     expect(S.apps.moimroom.loc).toBe("gcp");
     expect(S.mig.src).toBe("gcp");
+  });
+
+  it("deleting an onboarding before the cutover starts over", () => {
+    const S = fresh();
+    apply(S, { type: "onb-start", req: { repo: "a/b", serviceUrl: "https://moimroom.hopcharlie.dev" } });
+    run(S, 5);
+    apply(S, { type: "onb-delete" });
+    expect(S.onb.doc).toBeUndefined();
   });
 
 });
