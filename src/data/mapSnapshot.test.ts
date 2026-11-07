@@ -65,6 +65,14 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(s.progress).toMatchObject({ state: "active", current: s.phases.find((p) => p.key === "presync")!.label, skipped: 1, unconfirmed: 1 });
   });
 
+  it("does not call the next pending phase current when only running metadata arrived", () => {
+    const s = snap(view({ stage: "run", run: run({ status: "running" }, { steps: {} }) }));
+    expect(s.progress.state).toBe("active");
+    expect(s.progress.current).toBeUndefined();
+    expect(s.progress.completed).toBe(0);
+    expect(s.phases.some((p) => p.st === "cur")).toBe(false);
+  });
+
   it("waits for accepted AI evidence and exposes a failed Job without fabricating a session", () => {
     const current = { name: "job", app: "shop", source: "gke", target: "eks", status: "running" as const, requestedBy: "operator", createdAt: at(1) };
     const pending = snap(view({ stage: "ai", aiRun: { available: true, running: true, current, start: noop } }));

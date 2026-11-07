@@ -661,6 +661,8 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     : r?.status === "failed" ? "failed"
     : r && ["aborted", "interrupted"].includes(r.status) ? "stopped"
     : r?.status === "succeeded" ? "completed"
+    : r?.status === "running" ? "active"
+    : r?.status === "awaiting_switch" ? "waiting"
     : phases.some((p) => p.st === "fail") ? "failed"
     : v.stage === "setup" ? "pending"
     : phases.some((p) => p.st === "cur") ? "active" : "waiting";
@@ -671,7 +673,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     total: phases.length,
     skipped: phases.filter((p) => p.st === "skip").length,
     unconfirmed: phases.filter((p) => p.st === "warn").length,
-    current: ["active", "waiting", "failed"].includes(progressState) ? curPhase?.label : undefined,
+    current: ["active", "waiting", "failed"].includes(progressState) && curPhase && ["cur", "wait", "fail"].includes(curPhase.st) ? curPhase.label : undefined,
   };
   const slo = f?.slo;
   const errEdge = !!slo && slo.errorRate > PLATFORM_GATE.maxErrorRate && sh > 0;
