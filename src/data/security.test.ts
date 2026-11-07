@@ -182,6 +182,16 @@ describe("live posture mapping", () => {
     expect(d.unavailable?.vulnerabilities).toContain("0건이 아닙니다");
   });
 
+  it.each([["failed", "error"], ["unsupported", "unsupported"]] as const)("keeps an entirely %s scan separate from an empty successful result", (status, state) => {
+    const d = securityData(undefined, { vulnerabilities: { generatedAt, scanner: { status: "connected" }, summary, vulnerabilities: [],
+      scans: [{ id: "scan1", digest, status, scanner: { name: "grype", version: "one" } }],
+      runningImages: [{ ...images[0], scanState: "scan_failed" }],
+    } });
+    expect(d.vulnerabilities).toBeNull();
+    expect(d.observations?.vulnerabilities.state).toBe(state);
+    expect(d.runningImages?.[0].scanStatus).toBe(status);
+  });
+
   it("joins CVE evidence by scan ID and image digest, and preserves only its actual container occurrences", () => {
     const other = "sha256:" + "2".repeat(64);
     const baseV = { id: "v1", scanId: "scan1", digest, advisory: "CVE-2026-0001", aliases: [], package: { name: "openssl", version: "3", type: "deb" }, fixedVersions: [], fixState: "unknown" as const, severity: "high" as const, severityBasis: { type: "vendor" as const, issuer: "grype", policy: "p1" }, cvss: [], urls: ["javascript:alert(1)", "https://nvd.nist.gov/vuln/detail/CVE-2026-0001"] };

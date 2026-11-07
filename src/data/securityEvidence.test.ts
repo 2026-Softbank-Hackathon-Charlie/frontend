@@ -11,6 +11,7 @@ it("separates waiting, missing observations, source errors and unsupported endpo
 it("uses reviewed source mappings and accepts only safe actual evidence URLs", () => {
   expect(securityCodeUrl("kubernetes")).toMatch(/31540bbe.*kubernetes\.go#L1$/);
   expect(securityCodeUrl("unknown-collector")).toBeUndefined();
+  expect(securityCodeUrl("constructor")).toBeUndefined();
   for (const value of ["", "#security", "javascript:alert(1)", "data:text/html,x", "https://user:secret@example.test/"]) expect(evidenceUrl(value)).toBe("");
   expect(evidenceUrl("https://nvd.nist.gov/vuln/detail/CVE-2024-6387")).toBe("https://nvd.nist.gov/vuln/detail/CVE-2024-6387");
   for (const key of ["access_token", "api_key", "password", "X-Amz-Signature", "X-Goog-Credential"]) expect(evidenceUrl("https://example.test/report?" + key + "=private")).toBe("");

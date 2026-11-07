@@ -6,7 +6,7 @@ const SOURCE_FILES: Record<string, string> = {
   "platform-audit": "platform.go", "platform-config": "platform.go", "storage-keys": "storagekeys.go",
   "image-scan": "posture.go", grype: "grype.go",
 };
-export const securityCodeUrl = (source: string) => SOURCE_FILES[source] ? CODE + SOURCE_FILES[source] + "#L1" : undefined;
+export const securityCodeUrl = (source: string) => Object.prototype.hasOwnProperty.call(SOURCE_FILES, source) ? CODE + SOURCE_FILES[source] + "#L1" : undefined;
 
 const AUTH_PARAMS = new Set(["token", "accesstoken", "refreshtoken", "idtoken", "apikey", "authorization", "auth", "password", "passwd", "secret", "clientsecret", "signature", "credential", "awsaccesskeyid", "googleaccessid", "xamzsignature", "xamzcredential", "xamzsecuritytoken", "xgoogsignature", "xgoogcredential"]);
 /** Reject non-web URLs, userinfo and known authentication query/fragment parameters. */

@@ -123,9 +123,16 @@ function Stats({ items }: { items: { label: string; value: ReactNode; note: stri
 }
 
 function GroupCounts({ controls }: { controls: ControlEvaluation[] }) {
-  if (!controls.length) return <span className="hint">범위에 없음</span>;
+  if (!controls.length) return <span className="hint">미관측</span>;
   const c = controlCounts(controls);
+  if (!c.completed) return <span className="hint">{c.unknown ? `미관측 · 미확인 ${c.unknown}` : `해당 없음 ${c.notApplicable}`}</span>;
   return <span className="sp-counts"><span className="sp-count-pass">통과 {c.pass}</span><span className={c.fail ? "sp-count-fail" : ""}>실패 {c.fail}</span><span className={c.unknown ? "sp-count-unknown" : ""}>미확인 {c.unknown}</span>{c.notApplicable > 0 && <span>해당 없음 {c.notApplicable}</span>}</span>;
+}
+
+function ScanCoverage({ rows }: { rows?: RunningImageRow[] }) {
+  if (!rows) return null;
+  const scanned = rows.filter((r) => r.scanState === "scanned").length;
+  return <p className="hint sp-list-meta">선택 범위 · 검사됨 {scanned}/{rows.length} 컨테이너 · 미검사·실패 {rows.length - scanned}</p>;
 }
 
 function ControlMatrix({ environments, controls, coverage, findings, observation, onSelect }: { environments: SecurityDataset["environments"]; controls: ControlEvaluation[] | null; coverage?: SecurityControlCoverage[]; findings: SecurityFindingRow[]; observation?: SecurityObservation; onSelect: (environment: string, domain: string) => void }) {
@@ -157,7 +164,7 @@ function RunningImages({ rows }: { rows: RunningImageRow[] }) {
     <div className="box sp-table-box">{rows.length ? <Table head={["환경 / workload", "이미지 digest", "스캔", "배포 기록"]} rows={rows.map((r) => [
       td(<><b><SecurityEnvLabel env={r.environment} /></b><small className="block m">{r.namespace} / {r.workload}/{r.container}</small>{r.app && <small className="block">앱 {r.app}</small>}</>),
       td(<><span className="m sp-wrap">{r.digest ? `${r.digest.slice(0, 23)}…` : "digest 없음"}</span><small className="block sp-wrap">{r.image}</small></>),
-      td(<><Chip kind={SCAN_STATE[r.scanState][1] as ChipKind}>{SCAN_STATE[r.scanState][0]}</Chip>{r.scannedAt && <small className="block">검사 {date(r.scannedAt)}</small>}{r.scanMessage && <small className="block">{r.scanMessage}</small>}</>),
+      td(<><Chip kind={r.scanStatus === "unsupported" ? "" : SCAN_STATE[r.scanState][1] as ChipKind}>{r.scanStatus === "unsupported" ? "미지원" : SCAN_STATE[r.scanState][0]}</Chip>{r.scannedAt && <small className="block">검사 {date(r.scannedAt)}</small>}{r.scanMessage && <small className="block">{r.scanMessage}</small>}</>),
       td(<><DeployedChip value={r.deployed} />{r.deployed?.deploymentId && <small className="block m">{r.deployed.deploymentId}</small>}{r.deployed?.reason && <small className="block">{r.deployed.reason}</small>}</>),
     ])} /> : <Empty>선택한 환경에서 읽은 실행 컨테이너가 없습니다.</Empty>}</div>
   </section>;
@@ -196,6 +203,12 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const controlObservation = data.observations?.controls;
   const vulnerabilityObservation = data.observations?.vulnerabilities;
   const controlState = OBSERVATION_LABEL[controlObservation?.state ?? "unobserved"];
+  const evaluatedControls = controls.some((c) => c.status === "pass" || c.status === "fail");
+  const scopeCoverage = data.coverage?.filter((c) => environment === "all" || c.environment === environment) ?? [];
+  const coverageEnvironments = unique(scopeCoverage.map((c) => c.environment));
+  const allUnsupported = coverageEnvironments.length > 0 && coverageEnvironments.every((env) => DOMAINS.every((d) => scopeCoverage.some((c) => c.environment === env && c.domain === d.id && c.state === "unsupported")));
+  const controlScopeState = controls.length > 0 && controls.every((c) => c.status === "not_applicable") ? "해당 없음"
+    : allUnsupported ? "미지원" : controlObservation?.state === "observed" ? "미관측" : controlState;
   const vulnerabilityState = missingScopeScans && vulnerabilityObservation?.state === "observed" ? "미관측" : OBSERVATION_LABEL[vulnerabilityObservation?.state ?? "unobserved"];
   const scopeScanReason = missingScopeScans && data.vulnerabilities !== null ? "선택한 환경에서 성공한 컨테이너 스캔을 관측하지 못했습니다. 다른 환경의 스캔으로 취약점 0건을 추정하지 않습니다." : data.unavailable?.vulnerabilities;
   const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (app === "all" || f.app === app));
@@ -248,11 +261,12 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
     </> : tab === "overview" ? <>
       <div className="sp-source-summary"><b>{data.observations && !data.observations.findings.collectedAt ? "발견 항목 " + OBSERVATION_LABEL[data.observations.findings.state] : `수집된 발견 항목 ${findings.length}건`}</b><span>출처 조회 성공 {sources.filter((s) => s.status === "ok").length} / {sources.length}개</span><a href="#security/findings">발견 항목 보기 →</a></div>
       <Stats items={[
-        { label: "실패한 통제 평가", value: data.controls === null ? controlState : <>{counts.fail}<small>건</small></>, note: data.controls === null ? controlObservation?.reason ?? "통제 결과 미관측" : `통과 ${counts.pass} · 미확인 ${counts.unknown}`, href: "#security/controls", tone: data.controls === null ? undefined : "sp-danger" },
+        { label: "실패한 통제 평가", value: !evaluatedControls ? controlScopeState : <>{counts.fail}<small>건</small></>, note: !evaluatedControls ? controls.length ? `미확인 ${counts.unknown} · 해당 없음 ${counts.notApplicable}` : "개별 평가 결과 미관측" : `통과 ${counts.pass} · 미확인 ${counts.unknown}`, href: "#security/controls", tone: evaluatedControls ? "sp-danger" : undefined },
         { label: "취약 이미지", value: !vulnerabilitiesAvailable ? vulnerabilityState : <>{summary.images}<small>개</small></>, note: !vulnerabilitiesAvailable ? scopeScanReason ?? vulnerabilityObservation?.reason ?? "이미지 검사 결과 미관측" : `고유 advisory ${summary.advisories}개 · digest 기준`, href: "#security/vulnerabilities" },
         { label: "영향 실행 workload", value: !vulnerabilitiesAvailable ? vulnerabilityState : <>{summary.workloads}<small>개</small></>, note: !vulnerabilitiesAvailable ? "성공한 스캔과 실행 자산의 관계 확인 필요" : `실행 확인 기준 · 미확인 ${unknownWorkloads(vulnerabilities)}개 별도`, href: "#security/vulnerabilities" },
-        { label: "통제 평가 완료", value: data.controls === null ? controlState : <>{counts.completed}<small>/ {counts.total - counts.notApplicable}</small></>, note: data.controls === null ? "수집 성공을 평가 통과로 바꾸지 않음" : `개별 평가 기준 · 해당 없음 ${counts.notApplicable}건 제외`, href: "#security/controls" },
+        { label: "통제 평가 완료", value: !evaluatedControls ? controlScopeState : <>{counts.completed}<small>/ {counts.total - counts.notApplicable}</small></>, note: !evaluatedControls ? "수집 성공을 평가 통과로 바꾸지 않음" : `개별 평가 기준 · 해당 없음 ${counts.notApplicable}건 제외`, href: "#security/controls" },
       ]} />
+      <ScanCoverage rows={scopedImages} />
       <Section title="환경 × 공통 통제" sub="같은 목표, 환경별 증거. 각 칸은 개별 검사 결과이며 전체 표준 준수 인증이 아닙니다." action={<a className="linkbtn" href="#security/controls">개별 검사 보기 →</a>}>
         <ControlMatrix environments={data.environments.filter((e) => environment === "all" || e.id === environment)} controls={data.controls === null ? null : controls} coverage={data.coverage} findings={findings} observation={controlObservation} onSelect={(id, domain) => { setEnvironment(id); setDomain(domain); }} />
         <p className="hint sp-footnote">실패와 미확인은 함께 남깁니다. 권한·암호화 같은 영역 하나를 검사 하나로 세지 않습니다.</p>
@@ -267,13 +281,14 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       </Section>
       <div className="sp-method"><b>판정은 근거와 함께</b><p>통제는 공식 기준·조건으로, CVE는 원본 CVSS로 설명합니다. KEV·EPSS·실행 여부는 조치 판단의 별도 근거입니다. ‘미확인’은 ‘문제 없음’이 아닙니다.</p><div><EvidenceLink href="https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final">NIST 통제</EvidenceLink><EvidenceLink href="https://www.first.org/cvss/v4.0/user-guide">CVSS</EvidenceLink><EvidenceLink href="https://www.first.org/epss/">EPSS</EvidenceLink></div></div>
     </> : tab === "controls" ? <Section title="통제 점검" sub="권한·암호화·감사·정책·취약점 관리의 개별 평가입니다.">
-      {data.controls === null ? <Unavailable kind="통제 평가" reason={data.unavailable?.controls} observation={controlObservation} /> : <>
+      {data.controls === null || !controls.length ? <Unavailable kind="통제 평가" reason={data.unavailable?.controls ?? "선택한 범위의 통제 평가를 관측하지 못했습니다."} observation={controlObservation} /> : <>
       <Stats items={[{ label: "통과", value: counts.pass, note: "정의된 검사 조건을 충족" }, { label: "실패", value: counts.fail, note: "검사에서 위반을 확인", tone: "sp-danger" }, { label: "미확인", value: counts.unknown, note: "증거 부족 · 점검 미완료" }, { label: "해당 없음", value: counts.notApplicable, note: "적용 대상 제외 · 사유 보존" }]} />
       <div className="sp-filters"><label className="sp-search">통제 검색<input aria-label="통제 검색" placeholder="검사 이름 또는 기준 ID" value={controlSearch} onChange={(e) => setControlSearch(e.target.value)} /></label><label>영역<select aria-label="통제 영역" value={domain} onChange={(e) => setDomain(e.target.value)}><option value="all">전체 영역</option>{DOMAINS.map((d) => <option value={d.id} key={d.id}>{d.label}</option>)}</select></label><label>평가 결과<select aria-label="통제 평가 결과" value={controlStatus} onChange={(e) => setControlStatus(e.target.value)}><option value="all">전체 결과</option>{Object.entries(STATUS).map(([id, [label]]) => <option value={id} key={id}>{label}</option>)}</select></label></div>
       <p className="sp-list-meta">표시 {activeControls.length}건 <span>· 개별 통제 × 자산 평가{data.policyVersion && ` · 정책 ${data.policyVersion}`}</span></p>
       <div className="box sp-table-box">{activeControls.length ? <Table head={["평가", "검사 / 공식 기준", "환경 · 영역", "대상", "평가 시각"]} rows={activeControls.map((c) => [td(<Chip kind={STATUS[c.status][1]}>{STATUS[c.status][0]}</Chip>), td(<><a className="sp-row-link" href={detailHref("controls", c.id)}>{c.title}</a><small className="block m">{c.controlId}</small><ControlEvidence value={c} /></>), td(<><SecurityEnvLabel env={c.environment} /><small className="block">{domainLabel(c.domain)}</small></>), td(<>{c.app ?? "계정 / 클러스터"}{c.asset && <small className="block m sp-wrap">{c.asset === "*" ? "전체 자산" : c.asset}</small>}</>), td(date(c.observedAt), "nw")])} /> : <Empty reset={() => { setControlSearch(""); setControlStatus("all"); setDomain("all"); }}>현재 필터에 해당하는 통제 점검이 없습니다.</Empty>}</div>
       </>}
     </Section> : tab === "vulnerabilities" ? <Section title="취약점" sub="CVE·GHSA 등 패키지 취약점과 실행 자산을 연결해 확인합니다.">
+      <ScanCoverage rows={scopedImages} />
       {!vulnerabilitiesAvailable ? <Unavailable kind="취약점" reason={scopeScanReason} observation={vulnerabilityObservation} /> : <>
       <Stats items={[{ label: "고유 advisory", value: summary.advisories, note: "식별자 기준 · 패키지 건수와 구분" }, { label: "영향 이미지", value: summary.images, note: "같은 digest의 환경 간 복제는 1개" }, { label: "실행 workload", value: summary.workloads, note: `실행 확인 기준 · 미확인 ${unknownWorkloads(vulnerabilities)}개 별도` }, { label: "패키지 발생 건", value: summary.occurrences, note: "취약점 · 버전 · 이미지별 발생" }]} />
       <div className="sp-filters"><label className="sp-search">취약점 검색<input aria-label="취약점 검색" placeholder="CVE, 패키지, 설치 버전" value={vulnSearch} onChange={(e) => setVulnSearch(e.target.value)} /></label><label>심각도<select aria-label="취약점 심각도" value={vulnSeverity} onChange={(e) => setVulnSeverity(e.target.value)}><option value="all">전체 심각도</option>{Object.entries(SEVERITY).map(([id, [label]]) => <option key={id} value={id}>{label}</option>)}</select></label><label>악용 근거<select aria-label="악용 근거" value={vulnKev} onChange={(e) => setVulnKev(e.target.value)}><option value="all">전체</option><option value="yes">KEV 등재</option><option value="unknown">KEV 미확인</option></select></label><ExceptionFilter value={vulnException} onChange={setVulnException} /></div>
