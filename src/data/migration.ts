@@ -17,8 +17,8 @@ import {
   submitPlan,
   switchMigration,
 } from "../api/client";
-import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApps, useRun, useRuns, useTraffic } from "../api/hooks";
-import type { AgentEvent, AgentSession, AIRun, App, AppDBTopology, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
+import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useRun, useRuns, useTraffic } from "../api/hooks";
+import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, EnginePlan, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
@@ -95,6 +95,8 @@ export interface MigrationView {
   setApp?(name: string): void;
   /** the app exists and can be migrated */
   ready: boolean;
+  /** live, before a plan: why the app's database pair cannot be migrated now (deploy.dbTopology.readiness, ADR 0037); the plan buttons wait */
+  blocked?: string;
   plan?: PlanRecord;
   /** the engine plan the record was made from, when known */
   engine?: EnginePlan;
@@ -350,6 +352,26 @@ export function dbRoles(topology: AppDBTopology, writeBackend: string | undefine
   return out;
 }
 
+/** Korean texts for deploy.dbTopology.readiness.reason (ADR 0037). The server's English message is shown only for a reason not listed. */
+const READINESS_REASONS: Record<string, string> = {
+  replica_missing: "DB 짝의 상대 환경이 아직 앱에 없습니다. 앱 상세에서 환경 추가로 더하면 이전할 수 있습니다",
+  deploy_pending: "DB 짝의 환경 중 아직 정상 배포가 끝나지 않은 곳이 있습니다. 배포가 끝나면 이전할 수 있습니다",
+  app_degraded:
+    "새 환경에서 앱이 Degraded로 실패했습니다. 앱이 시작할 때 DB에 쓰는 것 같습니다(replica DB는 쓰기를 거절합니다). 이런 앱은 엔진의 cold 모드로 옮겨야 합니다",
+  deploy_failed: "DB 짝 환경의 배포가 실패했습니다. 배포 이력에서 원인을 확인하고 다시 배포하세요",
+  gateway_unreachable: "트래픽 게이트웨이를 읽지 못해 이전할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 확인합니다",
+  gateway_backend_missing: "트래픽 게이트웨이에 두 환경의 백엔드가 모두 있어야 합니다. 배포가 끝나면 등록됩니다",
+  cluster_unreadable: "DB 클러스터(CNPG)를 읽지 못했습니다. 잠시 뒤 다시 확인합니다",
+  cluster_not_healthy: "두 DB 클러스터(CNPG) 중 정상이 아니거나 준비된 인스턴스가 모자란 곳이 있습니다",
+  topology_mismatch: "두 DB의 복제 설정이 맞지 않습니다. 한쪽이 primary이고 다른 쪽이 그것을 따라야 합니다",
+};
+
+/** Why the database pair cannot be migrated now, in Korean; undefined when it is ready or the server sent no readiness (an older one). */
+export function readinessBlock(r: AppDBReadiness | undefined): string | undefined {
+  if (!r || r.ready) return undefined;
+  return Object.hasOwn(READINESS_REASONS, r.reason) ? READINESS_REASONS[r.reason] : "아직 이전할 수 없습니다: " + r.message;
+}
+
 /** The app named in the page's hash, #migrate-app?app=<name>. */
 function appOfHash(): string {
   const q = window.location.hash.split("?")[1];
@@ -477,6 +499,16 @@ export function useLiveMigration(): MigrationView {
   const trafficFailed = !!traffic.error;
   const srcLoading = choosing && !!app && traffic.loading;
   const topology = app?.deploy?.dbTopology;
+  // GET /v1/apps has no readiness: only the app's own read looks at both clusters (ADR 0037)
+  const detail = useApp(enabled && choosing && topology ? app?.name : null, 10000);
+  const blocked =
+    choosing && topology
+      ? detail.data
+        ? readinessBlock(detail.data.deploy?.dbTopology?.readiness)
+        : detail.error
+          ? undefined
+          : "DB 짝이 이전할 준비가 되었는지 확인하는 중입니다"
+      : undefined;
   const src = run?.source.env ?? plan?.summary.source.env ?? (srcLoading ? "" : (currentPrimary(envs, topology, trafficFailed ? undefined : traffic.data?.writeBackend) ?? envs[0] ?? ""));
   const srcNote =
     choosing && !srcLoading && trafficFailed
@@ -523,6 +555,7 @@ export function useLiveMigration(): MigrationView {
       setTgt("");
     },
     ready: !!app,
+    blocked,
     // while a plan session is on screen, an older Plan the page picked up is not the one being written
     plan: planning ? undefined : plan,
     engine,

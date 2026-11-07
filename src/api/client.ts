@@ -16,6 +16,9 @@ import type {
   App,
   AppCreated,
   AppCreateRequest,
+  AppEnvironmentAdded,
+  AppEnvironmentAddRequest,
+  AppEnvironmentRemoved,
   AppInstanceCreated,
   AppInstanceCreateRequest,
   AppList,
@@ -510,6 +513,21 @@ export const createAppInstance = (name: string, req: AppInstanceCreateRequest, o
 /** Remove an added instance with its namespace and data; 202 like deleteApp. The default instance is a 409 default_instance. Role operator. */
 export const deleteAppInstance = (name: string, instance: string, o?: RequestOptions) =>
   request<void>("DELETE", `/v1/apps/${seg(name)}/instances/${seg(instance)}`, { ...o, noContent: true });
+/**
+ * Add an environment of this server to a registered app (ADR 0037) and queue a deployment of the default instance
+ * (trigger environment) to all of the app's environments, without a build. 409 environment_exists,
+ * deployment_in_progress, migration_in_progress, nothing_to_redeploy, db_pair_unavailable, app_not_registered;
+ * 404 env_not_found; 503 storage_not_configured, sealing_not_configured. Role operator.
+ */
+export const addAppEnvironment = (name: string, req: AppEnvironmentAddRequest, o?: RequestOptions) =>
+  request<AppEnvironmentAdded>("POST", `/v1/apps/${seg(name)}/environments`, { ...o, body: req });
+/**
+ * Take an environment out of a registered app with its namespaces and data there (ADR 0037). 409
+ * primary_environment, write_backend, deployment_in_progress, migration_in_progress; 502 github_unreachable,
+ * gateway_unreachable; 503 github_not_configured. Role operator.
+ */
+export const removeAppEnvironment = (name: string, env: string, o?: RequestOptions) =>
+  request<AppEnvironmentRemoved>("DELETE", `/v1/apps/${seg(name)}/environments/${seg(env)}`, o);
 export const getDeployment = (id: string, o?: RequestOptions) =>
   request<Deployment>("GET", `/v1/deployments/${seg(id)}`, o);
 

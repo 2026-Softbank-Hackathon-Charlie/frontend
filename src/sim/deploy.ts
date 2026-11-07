@@ -260,7 +260,7 @@ function steps(f: RepoFixture | undefined, instance: string, spec: AppSpec, comm
   const c7 = commit.slice(0, 7);
   const s: Step[] = [{ at: 0, type: "phase", phase: "queued", message: "대기열에 들어갔습니다 (trigger " + trigger + ")" }];
   // A redeploy builds nothing: the last healthy deployment's images go out again with the current secrets.
-  const again = trigger === "redeploy";
+  const again = trigger === "redeploy" || trigger === "environment";
   if (!again) s.push({ at: 2, type: "phase", phase: "building", message: "이미지 빌드 시작 (CodeBuild, 서비스 " + spec.services.length + "개)" });
   const broken = again ? undefined : Object.values(f?.branches ?? {}).find((b) => b.commit === commit)?.buildError;
   if (broken) {
@@ -519,6 +519,54 @@ export function redeployNoBuild(d: DeploySim, name: string, branch: string): voi
   const inst = app.deploy!.instances.find((i) => i.branch === branch)!;
   const last = lastHealthy(d, inst.name)!;
   newDeployment(d, app, inst, "redeploy", "operator", last.ref, last.commit, d.now);
+}
+
+/** What POST /v1/apps/{name}/environments would refuse, in the server's order (ADR 0037); null when it would add `env`. */
+export function checkAddEnvironment(d: DeploySim, name: string, env: string): Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  if (!ENV_ORDER.some((k) => ENV[k].id === env)) return { status: 404, code: "env_not_found", message: `unknown environment ${env}` };
+  if (app.deploy.environments.includes(env)) return { status: 409, code: "environment_exists", message: `app ${name} is already in ${env}` };
+  if (d.deployments.some((x) => x.instance === name && !isFinal(x.status))) return { status: 409, code: "deployment_in_progress", message: `instance ${name} has a deployment in progress` };
+  if (!lastHealthy(d, name)) return { status: 409, code: "nothing_to_redeploy", message: `instance ${name} has no healthy deployment to deploy again` };
+  return null;
+}
+
+/** Adds `env` to the app and its instances, and deploys the default instance's last healthy deployment to all of its environments (trigger environment). */
+export function addEnvironment(d: DeploySim, name: string, env: string): void {
+  if (checkAddEnvironment(d, name, env)) return;
+  const app = d.apps.find((a) => a.name === name)!;
+  app.deploy!.environments = [...app.deploy!.environments, env];
+  // in place: the default instance's status is also the app's deploy.status (the same array)
+  for (const i of app.deploy!.instances) i.status.push({ env, status: "pending" });
+  const inst = app.deploy!.instances.find((i) => i.default)!;
+  const last = lastHealthy(d, inst.name)!;
+  newDeployment(d, app, inst, "environment", "operator", last.ref, last.commit, d.now);
+}
+
+/** What DELETE /v1/apps/{name}/environments/{env} would refuse, in the server's order; null when it would remove `env`. */
+export function checkRemoveEnvironment(d: DeploySim, name: string, env: string): Refusal | null {
+  const app = d.apps.find((a) => a.name === name);
+  if (!app?.deploy) return { status: 404, code: "app_not_found", message: "app not found" };
+  const envs = app.deploy.environments;
+  if (!envs.includes(env)) return { status: 404, code: "env_not_found", message: `app ${name} is not in ${env}` };
+  if (envs[0] === env) return { status: 409, code: "primary_environment", message: `${env} is app ${name}'s first environment` };
+  if (d.deployments.some((x) => x.app === name && !isFinal(x.status))) return { status: 409, code: "deployment_in_progress", message: `app ${name} has a deployment in progress` };
+  return null;
+}
+
+/** Takes `env` out of the app and its instances, then deploys the default instance's last healthy deployment to the rest. */
+export function removeEnvironment(d: DeploySim, name: string, env: string): void {
+  if (checkRemoveEnvironment(d, name, env)) return;
+  const app = d.apps.find((a) => a.name === name)!;
+  app.deploy!.environments = app.deploy!.environments.filter((e) => e !== env);
+  for (const i of app.deploy!.instances) {
+    const at = i.status.findIndex((x) => x.env === env);
+    if (at >= 0) i.status.splice(at, 1);
+  }
+  const inst = app.deploy!.instances.find((i) => i.default)!;
+  const last = lastHealthy(d, inst.name);
+  if (last) newDeployment(d, app, inst, "environment", "operator", last.ref, last.commit, d.now);
 }
 
 /**

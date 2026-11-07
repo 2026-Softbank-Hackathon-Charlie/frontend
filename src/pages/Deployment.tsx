@@ -114,7 +114,7 @@ function DeploymentView({ m }: { m: DeploymentModel }) {
     const sub: Record<string, string> = {
       queued: "배포 실행기가 가져가기를 기다립니다",
       building:
-        d.trigger === "redeploy"
+        d.trigger === "redeploy" || d.trigger === "environment"
           ? "빌드하지 않고 마지막 정상 배포의 이미지를 다시 씁니다"
           : d.images.length
             ? d.images.map((x) => x.service).join(", ") + " 이미지, digest로 고정"

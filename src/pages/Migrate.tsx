@@ -325,13 +325,32 @@ function MigrateView({ v }: { v: MigrationView }) {
             </details>
           </div>
         </div>
+        {v.blocked && (
+          <div className="box fillbox" role="status" id="mig-blocked">
+            <div className="bb">
+              <p>{v.blocked}</p>
+            </div>
+          </div>
+        )}
         {!live || v.aiRun?.available ? (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || v.aiRun?.running} onClick={live ? v.aiRun?.start : v.makePlan}>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={v.busy || !v.tgt || v.aiRun?.running || !!v.blocked}
+              onClick={live ? v.aiRun?.start : v.makePlan}
+              aria-describedby={v.blocked ? "mig-blocked" : undefined}
+            >
               <Icon name="bot" size={16} />
               {v.aiRun?.running ? "AI 실행 중" : "AI 계획·리허설 실행"}
             </button>
-            <button type="button" className="btn ghost" disabled={!live || v.busy || !v.tgt} onClick={v.makePlan} aria-describedby={!live ? "mig-demo-plan-why" : undefined}>
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={!live || v.busy || !v.tgt || !!v.blocked}
+              onClick={v.makePlan}
+              aria-describedby={!live ? "mig-demo-plan-why" : v.blocked ? "mig-blocked" : undefined}
+            >
               <Icon name="clipboard-check" size={16} />
               AI 없이 Plan 작성
             </button>
@@ -344,7 +363,7 @@ function MigrateView({ v }: { v: MigrationView }) {
           </div>
         ) : (
           <div className="actrow">
-            <button type="button" className="btn primary" disabled={v.busy || !v.tgt} onClick={v.makePlan}>
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || !!v.blocked} onClick={v.makePlan} aria-describedby={v.blocked ? "mig-blocked" : undefined}>
               <Icon name="clipboard-check" size={16} />
               Plan 작성
             </button>

@@ -459,7 +459,7 @@ describe("GitHub deploy screens (platform API)", () => {
         ...app.deploy!,
         environments: ["eks", "gke"],
         status: [{ env: "eks", status: "healthy" }, { env: "gke", status: "healthy" }],
-        dbTopology: { primary: "gke", replica: "eks" },
+        dbTopology: { primary: "gke", replica: "eks", replicaPresent: true },
       },
     };
     setup("#app-moimroom");

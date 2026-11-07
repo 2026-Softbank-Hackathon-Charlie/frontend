@@ -208,6 +208,8 @@ export type Action =
   | { type: "app-delete"; name: string }
   | { type: "instance-create"; name: string; branch: string; autoDeploy: boolean }
   | { type: "instance-delete"; name: string; instance: string }
+  | { type: "env-add"; name: string; env: string }
+  | { type: "env-remove"; name: string; env: string }
   | { type: "onb-start" }
   | { type: "onb-sbx" }
   | { type: "onb-pr" }
@@ -246,6 +248,12 @@ export function apply(S: SimState, a: Action): void {
     }
     case "instance-create":
       if (dep.addInstance(S.deploy, a.name, a.branch, a.autoDeploy)) S.act.unshift(["방금", a.name + "에 " + a.branch + " 브랜치 추가 (인스턴스 " + dep.instanceName(a.name, a.branch) + ")"]);
+      break;
+    case "env-add":
+      dep.addEnvironment(S.deploy, a.name, a.env);
+      break;
+    case "env-remove":
+      dep.removeEnvironment(S.deploy, a.name, a.env);
       break;
     case "instance-delete":
       if (dep.removeInstance(S.deploy, a.name, a.instance)) S.act.unshift(["방금", a.instance + " 삭제 (gitops에서 apps/" + a.instance + "/ 제거)"]);
