@@ -42,6 +42,12 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
   const deps = useDeployments(app, 0, 20);
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
+  // The page behind passes a new onClose on each render (it polls the apps); the effect below must not run again then,
+  // or focus would jump back to the dialog every few seconds.
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15000);
@@ -53,14 +59,14 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
     const body = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     box.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current();
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = body;
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   const o = obs.data;
   const sum = o ? summarize(o, minutes, now) : undefined;
@@ -168,6 +174,7 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
               <section aria-label="반복되는 오류">
                 <h3>반복되는 오류와 경고</h3>
                 <p className="hint">같은 실패는 한 줄로 묶었습니다. 숫자는 #로, 비밀번호·토큰 같은 값은 «가림»으로 바뀝니다. 모든 비밀을 알아볼 수는 없습니다.</p>
+                <p className="hint">횟수는 이 기간의 최근 오류와 경고 500줄 안에서 센 것입니다.</p>
                 <ul className="obs-patterns">
                   {o.patterns.map((p) => (
                     <li key={p.severity + p.service + p.text}>

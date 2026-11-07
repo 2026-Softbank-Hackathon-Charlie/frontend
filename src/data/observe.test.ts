@@ -50,7 +50,7 @@ describe("what happened, newest first", () => {
     const o = obs({ buckets: [bucket(10, 100), bucket(20, 400, 5), bucket(30, 300, 2)] });
     const deps = [fakeDeployment({ id: "d1", commit: "abcdef1234567", createdAt: at(40) }), fakeDeployment({ id: "d0", commit: "0000000aaaa", createdAt: at(-500) })];
     const t = timeline(o, deps, 60, NOW);
-    expect(t.map((i) => i.text)).toEqual(["배포 abcdef1", "오류가 처음 나타났습니다 (5건)", "로그가 가장 많았습니다 (5분에 400건)"]);
+    expect(t.map((i) => i.text)).toEqual(["배포 abcdef1", "이 기간의 첫 오류가 나타났습니다 (5건)", "로그가 가장 많았습니다 (5분에 400건)"]);
     expect(t.map((i) => i.kind)).toEqual(["deploy", "log", "log"]);
     expect(t[0].deploy?.id).toBe("d1");
   });

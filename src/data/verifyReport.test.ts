@@ -1,0 +1,72 @@
+import { fakeRun } from "../api/fakes";
+import type { Run } from "../api/types";
+import { filesClean, missingOf, verifiedReportOf, verifyReportOf, verifyVerdict } from "./verifyReport";
+
+const withReport = (report: unknown): Run => {
+  const r = fakeRun();
+  r.engine.steps.verify = { status: "succeeded", evidence: { report } };
+  return r;
+};
+
+describe("the verify step's report", () => {
+  it("reads the report a real run returns, with no tables yet", () => {
+    const rep = verifyReportOf(
+      withReport({ durability: "asynchronous", files: { differences: 0, matching: 634, missingOnTarget: 0, ok: true, output: "..." }, missingRows: 0, ok: true, tables: [] }),
+    );
+    expect(rep).toEqual({ ok: true, missingRows: 0, tables: [], files: { matching: 634, differences: 0, missingOnTarget: 0, ok: true } });
+  });
+
+  it("keeps each table's counts, skip and error, and drops entries without a name", () => {
+    const rep = verifyReportOf(
+      withReport({
+        tables: [
+          { table: "app.reservations", checked: 1234, missing: 0, samples: [] },
+          { table: "app.audit", checked: 0, missing: 0, skipped: "no primary key" },
+          { table: "app.reviews", checked: 0, missing: 0, error: "permission denied" },
+          { checked: 5 },
+          "app.x",
+        ],
+      }),
+    )!;
+    expect(rep.tables).toEqual([
+      { table: "app.reservations", checked: 1234, missing: 0, skipped: undefined, error: undefined },
+      { table: "app.audit", checked: 0, missing: 0, skipped: "no primary key", error: undefined },
+      { table: "app.reviews", checked: 0, missing: 0, skipped: undefined, error: "permission denied" },
+    ]);
+    expect(rep.files).toBeUndefined();
+    // the skipped and failed tables do not count as zero missing
+    expect(missingOf(rep.tables)).toBe(0);
+    expect(missingOf(rep.tables.slice(1))).toBeUndefined();
+  });
+
+  it("has no report before the verify step or when the evidence is not an object", () => {
+    expect(verifyReportOf(fakeRun())).toBeUndefined();
+    expect(verifyReportOf(withReport("ok"))).toBeUndefined();
+    expect(verifyReportOf(withReport(null))).toBeUndefined();
+  });
+
+  it("calls a report clean only with at least one counted table and nothing missing", () => {
+    const files = { matching: 634, differences: 0, missingOnTarget: 0, ok: true };
+    const t = (x: object) => ({ table: "app.t", ...x });
+    expect(verifyVerdict({ ok: true, missingRows: 0, tables: [], files })).toMatchObject({ clean: false, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 0, missing: 0, skipped: "no pk" }), t({ checked: 5 })] })).toMatchObject({ clean: false, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 5, missing: 0 })], files })).toMatchObject({ clean: true, bad: false });
+    expect(verifyVerdict({ ok: true, tables: [t({ checked: 5, missing: 0 })], files: { ...files, differences: 1 } })).toMatchObject({ clean: false, bad: true });
+    expect(verifyVerdict({ ok: false, missingRows: 3, tables: [] })).toMatchObject({ clean: false, bad: true, missing: 3 });
+  });
+
+  it("reads the report only of a run that verified and was not rolled back", () => {
+    const r = withReport({ ok: true, tables: [] });
+    expect(verifiedReportOf({ ...r, status: "succeeded" })).toBeDefined();
+    expect(verifiedReportOf({ ...r, status: "rolled_back" })).toBeUndefined();
+    r.engine.steps.verify.status = "failed";
+    expect(verifiedReportOf({ ...r, status: "failed" })).toBeUndefined();
+  });
+
+  it("calls the files clean only when nothing differs and nothing is missing", () => {
+    expect(filesClean({ matching: 3, differences: 0, missingOnTarget: 0, ok: true })).toBe(true);
+    expect(filesClean({ matching: 3, differences: 1, missingOnTarget: 0, ok: false })).toBe(false);
+    expect(filesClean({ matching: 3, differences: 0, missingOnTarget: 2 })).toBe(false);
+    expect(filesClean({})).toBeUndefined();
+  });
+});
