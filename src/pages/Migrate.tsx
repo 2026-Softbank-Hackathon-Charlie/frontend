@@ -72,12 +72,15 @@ function MigrateListView({ v }: { v: MigrationView }) {
         <div className="box">
           <Table
             head={["앱", "현재 위치", "상태", ""]}
-            rows={[
-              [
-                td(live ? <b>{v.app}</b> : <a href={"#app-" + v.app}>{v.app}</a>),
-                td(<EnvLabel env={v.src} label={v.srcLabel} />),
+            rows={(live ? (v.apps ?? []) : [{ value: v.app, label: v.app }]).map((app) => {
+              const selected = app.value === v.app;
+              return [
+                td(live ? <b>{app.label}</b> : <a href={"#app-" + app.value}>{app.label}</a>),
+                td(selected ? <EnvLabel env={v.src} label={v.srcLabel} /> : <span className="hint">미확인</span>),
                 td(
-                  v.run ? (
+                  !selected ? (
+                    <Chip>상태 미조회</Chip>
+                  ) : v.run ? (
                     <RunStatusChip r={v.run} />
                   ) : v.stage === "review" && v.plan?.status === "approved" ? (
                     <Chip kind={v.preflight?.blocked ? "bad" : "warn"}>{v.preflight?.blocked ? "시작 전 검사에서 막힘" : "승인됨, 시작 전"}</Chip>
@@ -98,12 +101,12 @@ function MigrateListView({ v }: { v: MigrationView }) {
                   ),
                 ),
                 td(
-                  <a className="btn ghost" href={"#migrate-app" + (live ? "?app=" + encodeURIComponent(v.app) : "")}>
-                    {v.stage === "setup" ? "이전 설정" : "열기"}
+                  <a className="btn ghost" href={"#migrate-app" + (live ? "?app=" + encodeURIComponent(app.value) : "")}>
+                    {!selected || v.stage === "setup" ? "이전 설정" : "열기"}
                   </a>,
                 ),
-              ],
-            ]}
+              ];
+            })}
           />
         </div>
       )}
