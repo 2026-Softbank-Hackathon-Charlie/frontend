@@ -30,7 +30,6 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
       <PageHead
         icon="layout-dashboard"
         title="개요"
-        sub="team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다."
         acts={
           <>
             <a className="btn ghost" href="#new">

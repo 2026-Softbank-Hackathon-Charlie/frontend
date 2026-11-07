@@ -38,6 +38,28 @@ beforeEach(() => {
 });
 
 describe("environment mode parity", () => {
+  it("keeps compact per-DB readiness and backup fields, distinguishing unknown from no CNPG", () => {
+    state.live = true;
+    const db = { namespace: "room", name: "room-db", instances: 2, readyInstances: 1, replica: true,
+      backup: { objectStore: "room", walArchiving: true, lastSuccessfulBackup: new Date().toISOString(), firstRecoverabilityPoint: "2026-11-05T00:00:00Z" } };
+    state.envs = { ...state.envs, data: [{ ...environment, status: { ...environment.status, databases: [db] } },
+      { ...environment, name: "unknown", displayName: "조회 실패", status: { ...environment.status, databases: undefined } },
+      { ...environment, name: "empty", displayName: "빈 CNPG", status: { ...environment.status, databases: [] } }], loading: false };
+    state.traffic = { ...state.traffic, data: traffic, loading: false };
+    open();
+    const dbList = screen.getByRole("list", { name: "DB 현황" });
+    expect(dbList).toHaveTextContent("room-db");
+    expect(dbList).toHaveTextContent("1/2 준비 · 복제본");
+    expect(within(dbList).getByText("room-db")).toHaveAttribute("title", "room/room-db");
+    const backups = screen.getByRole("list", { name: "DB 백업 현황" });
+    expect(backups).toHaveTextContent("백업 정상");
+    expect(backups).toHaveTextContent("최근");
+    expect(backups).toHaveTextContent("복구 가능");
+    expect(backups).not.toHaveTextContent("마지막 백업");
+    const unknown = screen.getByRole("row", { name: /조회 실패/ });
+    expect(within(unknown).getAllByText("미확인")).toHaveLength(2);
+    expect(screen.getByRole("row", { name: /빈 CNPG/ })).toHaveTextContent("CNPG 없음");
+  });
   it("uses the same cluster and gateway fields in demo and live modes", () => {
     const demo = open();
     const demoColumns = screen.getAllByRole("columnheader").map((cell) => cell.textContent);

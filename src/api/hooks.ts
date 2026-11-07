@@ -141,8 +141,8 @@ export function useTraffic(pollMs = 0, window?: string, app?: string, enabled = 
 }
 
 /** All runs, newest first. */
-export function useRuns(pollMs = 0): Resource<Run[]> {
-  return usePolled("runs", pollMs, async (signal) => (await listMigrations({ signal })).runs);
+export function useRuns(pollMs = 0, enabled = true): Resource<Run[]> {
+  return usePolled(enabled ? "runs" : null, pollMs, async (signal) => (await listMigrations({ signal })).runs);
 }
 
 export function useMatrix(): Resource<Matrix> {
@@ -171,8 +171,8 @@ export function useAIRuns(app: string | null | undefined, pollMs = 0): Resource<
   return usePolled(app ? "ai-runs:" + app : null, pollMs, async (signal) => (await listAIRuns(app!, { signal })).runs);
 }
 
-export function useApps(pollMs = 0): Resource<App[]> {
-  return usePolled("apps", pollMs, async (signal) => (await listApps({ signal })).apps);
+export function useApps(pollMs = 0, enabled = true): Resource<App[]> {
+  return usePolled(enabled ? "apps" : null, pollMs, async (signal) => (await listApps({ signal })).apps);
 }
 
 /** One app; `deploy` is set when it is registered from GitHub. A falsy `name` loads nothing. */

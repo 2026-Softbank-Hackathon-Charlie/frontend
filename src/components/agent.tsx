@@ -3,6 +3,8 @@ import type { AgentEvent, AgentSession, AgentSessionKind, AgentSessionStatus, Ru
 import { fmt, mmss } from "../sim/format";
 import type { LogLine } from "../sim/state";
 import { Chip, LogBox, Table, td, type ChipKind } from "./ui";
+import { envName } from "./shared";
+import type { SessionContext } from "../data/agentContext";
 
 export const KIND_LABEL: Record<AgentSessionKind, string> = {
   plan: "계획",
@@ -69,12 +71,15 @@ export function runLines(startedAt: string, events: RunEvent[]): LogLine[] {
   return events.map((e) => [mmss(secs(startedAt, e.time)), (e.step ? "[" + e.step + "] " : "") + (e.message || e.kind)]);
 }
 
-export function SessionTable({ sessions, onPick, picked }: { sessions: AgentSession[]; onPick?: (id: string) => void; picked?: string | null }) {
+export function SessionTable({ sessions, onPick, picked, contexts }: { sessions: AgentSession[]; onPick?: (id: string) => void; picked?: string | null; contexts?: ReadonlyMap<string, SessionContext> }) {
   return (
     <Table
-      head={["종류", "제목", "상태", "도구 호출", "토큰 (입력 / 출력)", ""]}
+      head={["종류", ...(contexts ? ["앱", "From", "To"] : []), "제목", "상태", "도구 호출", "토큰 (입력 / 출력)", ""]}
       rows={sessions.map((s) => [
         td(<Chip>{KIND_LABEL[s.kind]}</Chip>),
+        ...(contexts ? [td(contexts.get(s.id)?.app ?? "미확인", "m"),
+          td(contexts.get(s.id)?.source ? envName(contexts.get(s.id)!.source!) : "미확인"),
+          td(contexts.get(s.id)?.target ? envName(contexts.get(s.id)!.target!) : "미확인")] : []),
         td(s.title),
         td(<SessionStatus s={s.status} />),
         td(fmt(s.totals.toolCalls) + "회", "num"),
