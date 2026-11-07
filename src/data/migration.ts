@@ -111,6 +111,8 @@ export interface MigrationView {
   /** the AI's values fix, shown as a diff (simulation; live plans carry it as an attachment) */
   fix?: { file: string; minus: string; plus: string };
   run?: Run;
+  /** the app's newest run when it has ended, for the list while no run is on screen */
+  lastRun?: Run;
   events: RunEvent[];
   /** Live run stream health; ended streams close normally. */
   stream?: { connected: boolean; error?: string };
@@ -187,6 +189,7 @@ export function useSimMigration(): MigrationView {
     selectSession: () => {},
     fix: m.plan?.attachments?.length ? fixDiff(m.src, m.tgt) : undefined,
     run: m.run ?? undefined,
+    lastRun: m.history[0],
     events: m.events,
     counters: migCounters(m),
     preflight: m.run ? simPreflight(m.run.startedAt) : undefined,
@@ -504,8 +507,14 @@ export function useLiveMigration(): MigrationView {
 
   // Pick up work already in progress on this app: an active run, else its newest run when it halted (it waits for an
   // operator to resume it), else its newest plan waiting for approval. Another app's work stays off this page.
+  // A Plan on screen that was started elsewhere (another browser, the CLI) is followed into its run.
   useEffect(() => {
-    if (!enabled || runId || planRef || !ns) return;
+    if (!enabled || runId || !ns) return;
+    if (planRef) {
+      const started = runs.data?.find((r) => r.planRef === planRef && r.runId !== dismissed);
+      if (started) setRunId(started.runId);
+      return;
+    }
     const mine = runs.data?.filter((r) => touches(ns, r));
     const newest = mine?.[0];
     const active = mine?.find((r) => ACTIVE.has(r.status)) ?? (newest?.status === "halted" && newest.runId !== dismissed ? newest : undefined);
@@ -657,6 +666,7 @@ export function useLiveMigration(): MigrationView {
     sessionsPartial: stored.missing,
     selectSession: setSelected,
     run,
+    lastRun: mineRuns[0] && !runInProgress(mineRuns[0]) ? mineRuns[0] : undefined,
     events: watch.events,
     stream: { connected: watch.connected, error: watch.error ? errorText(watch.error) : undefined },
     preflight: preflight.data,

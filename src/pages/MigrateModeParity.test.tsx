@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth } from "../data/live";
 import { AI_END } from "../sim/mig";
 import { createSim, SimProvider } from "../sim/store";
-import { Migrate } from "./Migrate";
+import { fakeRun } from "../api/fakes";
+import { Migrate, MigrateList } from "./Migrate";
 
 function setup(review = false) {
   chooseMode("demo");
@@ -55,5 +56,31 @@ describe("migration demo follows the live controls", () => {
     expect(screen.getByLabelText("관찰 시간")).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "게이트를 어기면 바로 롤백" })).toBeDisabled();
     expect(screen.getByText(/데모는 빠른 카나리.*관찰과 자동 롤백.*지원하지 않습니다/)).toBeInTheDocument();
+  });
+});
+
+describe("migration list", () => {
+  function list(history: ReturnType<typeof fakeRun>[]) {
+    chooseMode("demo");
+    const sim = createSim();
+    sim.dispatch({ type: "onb-skip" });
+    sim.state.mig.history = history;
+    render(<SimProvider sim={sim} intervalMs={0}><MigrateList /></SimProvider>);
+  }
+
+  it("shows the app's latest finished run instead of before migration", () => {
+    list([fakeRun({ status: "succeeded", phase: "done", source: { env: "eks", namespace: "shop", cluster: "shop-db" }, target: { env: "gke", namespace: "shop", cluster: "shop-db" }, endedAt: new Date(Date.now() - 3 * 60_000).toISOString() })]);
+    expect(screen.getByText("최근 이전 성공, AWS EKS → GCP GKE, 3분 전")).toBeInTheDocument();
+    expect(screen.queryByText("이전 전")).not.toBeInTheDocument();
+  });
+
+  it("tells a halted latest run from a succeeded one", () => {
+    list([fakeRun({ status: "halted", phase: "done", endedAt: new Date().toISOString() })]);
+    expect(screen.getByText(/^최근 이전 정지, /)).toBeInTheDocument();
+  });
+
+  it("shows before migration only without any run", () => {
+    list([]);
+    expect(screen.getByText("이전 전")).toBeInTheDocument();
   });
 });
