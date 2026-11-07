@@ -42,6 +42,13 @@ it("uses explicit unsupported coverage instead of inventing an evaluated zero", 
   expect(row).not.toHaveTextContent("통과 0");
 });
 
+it("does not call the whole scope unsupported when an image-only environment has no control coverage", () => {
+  const coverage = (["identity", "data", "logging", "policy", "vulnerability"] as const).map((domain) => ({ environment: "aws-account", domain, state: "unsupported" as const, reason: "no implemented control", counts: { applicable: 0, evaluated: 0, pass: 0, fail: 0, unknown: 0, notApplicable: 0 } }));
+  render(<SecurityWorkspace route="security" data={securityData(undefined, { controls: { ...controlReport, coverage }, vulnerabilities: imageReport })} />);
+  expect(screen.getByRole("link", { name: /통제 평가 완료/ })).toHaveTextContent("미관측");
+  expect(screen.getByRole("link", { name: /통제 평가 완료/ })).not.toHaveTextContent("미지원");
+});
+
 it("shows the selected scan coverage beside a clean result with other unscanned containers", () => {
   const images: SecurityVulnerabilityReport = { ...imageReport, scans: [{ id: "clean", digest: "sha256:clean", status: "succeeded", scanner: { name: "grype", version: "1" } }], runningImages: [{ ...imageReport.runningImages[0], digest: "sha256:clean", scanId: "clean", scanState: "scanned" }, imageReport.runningImages[0]] };
   render(<SecurityWorkspace route="security" data={securityData(undefined, { vulnerabilities: images })} />);

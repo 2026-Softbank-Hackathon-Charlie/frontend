@@ -205,7 +205,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const controlState = OBSERVATION_LABEL[controlObservation?.state ?? "unobserved"];
   const evaluatedControls = controls.some((c) => c.status === "pass" || c.status === "fail");
   const scopeCoverage = data.coverage?.filter((c) => environment === "all" || c.environment === environment) ?? [];
-  const coverageEnvironments = unique(scopeCoverage.map((c) => c.environment));
+  const coverageEnvironments = environment === "all" ? data.environments.map((e) => e.id) : [environment];
   const allUnsupported = coverageEnvironments.length > 0 && coverageEnvironments.every((env) => DOMAINS.every((d) => scopeCoverage.some((c) => c.environment === env && c.domain === d.id && c.state === "unsupported")));
   const controlScopeState = controls.length > 0 && controls.every((c) => c.status === "not_applicable") ? "해당 없음"
     : allUnsupported ? "미지원" : controlObservation?.state === "observed" ? "미관측" : controlState;
