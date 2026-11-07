@@ -10,6 +10,7 @@ import { approvalBlock, PLATFORM_GATE, rehearsing, type MigrationView } from "./
 import { isAfter } from "../api/hooks";
 import { mapEvents, mapFacts, mapSteps, type MapFacts } from "./migrationMap";
 import type { CheckStatus } from "./preflight";
+import { canaryStepVerdict, canaryVerdict } from "./canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "./verifyReport";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
@@ -310,8 +311,8 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
     weights.forEach((w, i) => {
       const s = c?.steps[i];
       const g = s?.gate;
-      const verdict = s?.verdict ?? (g ? (g.passed ? "ok" : "failed") : undefined);
-      const st: PhaseSt = !s ? "todo" : verdict === "ok" ? "done" : verdict === "inconclusive" ? "warn" : verdict === "failed" ? "fail" : active ? "cur" : "fail";
+      const verdict = canaryStepVerdict(s);
+      const st: PhaseSt = verdict === "ok" ? "done" : verdict === "inconclusive" ? "warn" : verdict === "failed" ? "fail" : s && !s.endedAt && r?.phase === "canary" && active ? "cur" : "todo";
       const checks: [string, string, PhaseSt][] = g
         ? [
             ["요청 수 ≥ " + PLATFORM_GATE.minRequests, fmtN(g.requests), g.requests >= PLATFORM_GATE.minRequests ? "done" : "warn"],
@@ -319,7 +320,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
             ["p95 ≤ " + PLATFORM_GATE.maxP95Millis + "ms", Math.round(g.p95Millis) + "ms", g.p95Millis <= PLATFORM_GATE.maxP95Millis ? "done" : "fail"],
           ]
         : s
-          ? [["게이트 판정", "관찰 중", "cur"]]
+          ? [["게이트 판정", verdict ? PILL[st][1] : st === "cur" ? "관찰 중" : "게이트 판정 기록 부족", st]]
           : [];
       if (g && !g.passed && g.reason) checks.push(["판정", g.reason, st === "warn" ? "warn" : "fail"]);
       const span = (e: RunEvent) => !!s && !isAfter(s.startedAt, e.time) && (!s.endedAt || !isAfter(e.time, s.endedAt));
@@ -337,6 +338,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
     });
   }
   const switchStarted = !!steps && (steps.fence !== "pending" || !!r?.switchApprovedAt);
+  const canary = r && canaryVerdict(r);
   out.push({
     key: "switch",
     group: "트래픽",
@@ -346,7 +348,7 @@ function phasesOf(v: MigrationView, r: Run | undefined, events: RunEvent[]): Pha
     endedAt: r?.switchApprovedAt,
     checks: r
       ? [
-          ...(c ? [["카나리 게이트", c.passed ? "모두 통과" : c.steps.length ? "진행 중" : "대기", c.passed ? "done" : "todo"] as [string, string, PhaseSt]] : []),
+          ...(canary ? [["카나리 게이트", canary.label, canary.state] as [string, string, PhaseSt]] : []),
           ["전환 승인", r.switchApprovedBy ? "approved by " + r.switchApprovedBy : r.autoSwitch ? "자동" : r.status === "awaiting_switch" ? "대기 중" : "-", r.switchApprovedBy || (r.autoSwitch && switchStarted) ? "done" : r.status === "awaiting_switch" ? "wait" : "todo"],
         ]
       : [],

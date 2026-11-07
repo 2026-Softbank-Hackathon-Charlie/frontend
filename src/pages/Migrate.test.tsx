@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { at, fakeRun } from "../api/fakes";
 import type { Run, RunEvent } from "../api/types";
-import { CanaryBox, groupsOf, VerifyBox } from "./Migrate";
+import ja from "../i18n/ja.json";
+import { makeTranslator } from "../i18n/translate";
+import { CanaryBox, groupsOf, heroText, VerifyBox } from "./Migrate";
 
 const ev = (seq: number, kind: string, p: Partial<RunEvent> = {}): RunEvent => ({ seq, time: at(seq), runId: "run_1", kind, ...p });
 const status = (seq: number, s: string, phase: string) => ev(seq, "status_changed", { data: { status: s, phase, reason: "" } });
@@ -17,6 +19,14 @@ const synced = [
 ];
 
 describe("migration progress groups", () => {
+  it("shows an unrecorded canary verdict neutrally while waiting for switch approval", () => {
+    const r = fakeRun({
+      status: "awaiting_switch", phase: "awaiting_switch",
+      canary: { options: { weights: [10] }, passed: true, steps: [{ weight: 10, startedAt: at(6), endedAt: at(7) }] },
+    });
+    expect(groupsOf(r, synced.slice(0, -1))[1].items).toEqual([{ label: "10% 게이트 판정 기록 부족", st: "neu" }]);
+  });
+
   it("puts the stop of a halted run where it halted, though the platform ends every run in phase done", () => {
     const events = [
       ...synced,
@@ -151,6 +161,52 @@ describe("data verification on the result", () => {
 });
 
 describe("read canary table", () => {
+  const gate = { passed: true, reason: "", requests: 120, errorRate: 0, p95Millis: 45 };
+  const inconclusive = { weight: 10, startedAt: at(1), verdict: "inconclusive" as const, gate: { ...gate, passed: false, requests: 15 } };
+  const legacyPass = { weight: 50, startedAt: at(2), gate };
+  const pass = { weight: 100, startedAt: at(3), verdict: "ok" as const, gate };
+  const v = { srcLabel: "GKE", tgtLabel: "EKS" };
+
+  it("shares the inconclusive count with the write switchover guidance", () => {
+    const r = fakeRun({
+      status: "awaiting_switch", phase: "awaiting_switch",
+      canary: { options: { weights: [10, 50, 100] }, passed: true, steps: [inconclusive, legacyPass, pass] },
+    });
+    render(<CanaryBox r={r} />);
+    const summary = "통과 2단계 · 판단 보류 1단계";
+    expect(screen.getByText(summary)).toBeInTheDocument();
+    expect(screen.getByText("전환 승인 가능")).toBeInTheDocument();
+    expect(screen.getByText("판단 보류: 요청 부족, 다음 단계로")).toBeInTheDocument();
+    const [headline, guidance] = heroText(v, r, 0);
+    expect(headline).toBe("데이터가 맞춰졌습니다. 전환할 수 있습니다.");
+    expect(guidance).toContain(summary);
+    expect(makeTranslator(ja)(guidance)).toContain("読み取りカナリア：通過 2 段階 · 判断保留 1 段階。");
+  });
+
+  it("reports all stages passed only with evidence for every planned stage", () => {
+    const r = fakeRun({
+      status: "awaiting_switch", phase: "awaiting_switch",
+      canary: { options: { weights: [50, 100] }, passed: true, steps: [legacyPass, pass] },
+    });
+    const { rerender } = render(<CanaryBox r={r} />);
+    expect(screen.getByText("게이트 모두 통과")).toBeInTheDocument();
+    expect(heroText(v, r, 0)[1]).toContain("게이트 모두 통과");
+    rerender(<CanaryBox r={{ ...r, canary: { ...r.canary!, steps: [legacyPass] } }} />);
+    expect(screen.queryByText("게이트 모두 통과")).not.toBeInTheDocument();
+  });
+
+  it("uses the failed gate verdict and reason in the table and guidance", () => {
+    const r = fakeRun({
+      status: "rolled_back", phase: "done", statusReason: "error rate 5.00%",
+      canary: { options: { weights: [50] }, passed: false, steps: [{ ...legacyPass, gate: { ...gate, passed: false, reason: "error rate 5.00%" } }] },
+    });
+    render(<CanaryBox r={r} />);
+    expect(screen.getByText("게이트 실패")).toBeInTheDocument();
+    expect(screen.queryByText("전환 승인 가능")).not.toBeInTheDocument();
+    expect(screen.getByText("실패: error rate 5.00%")).toBeInTheDocument();
+    expect(heroText(v, r, 0)[1]).toBe("읽기 카나리 게이트 실패: error rate 5.00%. 원본이 다시 트래픽을 받고, 잃은 데이터는 없습니다.");
+  });
+
   it("rounds p95 to whole milliseconds like the gate's reason", () => {
     const r = fakeRun({
       canary: {
