@@ -164,6 +164,9 @@ describe("pre-start checks from the audit log", () => {
     expect(preflightOf(entry({ residency: "rollback_exempt", parity: { outcome: "rollback_exempt" } }))!.parity?.status).toBe("skip");
     expect(preflightOf(entry({ residency: "allowed", parity: { outcome: "error" } }))!.parity?.status).toBe("unknown");
     expect(preflightOf(entry({ error: "residency_denied", residencyReasons: [] }))!.parity?.summary).toBe("이전을 시작하지 않아 검사하지 않았습니다");
+    // the rollback endpoint writes no parity record; older entries and the simulation hold none either
+    expect(preflightOf(entry({ residency: "rollback_exempt", capacity: { outcome: "rollback_exempt" } }, { action: "POST /v1/migrations/{runId}/rollback" }))!.parity).toMatchObject({ status: "skip", summary: "롤백이라 검사하지 않았습니다" });
+    expect(preflightOf(entry({ residency: "allowed" }))!.parity).toBeUndefined();
   });
 
   it("picks the newest start or rollback of the plan", () => {

@@ -81,9 +81,22 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(parity.status).toBe(label);
     expect(parity.tone).toBe(tone);
     expect(parity.summary).toBe("동등성 기록");
+    if (status === "skip") {
+      expect(parity.evidence).toEqual([]);
+      return;
+    }
     expect(parity.evidence).toContain("인증, 권한: rbac_mismatch");
     expect(parity.evidence).toContain("설정 digest: cfg123");
     expect(parity.evidence.some(x => x.startsWith("검사 시각:"))).toBe(true);
+  });
+
+  it("keeps parity as not received when the start record holds no parity record", () => {
+    const s = snap(view({ preflight: {
+      at: at(1), blocked: false,
+      residency: { status: "pass", summary: "ok", items: [] },
+      capacity: { status: "pass", summary: "ok", items: [] },
+    } }));
+    expect(s.validations[0]).toMatchObject({ status: "결과 미수신", tone: "idle" });
   });
 
   it("before a plan, nothing is at work and the target is only a candidate", () => {

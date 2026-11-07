@@ -666,7 +666,8 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
         status: !v.preflight?.parity ? "결과 미수신" : ({ pass: "통과", fail: "불일치", unknown: "확인 불가", info: "참고", skip: "검사 안 함" } as const)[v.preflight.parity.status],
         tone: !v.preflight?.parity ? "idle" : ({ pass: "ok", fail: "no", unknown: "wa", info: "info", skip: "idle" } as const)[v.preflight.parity.status],
         summary: v.preflight?.parity?.summary ?? "시작 또는 롤백 요청의 검사 기록을 아직 받지 못했습니다. 이전 완료나 샌드박스 리허설 성공만으로 동등성 통과를 판단하지 않습니다.",
-        evidence: v.preflight?.parity ? [
+        // a skipped check has no time, items or digest of its own: the summary says why it did not run
+        evidence: v.preflight?.parity?.status === "skip" ? [] : v.preflight?.parity ? [
           "검사 시각: " + new Date(v.preflight.at).toLocaleString("ko-KR"),
           ...v.preflight.parity.items.map(i => i.label + ": " + i.detail),
           ...(v.preflight.parity.digest ? ["설정 digest: " + v.preflight.parity.digest] : []),

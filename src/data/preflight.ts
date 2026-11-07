@@ -245,9 +245,15 @@ function parityItem(line: string): PreflightItem | undefined {
   return { label: CAPABILITY_LABEL[cap] ?? cap, status, detail: checks ? code + " (" + checks + ")" : code, raw: line };
 }
 
-function parityPart(d: Record<string, unknown>, refused: string): NonNullable<PreflightView["parity"]> {
+/** Undefined when the entry holds no parity record and says nothing about why (older entries, simulation). */
+function parityPart(d: Record<string, unknown>, refused: string): PreflightView["parity"] {
   const p = d.parity && typeof d.parity === "object" ? (d.parity as Record<string, unknown>) : undefined;
-  if (!p) return { status: "skip", summary: refused ? "이전을 시작하지 않아 검사하지 않았습니다" : "검사 기록이 없습니다", items: [] };
+  if (!p) {
+    // a refused start and the rollback endpoint do not run the parity probes, so they write no record
+    if (refused) return { status: "skip", summary: "이전을 시작하지 않아 검사하지 않았습니다", items: [] };
+    if (d.residency === "rollback_exempt") return { status: "skip", summary: "롤백이라 검사하지 않았습니다", items: [] };
+    return undefined;
+  }
   switch (p.outcome) {
     case "recorded":
       break;
