@@ -526,12 +526,18 @@ export interface paths {
     /** @description How many records a stream holds. A stream nobody wrote to has count 0. */
     get: operations["getWrittenRecordStats"];
     /**
-     * @description Record writes that a load generator saw succeed. When a run's plan sets
-     * `verify.writtenRecords: "stream:<name>"`, the server writes every record
-     * of the stream to a file right before the verify step, and the engine
-     * checks that each one exists on the target database. Table names are
-     * stored in lower case (unquoted PostgreSQL identifiers); control
-     * characters in `table` or `pk` are refused. Roles: agent, operator.
+     * @description Record real table/PK write receipts with declared scope/coverage. Application
+     * commits do not prove client response delivery. Before verify, the server
+     * freezes the central stream count/maximum sequence and exports that cohort;
+     * late reports are excluded and complete collection is not guaranteed.
+     * Table names use unquoted PostgreSQL identifiers; control characters in
+     * table/PK are refused. General roles are agent and operator. Dedicated
+     * application stream tokens can only POST their exact stream with
+     * application_commits/reservation_inserts, app.reservations, a positive
+     * integer PK, matching reservation-<pk> eventId, timestamp and generation.
+     * These tokens cannot read streams or access other APIs. Stable eventId
+     * retries deduplicate identical payloads; changed payload or stream
+     * generation/scope/coverage returns 409 written_record_conflict atomically.
      */
     post: operations["appendWrittenRecords"];
     parameters: {
@@ -1601,6 +1607,7 @@ export interface components {
     };
     /** @description The numbers the console shows. Absent values were not measured (yet). */
     RunResult: {
+      writeVerification?: components["schemas"]["WriteVerification"];
       /**
        * Format: int64
        * @description writes held at the gateway
@@ -1628,7 +1635,7 @@ export interface components {
       missingRows?: number;
       /**
        * Format: int64
-       * @description k6-confirmed writes missing on the target
+       * @description Missing rows in a nonempty reported-write snapshot that was actually checked; absent when unmeasured.
        */
       missingWrites?: number;
       /**
@@ -1638,8 +1645,6 @@ export interface components {
       missingFiles?: number;
       /** @description the verify report found no problems */
       verified?: boolean;
-      /** @description Snapshot of this run's collected write inputs and verification outcome. */
-      writeVerification?: components["schemas"]["WriteVerification"];
     };
     WriteVerification: {
       /** @enum {string} */
@@ -2856,7 +2861,7 @@ export interface components {
       status: components["schemas"]["AgentSessionStatus"];
       summary?: string;
     };
-    /** @description One write a load generator saw succeed, in the engine's written-records format. */
+    /** @description One producer-reported table/PK receipt; scope identifies application commits or client acknowledgements. */
     WrittenRecord: {
       /** @description Optional stable producer event identifier; retries of identical events are deduplicated within the stream. */
       eventId?: string;
@@ -2872,7 +2877,7 @@ export interface components {
       pk: string;
       /**
        * Format: date-time
-       * @description when the write succeeded; defaults to when the server received it
+       * @description Producer event recording time; app outbox INSERT time is before commit completion. Defaults to server receipt time.
        */
       at?: string;
     };
@@ -5151,12 +5156,18 @@ export interface operations {
     };
   };
   /**
-   * @description Record writes that a load generator saw succeed. When a run's plan sets
-   * `verify.writtenRecords: "stream:<name>"`, the server writes every record
-   * of the stream to a file right before the verify step, and the engine
-   * checks that each one exists on the target database. Table names are
-   * stored in lower case (unquoted PostgreSQL identifiers); control
-   * characters in `table` or `pk` are refused. Roles: agent, operator.
+   * @description Record real table/PK write receipts with declared scope/coverage. Application
+   * commits do not prove client response delivery. Before verify, the server
+   * freezes the central stream count/maximum sequence and exports that cohort;
+   * late reports are excluded and complete collection is not guaranteed.
+   * Table names use unquoted PostgreSQL identifiers; control characters in
+   * table/PK are refused. General roles are agent and operator. Dedicated
+   * application stream tokens can only POST their exact stream with
+   * application_commits/reservation_inserts, app.reservations, a positive
+   * integer PK, matching reservation-<pk> eventId, timestamp and generation.
+   * These tokens cannot read streams or access other APIs. Stable eventId
+   * retries deduplicate identical payloads; changed payload or stream
+   * generation/scope/coverage returns 409 written_record_conflict atomically.
    */
   appendWrittenRecords: {
     parameters: {
@@ -5180,6 +5191,7 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
       413: components["responses"]["TooLarge"];
       default: components["responses"]["Internal"];
     };
