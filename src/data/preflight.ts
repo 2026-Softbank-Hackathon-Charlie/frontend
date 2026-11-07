@@ -4,7 +4,7 @@
 // The platform records both in the audit entry of the start (POST /v1/migrations) or the
 // rollback, refused or not, so the page reads them from there. Nothing here is invented:
 // a value the entry does not hold is shown as missing.
-import type { AuditEntry } from "../api/types";
+import type { AuditEntry, AuditList } from "../api/types";
 
 export type CheckStatus = "pass" | "fail" | "unknown" | "info" | "skip";
 
@@ -314,6 +314,59 @@ export function latestPreflight(entries: AuditEntry[], planRef: string): Preflig
     if (e.action !== "POST /v1/migrations" && !e.action.endsWith("/rollback")) continue;
     const p = preflightOf(e);
     if (p) return p;
+  }
+  return undefined;
+}
+
+/** A start or rollback of an earlier run: its checks and which run or plan wrote them. */
+export interface PastPreflight {
+  view: PreflightView;
+  runId?: string;
+  planRef?: string;
+}
+
+const text = (x: unknown) => (typeof x === "string" && x ? x : undefined);
+
+/**
+ * The newest start or rollback entry of any of these runs or plans that carries pre-start checks, for a page that
+ * holds no plan: the app's last run. An entry counts for the app when its runId or planRef is one the app has (a
+ * rollback also names the run it rolls back, fromRun); an entry of another app, or one naming none, never does.
+ * Entries are newest first.
+ */
+export function latestPreflightOfApp(entries: AuditEntry[], own: { runIds: readonly string[]; planRefs: readonly string[] }): PastPreflight | undefined {
+  const runIds = new Set(own.runIds);
+  const planRefs = new Set(own.planRefs);
+  for (const e of entries) {
+    if (e.action !== "POST /v1/migrations" && !e.action.endsWith("/rollback")) continue;
+    const d = e.detail ?? {};
+    const runId = text(d.runId);
+    const planRef = text(d.planRef);
+    const fromRun = text(d.fromRun);
+    const mine = (runId && runIds.has(runId)) || (planRef && planRefs.has(planRef)) || (fromRun && runIds.has(fromRun));
+    if (!mine) continue;
+    const view = preflightOf(e);
+    if (view) return { view, runId, planRef };
+  }
+  return undefined;
+}
+
+/** Entries per page and pages at most: a request refused with a 401 is logged too, so a start sinks fast. */
+export const AUDIT_PAGE = 200;
+export const AUDIT_PAGES = 5;
+
+/**
+ * Reads the audit log newest first, page after page (nextBefore), until `find` answers or `pages` pages are read.
+ * Stops early at the end of the log; the cap keeps a busy log from being read without end.
+ */
+export async function searchAudit<T>(list: (before?: number) => Promise<AuditList>, find: (entries: AuditEntry[]) => T | undefined, pages = AUDIT_PAGES): Promise<T | undefined> {
+  let before: number | undefined;
+  for (let i = 0; i < pages; i++) {
+    const res = await list(before);
+    const hit = find(res.entries);
+    if (hit !== undefined) return hit;
+    // no further page, or one that does not move back: stop instead of asking again
+    if (res.nextBefore === undefined || res.entries.length === 0 || (before !== undefined && res.nextBefore >= before)) return undefined;
+    before = res.nextBefore;
   }
   return undefined;
 }
