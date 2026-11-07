@@ -5,3 +5,6 @@
 .apps-list > .scroll::-webkit-scrollbar-track { background: var(--fill); }
 .apps-list > .scroll::-webkit-scrollbar-thumb { background: var(--field-line); border-radius: var(--r-control); }
 .apps-list > .scroll:focus-visible { outline: 2px solid var(--run); outline-offset: -2px; }
+@media (max-width: 600px) {
+  body:has(.apps-list) .lang-fab { position: static; display: flex; width: max-content; margin: 0 var(--sp-md) var(--sp-md) auto; }
+}
