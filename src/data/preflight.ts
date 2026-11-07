@@ -251,7 +251,8 @@ function parityPart(d: Record<string, unknown>, refused: string): PreflightView[
   if (!p) {
     // a refused start and the rollback endpoint do not run the parity probes, so they write no record
     if (refused) return { status: "skip", summary: "이전을 시작하지 않아 검사하지 않았습니다", items: [] };
-    if (d.residency === "rollback_exempt") return { status: "skip", summary: "롤백이라 검사하지 않았습니다", items: [] };
+    // fromRun: the rollback endpoint, by an operator or slo-guard (residency says not_configured without a policy)
+    if ("fromRun" in d) return { status: "skip", summary: "롤백이라 검사하지 않았습니다", items: [] };
     return undefined;
   }
   switch (p.outcome) {
