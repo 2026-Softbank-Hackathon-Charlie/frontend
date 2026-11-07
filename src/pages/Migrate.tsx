@@ -4,6 +4,7 @@ import type { AgentEvent, AgentSession, AIRun, PlanAttachment, Run, RunEvent, Ru
 import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
+import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisionPanel";
 import { LiveSourceRetention } from "../components/SourceRetention";
 import { measuredWriteMissing, PlanWriteVerification, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
 import { LiveWriteCollection } from "../components/WriteCollection";
@@ -430,6 +431,7 @@ function MigrateView({ v }: { v: MigrationView }) {
       <PageHead icon="arrow-right-left" title={title} sub={v.srcLabel + " → " + v.tgtLabel + where} acts={<HeadActs v={v} />} />
       <Wizard v={v} />
       <Notice text={v.notice} />
+      {r && <RunDecisionPanel r={r} />}
     </>,
     <MigrationMapFrame v={v} hero={hero} />,
     r ? <RunView v={v} r={r} /> : <AiView v={v} />,
@@ -1486,6 +1488,7 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
   const zero = (k: number | undefined) => (k === undefined ? undefined : k === 0);
   const max = goSec(v.plan?.summary.maxDowntime ?? "");
   const down = x.downtimeMillis;
+  const invalidCounts = invalidRequestCounts(x);
   return (
     <div className="box">
       <div className="bh">
@@ -1500,7 +1503,7 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
           note={(max !== undefined ? "상한 " + dur(max) : "게이트웨이가 쓰기를 붙잡은 시간") + (v.counters?.heldDone ? ", 보류한 쓰기 " + fmt(v.counters.heldDone) + "건 전달" : "")}
           ok={down === undefined || max === undefined ? undefined : down <= max * 1000}
         />
-        <Num label="실패 요청" value={n(x.failedRequests, "건")} note={"요청 " + fmt(x.requests ?? 0) + "건 중"} ok={zero(x.failedRequests)} />
+        <Num label="실패 요청" value={invalidCounts ? "집계 이상" : n(x.failedRequests, "건")} note={invalidCounts ? "요청 집계를 확인하세요" : x.requests === undefined ? "전체 요청 미측정" : "요청 " + fmt(x.requests) + "건 중"} ok={invalidCounts || x.requests === undefined ? undefined : zero(x.failedRequests)} />
         <Num label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" ok={zero(x.missingRows)} />
         <Num label="누락 쓰기" value={n(missingWrites, "건")} note={verification?.scope === "application_commits" ? "앱 DB 커밋 기록과 대조" : verification?.scope === "client_acknowledged" ? "성공 응답을 확인한 기록과 대조" : "보고된 쓰기 기록과 대조"} ok={zero(missingWrites)} />
         <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />
