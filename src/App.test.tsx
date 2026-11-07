@@ -50,7 +50,17 @@ describe("HopCharlie console (simulation)", () => {
     setup();
     expect(screen.getByText(/시연용 화면입니다/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "개요" })).toBeInTheDocument();
+    expect(screen.queryByText("team-charlie 프로젝트의 클러스터, 앱, 이전 결과입니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "개요" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps app summary labels, counts and filters while omitting their explanatory subtitles", async () => {
+    await act(async () => { setup("#apps"); });
+    const summary = screen.getByRole("navigation", { name: "상태로 앱 거르기" });
+    const links = within(summary).getAllByRole("link");
+    expect(links).toHaveLength(4);
+    for (const label of ["전체", "정상", "문제 있음", "배포 중"]) expect(within(summary).getByRole("link", { name: new RegExp("^" + label + " \\d+개$") })).toBeInTheDocument();
+    expect(summary.querySelector("small")).toBeNull();
   });
 
   it("opens the exact high and critical findings counted in the overview", async () => {
@@ -732,7 +742,7 @@ describe("mode choice and login", () => {
     const header = screen.getByRole("banner");
     expect(within(header).getByText("admin")).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
-    expect(within(header).getByRole("button", { name: "데모 모드로 전환" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "데모 모드로 전환" })).toHaveClass("mode-switch");
     expect(screen.getByRole("link", { name: "CLI 연결" })).toHaveAttribute("href", "#device");
 
     const req = calls.find((c) => c.url.endsWith("/v1/auth/login"))!;

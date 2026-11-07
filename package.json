@@ -11,7 +11,8 @@
     "test": "vitest run",
     "gen:api": "node src/api/gen-schema.mjs",
     "gen:llm-api": "node src/api/gen-llm-schema.mjs",
-    "gen:recommendations-api": "node src/api/gen-recommendations-schema.mjs"
+    "gen:recommendations-api": "node src/api/gen-recommendations-schema.mjs",
+    "gen:migration-context-api": "node src/api/gen-migration-context-schema.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

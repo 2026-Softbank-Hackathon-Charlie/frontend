@@ -13,6 +13,7 @@ import type { CheckStatus } from "./preflight";
 import { canaryStepVerdict, canaryVerdict } from "./canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "./verifyReport";
 import { aiServiceMap, type AIServiceTopology, type AIServiceMap } from "./aiServices";
+import { databasePresence, type DatabasePresence } from "./mapDatabase";
 
 export type NodeSt = "idle" | "plan" | "busy" | "ready" | "live" | "standby" | "crit";
 /** "warn": ran and went on without a verdict (a canary step with too few requests), not a failure. */
@@ -58,6 +59,8 @@ export interface MapSnapshot {
   /** `${lane}.cluster|app|db|store`, `user`, `gslb` */
   nodes: Record<string, [NodeSt, string]>;
   app: string;
+  /** Explicit app/endpoint evidence; unavailable metadata is never treated as none. */
+  database: DatabasePresence;
   /** share of reads on the target, 0 to 100; undefined when unknown */
   share?: number;
   cross: boolean;
@@ -558,7 +561,9 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
   const tgt = envKeyOf(tgtName) ?? ENV_ORDER.find((k) => k !== src)!;
   const envOf = (name: string) => ctx.envs?.find((e) => e.name === name);
   const backends = { src: envOf(srcName)?.gatewayBackend ?? srcName, tgt: envOf(tgtName)?.gatewayBackend ?? tgtName };
-  const files = v.plan?.summary.files;
+  const declaredFiles = ctx.app?.environments?.some(env => !!env.bucket) ? true : ctx.app?.deploy?.spec ? !!ctx.app.deploy.spec.resources?.some(resource => resource.type === "s3") : undefined;
+  const files = v.plan?.summary.files ?? (v.engine ? !!v.engine.files : declaredFiles);
+  const database = v.live ? databasePresence(ctx.app, r?.source ?? v.plan?.summary.source ?? v.engine?.source, r?.target ?? v.plan?.summary.target ?? v.engine?.target) : "present";
 
   // traffic: the run's record and the gateway during a run; before it, the gateway (live) or all on the source
   const f = r ? mapFacts(r, events, ctx.traffic, backends) : undefined;
@@ -625,6 +630,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
       const own = role === "tgt" && part === "db" && run?.dbVerified;
       nodes[k + "." + part] = [st, part === "db" && ep && sub && !own ? ep.cluster + " · " + sub : sub || fallback];
     }
+    if (database === "none") delete nodes[k + ".db"];
   }
   nodes.user = ["live", rps !== undefined ? fmtN(rps) + " rps" : "요청"];
   nodes.gslb = [write === "held" ? "busy" : f?.uncertain ? "crit" : "live", "게이트웨이 가중치"];
@@ -684,7 +690,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
   };
   const slo = f?.slo;
   const errEdge = !!slo && slo.errorRate > PLATFORM_GATE.maxErrorRate && sh > 0;
-  const syncMode = f?.sync ?? "none";
+  const syncMode = database === "none" && files === false ? "none" : f?.sync ?? "none";
   const kpi: MapSnapshot["kpi"] = {
     phase: phaseTitle,
     pill,
@@ -693,10 +699,10 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     split: share === undefined ? [0, 0] : [100 - sh, sh],
     weightsFrom: fromGateway ? "게이트웨이 실시간" : r ? "run 기록 기준" : v.live ? "게이트웨이 정보 없음 · 이전 전" : "이전 전 · 원본이 모두 처리",
     sync:
-      syncMode === "copy"
-        ? ["초기 복사", "DB 초기 복사" + (files === false ? "" : " · 파일 rclone")]
+      database === "none" && files === false ? ["해당 없음", "DB·파일 이전 없음"] : syncMode === "copy"
+        ? ["초기 복사", database === "none" ? "파일 rclone" : "DB 초기 복사" + (files === false ? "" : " · 파일 rclone")]
         : syncMode === "cdc"
-          ? [f?.lag !== undefined ? bytes(f.lag) : "-", "복제 지연 (바이트)" + (f?.lagAt ? " · " + clock(f.lagAt) : " · 측정 전")]
+          ? database === "none" ? ["파일", "rclone 변경분 복사"] : [f?.lag !== undefined ? bytes(f.lag) : "-", "복제 지연 (바이트)" + (f?.lagAt ? " · " + clock(f.lagAt) : " · 측정 전")]
           : f?.steps.delta === "succeeded"
             ? ["완료", "변경분 동기화 완료"]
             : ["-", r ? "동기화 전" : "이전 시작 전"],
@@ -773,13 +779,14 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
     lanes,
     nodes,
     app: v.app || "앱",
+    database,
     share,
-    cross: !!f && !f.cutover && write === "source" && sh > 0 && active,
+    cross: database !== "none" && !!f && !f.cutover && write === "source" && sh > 0 && active,
     crossLabel: "쓰기 → " + srcShort + " primary",
     sync: {
       mode: syncMode,
-      label: syncMode === "copy" ? "초기 복사" : syncMode === "cdc" ? "변경분 복제" : f?.steps.delta === "succeeded" ? "복제 종료" : "동기화",
-      num: syncMode === "cdc" && f?.lag !== undefined ? "lag " + bytes(f.lag) : syncMode === "copy" ? (files === false ? "DB" : "DB + 파일") : "",
+      label: database === "none" && files === false ? "데이터 이전 없음" : syncMode === "copy" ? "초기 복사" : syncMode === "cdc" ? database === "none" ? "파일 변경분 복사" : "변경분 복제" : f?.steps.delta === "succeeded" ? "복제 종료" : "동기화",
+      num: database !== "none" && syncMode === "cdc" && f?.lag !== undefined ? "lag " + bytes(f.lag) : syncMode === "copy" ? (database === "none" ? "파일" : files === false ? "DB" : "DB + 파일") : "",
       files: files !== false,
     },
     activity: pre?.activity ?? "none",

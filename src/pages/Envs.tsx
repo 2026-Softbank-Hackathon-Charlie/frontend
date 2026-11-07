@@ -70,7 +70,7 @@ function EnvsView({ envs, traffic, scope, demo = false, enrollment }: { envs: Re
                 td(e.region ?? "-", "nw"),
                 td(e.status.kubernetesVersion ?? "-", "m nw"),
                 td(e.status.nodes ? e.status.nodes.ready + "/" + e.status.nodes.total + "대" : "-"),
-                td(e.status.databases?.map((d) => d.name + (d.replica ? " (복제본)" : "") + " " + d.readyInstances + "/" + d.instances).join(", ") || "-"),
+                td(<DbClusters dbs={e.status.databases} />),
                 td(<DbBackups dbs={e.status.databases} />),
                 td(e.gatewayBackend, "m"),
                 td(
@@ -153,20 +153,36 @@ export function backupStatus(d: DatabaseCluster, now = Date.now()): { chip: Chip
 }
 
 /** Every database: whether it is backed up, the last backup and how far back a restore reaches. */
+function dbName(d: DatabaseCluster, dbs: DatabaseCluster[]) {
+  return dbs.some(other => other !== d && other.name === d.name) ? d.namespace + "/" + d.name : d.name;
+}
+
+function DbClusters({ dbs }: { dbs?: DatabaseCluster[] }) {
+  if (!dbs) return <>미확인</>;
+  if (!dbs.length) return <>CNPG 없음</>;
+  return <ul className="env-db-list" aria-label="DB 현황">{dbs.map(d => <li key={d.namespace + "/" + d.name}>
+    <span className="m" title={d.namespace + "/" + d.name}>{dbName(d, dbs)}</span>
+    <small>{d.readyInstances}/{d.instances} 준비 · {d.replica ? "복제본" : "원본"}</small>
+  </li>)}</ul>;
+}
+
 function DbBackups({ dbs }: { dbs?: DatabaseCluster[] }) {
-  if (!dbs?.length) return <>-</>;
+  if (!dbs) return <>미확인</>;
+  if (!dbs.length) return <>대상 없음</>;
   return (
-    <>
+    <ul className="env-db-list" aria-label="DB 백업 현황">
       {dbs.map((d) => {
         const st = backupStatus(d);
         return (
-          <div key={d.namespace + "/" + d.name}>
-            <span className="m">{d.namespace + "/" + d.name}</span> <Chip kind={st.chip}>{st.label}</Chip>
-            {st.detail && <div className="hint">{st.detail}</div>}
-          </div>
+          <li key={d.namespace + "/" + d.name}>
+            <div><span className="m" title={d.namespace + "/" + d.name}>{dbName(d, dbs)}</span> <Chip kind={st.chip}>{d.backup ? st.label : "미설정"}</Chip></div>
+            {d.backup && <small>최근 {d.backup.lastSuccessfulBackup ? when(d.backup.lastSuccessfulBackup) : "미확인"}
+              {d.backup.firstRecoverabilityPoint && <> · 복구 가능 {when(d.backup.firstRecoverabilityPoint)}~</>}
+            </small>}
+          </li>
         );
       })}
-    </>
+    </ul>
   );
 }
 

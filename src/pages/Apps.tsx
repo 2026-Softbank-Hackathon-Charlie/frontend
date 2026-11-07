@@ -21,11 +21,11 @@ import "../styles/app-detail.css";
 
 export type AppFilter = "all" | AppHealth;
 
-const TILES: [AppFilter, string, string][] = [
-  ["all", "전체", "파일 앱과 GitHub에서 등록한 앱"],
-  ["healthy", "정상", "모든 환경이 Synced, Healthy"],
-  ["problem", "문제 있음", "배포 실패, 환경 저하나 실패"],
-  ["deploying", "배포 중", "빌드, 커밋, 동기화 중"],
+const TILES: [AppFilter, string][] = [
+  ["all", "전체"],
+  ["healthy", "정상"],
+  ["problem", "문제 있음"],
+  ["deploying", "배포 중"],
 ];
 
 /** `#apps` or `#apps-<filter>` → the filter, so a filtered list can be shared by its URL. */
@@ -74,11 +74,10 @@ function AppsBody({ m, filter, observable = false }: { m: AppsModel; filter: App
   return (
     <>
       <nav className="metrics tiles" aria-label="상태로 앱 거르기">
-        {TILES.map(([f, label, note]) => (
-          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " bad" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-current={f === filter ? "true" : undefined}>
+        {TILES.map(([f, label]) => (
+          <a key={f} className={"metric" + (f === "problem" && count(f) > 0 ? " bad" : "")} href={f === "all" ? "#apps" : "#apps-" + f} aria-label={label + " " + count(f) + "개"} aria-current={f === filter ? "true" : undefined}>
             <span>{label}</span>
             <strong>{count(f)}</strong>
-            <small>{note}</small>
           </a>
         ))}
       </nav>

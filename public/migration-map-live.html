@@ -398,6 +398,7 @@ const LANE_LABEL_X = 318;
 const LANES = ['aws','gcp','onprem'];
 const P = {
   route:(y,d)=>`M 98 250 L 220 250 C 255 250 255 ${y} 295 ${y} L 635 ${y} C 672 ${y} 672 ${y+d} 710 ${y+d}`,
+  appRoute:(y)=>`M 98 250 L 220 250 C 255 250 255 ${y} 295 ${y} L 565 ${y}`,
   inner:(y,d)=>`M 295 ${y} L 635 ${y} C 672 ${y} 672 ${y+d} 710 ${y+d}`,
   g2l:(y)=>`M 220 250 C 255 250 255 ${y} 295 ${y}`,
   c2a:(y)=>`M 435 ${y} L 495 ${y}`,
@@ -413,7 +414,7 @@ const textW = (s) => [...s].reduce((w, ch) => w + (ch.charCodeAt(0) > 0x2e80 ? 1
 
 let nodes = {}, edges = {}, lanesEl = {}, badges = {}, routes = {}, builtKey = '';
 function mkNode(id, cx, cy, w, h, title){
-  const g = el('g',{class:'node','data-st':'idle'}, $('gNodes'));
+  const g = el('g',{class:'node','data-node':id,'data-st':'idle'}, $('gNodes'));
   const tip = el('title',{},g);
   el('rect',{class:'b',x:cx-w/2,y:cy-h/2,width:w,height:h,rx:2},g);
   el('circle',{class:'d',cx:cx-w/2+10,cy:cy-7,r:3.5},g);
@@ -438,7 +439,7 @@ function setNode(id, st, sub, title){
   if (n.s.textContent!==shown) n.s.textContent=shown;
   const tip = n.t.textContent + (s ? ' · '+s : ''); if (n.tip.textContent!==tip) n.tip.textContent=tip;
 }
-function mkEdge(id, d, cls){ edges[id] = el('path',{d,class:cls||'edge'}, $('gEdges')); return edges[id]; }
+function mkEdge(id, d, cls){ edges[id] = el('path',{d,'data-edge':id,class:cls||'edge'}, $('gEdges')); return edges[id]; }
 function mkHidden(d){ return el('path',{d,fill:'none',stroke:'none'}, $('gEdges')); }
 const bez = (a,b,c,d,t) => { const u=1-t; return u*u*u*a+3*u*u*t*b+3*u*t*t*c+t*t*t*d; };
 
@@ -449,6 +450,7 @@ function build(s){
   aiDrawingKey = ''; $('gAppAI').replaceChildren(); $('gAppAIEdges').replaceChildren(); aiPaths = [];
   nodes = {}; edges = {}; lanesEl = {}; badges = {}; routes = {};
   const sy = LANE_Y[s.src], ty = LANE_Y[s.tgt];
+  const hasDb = s.database !== 'none', hasPipe = hasDb || s.sync.files;
   for (const k of LANES){
     const y = LANE_Y[k];
     const g = el('g',{class:'lane'}, $('gLanes'));
@@ -464,26 +466,33 @@ function build(s){
     el('rect',{class:'data-box',x:703,y:y-50,width:164,height:100,rx:2},g);
     lanesEl[k] = { g, name, region, tag };
     mkEdge(k+'.g2l', P.g2l(y)); mkEdge(k+'.c2a', P.c2a(y));
-    mkEdge(k+'.a2d', P.a2d(y,-22)); mkEdge(k+'.a2s', P.a2d(y,22));
+    if (hasDb) mkEdge(k+'.a2d', P.a2d(y,-22));
+    mkEdge(k+'.a2s', P.a2d(y,22));
     mkNode(k+'.cluster', 365, y, 140, 44, '');
     mkNode(k+'.app', 565, y, 140, 44, '');
-    mkNode(k+'.db', 785, y-22, 150, 40, 'Postgres · CNPG');
+    if (hasDb) mkNode(k+'.db', 785, y-22, 150, 40, s.database === 'unknown' ? 'DB · 미확인' : 'Postgres · CNPG');
     mkNode(k+'.store', 785, y+22, 150, 40, '');
-    routes[k] = { db: mkHidden(P.route(y,-22)), st: mkHidden(P.route(y,22)), inner: mkHidden(P.inner(y,-22)) };
+    routes[k] = { app: mkHidden(P.appRoute(y)), db: hasDb ? mkHidden(P.route(y,-22)) : null, st: mkHidden(P.route(y,22)), inner: mkHidden(hasDb ? P.inner(y,-22) : `M 295 ${y} L 565 ${y}`) };
     const t = y===250 ? 0.5 : 0.6;
     const bx = bez(220,255,255,295,t), by = bez(250,250,y,y,t);
     const bg = el('g',{class:'badge'}, $('gBadges'));
     el('rect',{x:bx-24,y:by-10,width:48,height:20,rx:2},bg);
     badges[k] = { g:bg, t: txt(bg, bx, by+4, '', '') };
   }
-  edges.pipe = el('path',{d:P.pipe(sy, ty), class:'pipe'}, $('gEdges'));
-  routes.fwd = mkHidden(P.pipe(sy, ty));
-  edges.cross = el('path',{d:P.cross(ty, sy), class:'cross'}, $('gEdges'));
-  routes.cross = mkHidden(P.cross(ty, sy));
+  if (hasPipe) {
+    const pipe = P.pipe(sy + (hasDb ? 0 : 22), ty + (hasDb ? 0 : 22));
+    edges.pipe = el('path',{d:pipe, class:'pipe'}, $('gEdges'));
+    routes.fwd = mkHidden(pipe);
+  }
+  if (hasDb) {
+    edges.cross = el('path',{d:P.cross(ty, sy), class:'cross'}, $('gEdges'));
+    routes.cross = mkHidden(P.cross(ty, sy));
+  }
   const my = (sy+ty)/2;
   lanesEl.plabel = txt($('gBadges'), 922, my-4, 'plabel', '동기화', 'start');
   lanesEl.pnum = txt($('gBadges'), 922, my+11, 'plabel-n', '', 'start');
   lanesEl.xl = txt($('gBadges'), 664, ty-32, 'xlabel', '', 'end');
+  lanesEl.plabel.style.display = lanesEl.pnum.style.display = hasPipe ? '' : 'none';
   mkEdge('u2g','M 98 250 L 120 250');
   mkNode('user', 60, 250, 76, 44, '사용자');
   mkNode('gslb', 170, 250, 100, 44, '트래픽 전환');
@@ -495,8 +504,9 @@ function build(s){
   routes.claudeUp = mkHidden(P.claudeUp); routes.claudeDown = mkHidden(P.claudeDown);
   for (const k of [s.src, s.tgt]){ mkEdge('ro.'+k, P.read(LANE_Y[k]), 'edge ro off'); routes['ro.'+k] = mkHidden(P.read(LANE_Y[k])); }
   lanesEl.ext = txt($('gBadges'), 35, 40, 'xlabel', '외부 서비스', 'start');
-  builtKey = s.src+'>'+s.tgt;
+  builtKey = layoutKey(s);
 }
+function layoutKey(s){ return s.src+'>'+s.tgt+'|'+(s.database||'unknown')+'|'+s.sync.files; }
 
 /* App inference services are separate from the platform's hopai/Claude planning flow.
    At most four visual cards per placement; overflow is an explicit aggregate card
@@ -634,7 +644,7 @@ const TONE = { muted:'var(--sb-text-muted)', info:'var(--st-info)', ok:'var(--st
 function render(s){
   if (SNAP && SNAP.scope !== s.scope) { shownEvents.clear(); $('log').replaceChildren(); RUN.sel=null; RUN.key=''; }
   SNAP = s;
-  if (builtKey !== s.src+'>'+s.tgt) build(s);
+  if (builtKey !== layoutKey(s)) build(s);
   renderAppAI(s);
   // lanes
   for (const k of LANES){
@@ -644,7 +654,7 @@ function render(s){
     E.tag.textContent = L.tag; E.tag.style.fill = TONE[L.tagTone] || TONE.muted;
     setNode(k+'.cluster', s.nodes[k+'.cluster'][0], s.nodes[k+'.cluster'][1], L.cluster);
     setNode(k+'.app', s.nodes[k+'.app'][0], s.nodes[k+'.app'][1], s.app);
-    setNode(k+'.db', s.nodes[k+'.db'][0], s.nodes[k+'.db'][1]);
+    if (s.nodes[k+'.db']) setNode(k+'.db', s.nodes[k+'.db'][0], s.nodes[k+'.db'][1]);
     setNode(k+'.store', s.nodes[k+'.store'][0], s.nodes[k+'.store'][1], L.store);
   }
   const probe = s.activity === 'probe', sand = s.activity === 'sandbox';
@@ -670,16 +680,16 @@ function render(s){
     const w = !known ? 0 : role==='src' ? 100 - s.share : role==='tgt' ? s.share : 0;
     const on = w > 0.5;
     const err = role==='tgt' && s.errEdge;
-    for (const e of ['g2l','c2a','a2d','a2s']){ const p=edges[k+'.'+e]; p.setAttribute('class','edge '+(on?(err?'err':'on'):'off')); p.style.strokeWidth = on?ew(w):''; }
+    for (const e of ['g2l','c2a','a2d','a2s']){ const p=edges[k+'.'+e]; if(!p) continue; p.setAttribute('class','edge '+(on?(err?'err':'on'):'off')); p.style.strokeWidth = on?ew(w):''; }
     badges[k].t.textContent = role && !known ? '?' : Math.round(w)+'%';
     badges[k].g.classList.toggle('hot', on && role==='tgt');
     badges[k].g.style.opacity = role ? 1 : 0;
   }
   edges.u2g.setAttribute('class','edge on'); edges.u2g.style.strokeWidth=ew(100);
   // the data pipe and the cross writes
-  edges.pipe.setAttribute('class', s.sync.mode==='none' ? 'pipe' : 'pipe on');
+  if (edges.pipe) edges.pipe.setAttribute('class', s.sync.mode==='none' ? 'pipe' : 'pipe on');
   lanesEl.plabel.textContent = s.sync.label; lanesEl.plabel.setAttribute('class','plabel'+(s.sync.mode!=='none'?' on':'')); lanesEl.pnum.textContent = s.sync.num;
-  edges.cross.setAttribute('class','cross'+(s.cross?' on':''));
+  if (edges.cross) edges.cross.setAttribute('class','cross'+(s.cross?' on':''));
   lanesEl.xl.textContent = s.crossLabel; lanesEl.xl.setAttribute('class','xlabel'+(s.cross?' on':''));
   $('map').setAttribute('aria-label', `사용자 요청이 ${s.lanes[s.src].name} ${known?100-s.share:'?'}%, ${s.lanes[s.tgt].name} ${known?s.share:'?'}%로 갑니다. ${s.kpi.weightsSub}. 데이터: ${s.sync.label}.`);
   // KPI
@@ -863,15 +873,15 @@ function stepParticles(dt){
     const R=3.5, V=240, T=s.tgt, S=s.src; // a rabbit is much bigger than the dot was: fewer of them fit on a line
     if (s.share !== undefined && s.share !== null){
       const wT=s.share/100, wS=1-wT;
-      flow('s.db', R*wS*0.75, dt, routes[S].db, 'pt-req', V);
-      flow('s.st', R*wS*0.25, dt, routes[S].st, 'pt-req', V);
+      if (s.database === 'none') flow('s.app', R*wS, dt, routes[S].app, 'pt-req', V);
+      else { flow('s.db', R*wS*0.75, dt, routes[S].db, 'pt-req', V); flow('s.st', R*wS*0.25, dt, routes[S].st, 'pt-req', V); }
       const errCls = ()=> Math.random() < Math.min(1, s.errRate) ? 'pt-err' : 'pt-req';
-      flow('t.db', R*wT*0.75, dt, routes[T].db, errCls, V);
-      flow('t.st', R*wT*0.25, dt, routes[T].st, errCls, V);
+      if (s.database === 'none') flow('t.app', R*wT, dt, routes[T].app, errCls, V);
+      else { flow('t.db', R*wT*0.75, dt, routes[T].db, errCls, V); flow('t.st', R*wT*0.25, dt, routes[T].st, errCls, V); }
       if (s.cross) flow('x', 3.5*wT+0.3, dt, routes.cross, 'pt-x', 120);
     }
-    if (s.sync.mode==='copy'){ flow('row', 4, dt, routes.fwd, 'pt-row', 300); if (s.sync.files) flow('obj', 2.5, dt, routes.fwd, 'pt-obj', 220, 'sq'); }
-    if (s.sync.mode==='cdc'){ flow('row', 2.2, dt, routes.fwd, 'pt-row', 220); if (s.sync.files) flow('obj', 0.6, dt, routes.fwd, 'pt-obj', 200, 'sq'); }
+    if (s.sync.mode==='copy'){ if(s.database !== 'none') flow('row', 4, dt, routes.fwd, 'pt-row', 300); if (s.sync.files) flow('obj', 2.5, dt, routes.fwd, 'pt-obj', 220, 'sq'); }
+    if (s.sync.mode==='cdc'){ if(s.database !== 'none') flow('row', 2.2, dt, routes.fwd, 'pt-row', 220); if (s.sync.files) flow('obj', 0.6, dt, routes.fwd, 'pt-obj', 200, 'sq'); }
     if (s.activity==='probe'){ flow('probe.s', 1.5, dt, routes[S].inner, 'pt-snap', 180); flow('probe.t', 1.5, dt, routes[T].inner, 'pt-snap', 180); }
     if (s.activity==='sandbox') flow('smoke', 3, dt, routes[T].inner, 'pt-snap', 200);
     if (s.activity==='probe'){

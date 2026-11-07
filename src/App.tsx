@@ -117,7 +117,7 @@ function SideNav({ r, apps, migrate, device }: { r: string; apps: NavItem[2]; mi
   return (
     <div className="side">
       <a className="brand" href="#overview">
-        <img src="/brand/lockup-header.png" alt="HopCharlie" width={150} height={32} />
+        <img src="/brand/lockup-header.png" alt="HopCharlie" width={169} height={36} />
       </a>
       <nav aria-label="주 메뉴">
         {groups.map(([title, items], i) => (
@@ -180,7 +180,7 @@ function Account({ r }: { r: string }) {
       </button>
       <button
         type="button"
-        className="btn ghost sm"
+        className="mode-switch"
         onClick={() => {
           // #device is live only: staying there would switch straight back
           if (r === "device") navigate("#overview");
