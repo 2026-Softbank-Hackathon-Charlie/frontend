@@ -7,6 +7,8 @@ import { MigrateList } from "./Migrate";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); initAuth(); });
 
 it("lists every migration candidate and does not copy the selected app's plan or location to other apps", async () => {
+  let releasePlans!: () => void;
+  const plansReady = new Promise<void>(resolve => { releasePlans = resolve; });
   const databaseApp: App = {
     name: "moimroom-mig", namespace: "moimroom-mig",
     database: { name: "app", user: "app", schemas: [] },
@@ -21,10 +23,10 @@ it("lists every migration candidate and does not copy the selected app's plan or
   installFetch((call) => {
     const path = new URL(call.url, "https://test.invalid").pathname;
     if (path === "/v1/apps") return json(200, { apps: [databaseApp, doom] });
-    if (path === "/v1/plans") return json(200, { plans: [{ ref: "pln_doom", status: "pending_approval", revision: 1,
+    if (path === "/v1/plans") return plansReady.then(() => json(200, { plans: [{ ref: "pln_doom", status: "pending_approval", revision: 1,
       submittedBy: "operator", submittedAt: "2026-11-07T12:00:00Z",
       summary: { planId: "doom-move", source: { env: "eks", namespace: "docker-doom", cluster: "" },
-        target: { env: "gke", namespace: "docker-doom", cluster: "" }, files: false, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" } }] });
+        target: { env: "gke", namespace: "docker-doom", cluster: "" }, files: false, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" } }] }));
     if (path === "/v1/migrations" || path === "/v1/ai-runs") return json(200, { runs: [] });
     if (path === "/v1/agent/sessions") return json(200, { sessions: [] });
     if (path === "/v1/audit") return json(200, { entries: [] });
@@ -32,14 +34,18 @@ it("lists every migration candidate and does not copy the selected app's plan or
     return json(404, { error: { code: "not_found", message: "not configured in fixture" } });
   });
   chooseMode("live"); startSession(fakeSession());
-  window.location.hash = "#migrate";
+  // Explicitly select the app: discovering the app list is independent of
+  // discovering its Plan. Releasing Plans below exercises that ordering.
+  window.location.hash = "#migrate?app=docker-doom";
   render(<MigrateList />);
   const first = (await screen.findByText("moimroom-mig", { selector: "b" })).closest("tr") as HTMLElement;
   const selected = (await screen.findByText("docker-doom", { selector: "b" })).closest("tr") as HTMLElement;
-  expect(within(first).getByText("미확인")).toBeInTheDocument();
-  expect(within(first).getByText("상태 미조회")).toBeInTheDocument();
+  expect(within(selected).queryByText("승인 대기")).not.toBeInTheDocument();
+  releasePlans();
+  expect(await within(selected).findByText("승인 대기")).toBeInTheDocument();
+  expect(await within(first).findByText("미확인")).toBeInTheDocument();
+  expect(await within(first).findByText("상태 미조회")).toBeInTheDocument();
   expect(within(first).queryByText("승인 대기")).not.toBeInTheDocument();
   expect(within(first).getByRole("link")).toHaveAttribute("href", "#migrate-app?app=moimroom-mig");
-  expect(within(selected).getByText("승인 대기")).toBeInTheDocument();
   expect(within(selected).getByRole("link")).toHaveAttribute("href", "#migrate-app?app=docker-doom");
 });

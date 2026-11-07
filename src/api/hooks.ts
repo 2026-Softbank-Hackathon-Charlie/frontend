@@ -8,6 +8,7 @@ import {
   getWrittenRecords,
   getAIActivity,
   getAppObservability,
+  getAppLLMObservability,
   listAIRuns,
   getApp,
   getDeployment,
@@ -35,6 +36,7 @@ import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun }
 import type {
   AIActivity,
   AppObservation,
+  LLMObservability,
   AIRun,
   SourceRetentionResponse,
   WrittenRecordStats,
@@ -156,6 +158,9 @@ export function useAudit(limit?: number): Resource<AuditEntry[]> {
 /** What the logs show about an app in the last `minutes`. A falsy `app` loads nothing; a 502 or 503 shows as `error`. */
 export function useAppObservability(app: string | null | undefined, minutes = 60, pollMs = 0): Resource<AppObservation> {
   return usePolled(app ? "app-obs:" + app + ":" + minutes : null, pollMs, (signal) => getAppObservability(app!, minutes, { signal }));
+}
+export function useAppLLMObservability(app: string, minutes = 60, pollMs = 15000): Resource<LLMObservability> {
+  return usePolled(`app-llm:${app}:${minutes}`, pollMs, signal => getAppLLMObservability(app, minutes, { signal }));
 }
 /** What the AI runner did in the last `minutes`. `enabled` false loads nothing; a 502 or 503 shows as `error`. */
 export function useAIActivity(pollMs = 0, minutes = 60, enabled = true): Resource<AIActivity> {

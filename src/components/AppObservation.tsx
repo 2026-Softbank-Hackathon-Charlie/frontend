@@ -2,12 +2,14 @@
 // that repeat and what happened when. The numbers come from GET /v1/apps/{name}/observability (the logs HyperDX
 // keeps), the deployments from the apps API. No log line is shown, only counts and redacted patterns.
 import { useEffect, useId, useRef, useState } from "react";
-import { useAppObservability, useDeployments } from "../api/hooks";
+import { useAppAIServices, useAppLLMObservability, useAppObservability, useDeployments } from "../api/hooks";
 import type { AppObservation as Observation } from "../api/types";
 import { agoText, num, summarize, timeline, windowLabel, WINDOWS, type ObserveLevel } from "../data/observe";
 import { DeployChip } from "./deploy";
 import { HyperDXLink } from "./HyperDXLink";
 import { Chip, LoadError, Skeleton, type ChipKind } from "./ui";
+import { AppLLMObservation } from "./AppLLMObservation";
+import { hasObservedAI, llmReport, LLM_STATE } from "../data/llmObservability";
 import "../styles/app-observation.css";
 
 const LEVEL: Record<ObserveLevel, [ChipKind, string]> = { none: ["neu", "로그 없음"], ok: ["ok", "정상"], warn: ["warn", "확인 필요"], bad: ["bad", "문제"] };
@@ -39,8 +41,12 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
   const [minutes, setMinutes] = useState(60);
   const [now, setNow] = useState(() => Date.now());
   const obs = useAppObservability(app, minutes, 15000);
+  const llm = useAppLLMObservability(app, minutes, 15000);
+  const ai = useAppAIServices(app, 15000, 5);
+  const [view, setView] = useState<"hyperdx" | "llm">("hyperdx");
   const deps = useDeployments(app, 0, 20);
   const titleId = useId();
+  const availabilityId = useId();
   const box = useRef<HTMLDivElement>(null);
   // The page behind passes a new onClose on each render (it polls the apps); the effect below must not run again then,
   // or focus would jump back to the dialog every few seconds.
@@ -72,6 +78,9 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
   const sum = o ? summarize(o, minutes, now) : undefined;
   const events = o ? timeline(o, deps.data, minutes, now) : [];
   const status = obs.error as { status?: number; code?: string } | undefined;
+  const llmData = llmReport(llm.data, app, now);
+  const aiConfirmed = hasObservedAI(ai.data, app, now) || llmData?.source.status === "observed";
+  useEffect(() => setView("hyperdx"), [app]);
 
   return (
     <div className="obs-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -79,12 +88,18 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
         <header>
           <div>
             <h2 id={titleId}>{app} 관측</h2>
-            <p className="hint">HyperDX가 모은 이 앱의 로그를 요약했습니다. 로그 원문은 보이지 않고, 비밀로 보이는 값은 가려집니다.</p>
+            <p className="hint">{view === "hyperdx" ? "HyperDX가 모은 이 앱의 로그를 요약했습니다. 로그 원문은 보이지 않고, 비밀로 보이는 값은 가려집니다." : "Langfuse에서 이 앱의 generation 표본을 읽습니다. 프롬프트와 입력·출력은 표시하지 않습니다."}</p>
           </div>
           <button type="button" className="btn ghost" onClick={onClose}>
             닫기
           </button>
         </header>
+
+        <div className="obs-sources" role="group" aria-label="관측 출처">
+          <button type="button" className="btn ghost" aria-pressed={view === "hyperdx"} onClick={() => setView("hyperdx")}>HyperDX 분석</button>
+          <button type="button" className="btn ghost" aria-pressed={view === "llm"} disabled={!aiConfirmed} aria-describedby={!aiConfirmed ? availabilityId : undefined} onClick={() => setView("llm")}>Langfuse LLM 관측</button>
+          {!aiConfirmed && <small id={availabilityId} className="hint" role="status">{ai.loading || llm.loading ? "AI 사용 관측을 확인하고 있습니다." : `AI 사용 미관측${llmData ? " · Langfuse " + LLM_STATE[llmData.source.status] : llm.error ? " · LLM 관측 API를 읽지 못했습니다." : " · LLM 응답 형식 미확인"}`}</small>}
+        </div>
 
         <div className="obs-windows" role="group" aria-label="보는 기간">
           {WINDOWS.map((w) => (
@@ -94,7 +109,7 @@ export function AppObservationDialog({ app, onClose }: { app: string; onClose: (
           ))}
         </div>
 
-        {obs.error ? (
+        {view === "llm" ? <AppLLMObservation report={llmData} loading={llm.loading} error={llm.error ? "LLM 관측 API를 읽지 못했습니다." : undefined} malformed={!!llm.data && !llmData} now={now} reload={llm.reload} /> : obs.error ? (
           <LoadError
             title="관측 정보를 불러오지 못했습니다."
             error={status?.status === 503 ? "이 서버는 로그 저장소에 연결되어 있지 않습니다." : status?.status === 502 ? "로그 저장소(HyperDX)를 읽지 못했습니다. 잠시 뒤 다시 시도합니다." : String((obs.error as Error).message ?? obs.error)}

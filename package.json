@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "gen:api": "node src/api/gen-schema.mjs"
+    "gen:api": "node src/api/gen-schema.mjs",
+    "gen:llm-api": "node src/api/gen-llm-schema.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",
