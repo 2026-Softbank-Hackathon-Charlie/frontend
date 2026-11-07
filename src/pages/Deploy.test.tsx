@@ -354,7 +354,7 @@ describe("GitHub deploy screens (platform API)", () => {
   const app: ApiApp = {
     name: "moimroom",
     namespace: "moimroom",
-    database: { name: "app", user: "app", schemas: [] },
+    database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: [],
     deploy: {
       repo: "org/moimroom",

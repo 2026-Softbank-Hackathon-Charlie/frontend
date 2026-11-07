@@ -10,7 +10,7 @@ import { AppDetail } from "./Apps";
 import { AppsList } from "../components/deploy";
 
 function app(registered = false): App {
-  return { name: "moimroom-mig", namespace: "moimroom-mig", database: { name: "app", user: "app", schemas: [] },
+  return { name: "moimroom-mig", namespace: "moimroom-mig", database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: ["gke", "eks", ...(registered ? ["onprem"] : [])].map((env) => ({ env, cnpgCluster: "moimroom-mig-db", dbHost: "db-" + env })),
     deploy: { repo: "org/moimroom-mig", branch: "main", environments: ["gke", "eks"], autoDeploy: false, spec: { name: "moimroom-mig", services: [], resources: [] }, specCommit: "abc", createdAt: new Date().toISOString(), createdBy: "operator", status: [], instances: [] },
   };

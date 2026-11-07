@@ -52,7 +52,7 @@ const dev = instance("moimroom--dev", "dev", false);
 const app: ApiApp = {
   name: "moimroom",
   namespace: "moimroom",
-  database: { name: "app", user: "app", schemas: [] },
+  database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
   environments: [],
   deploy: { repo: "org/moimroom", branch: "main", environments: ["eks"], autoDeploy: true, spec, specCommit: commit, createdAt: at(0), createdBy: "operator", status: main.status, instances: [main, dev] },
 };

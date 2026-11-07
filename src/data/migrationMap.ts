@@ -1,7 +1,7 @@
 // What the migration map draws, derived only from the run snapshot, its events and the gateway's
 // traffic state. No timers, no simulated progress: a value the record does not hold is left undefined.
 import { isAfter } from "../api/hooks";
-import type { Run, RunEvent, StepStatus, TrafficState } from "../api/types";
+import type { AppResources, Run, RunEvent, StepStatus, TrafficState } from "../api/types";
 import { ENGINE_STEPS } from "../sim/mig";
 
 export type MapStepState = StepStatus | "skipped";
@@ -33,6 +33,17 @@ export function mapSteps(r: Run, events: RunEvent[]): Record<string, MapStepStat
     else if (e.kind === "step_failed") steps[e.step] = "failed";
   }
   return steps;
+}
+
+/**
+ * Engine steps with nothing to do for an app without a database: the replication, the promotion and, without files
+ * either, the initial copy. They are left out while the run shows them pending or skipped; a run that did work in
+ * one (an engine that copies something there after all) still shows it.
+ */
+export function hiddenSteps(res: AppResources, r?: Run, events: RunEvent[] = []): Set<string> {
+  const inert = res.postgres ? [] : res.s3 ? ["delta", "switchover"] : ["presync", "delta", "switchover"];
+  const steps = r ? mapSteps(r, mapEvents(r, events)) : undefined;
+  return new Set(inert.filter((id) => !steps || steps[id] === "pending" || steps[id] === "skipped"));
 }
 
 export interface MapFacts {

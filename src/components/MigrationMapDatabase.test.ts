@@ -4,7 +4,7 @@ import { buildMapSnapshot, type MapSnapshot } from "../data/mapSnapshot";
 import type { MigrationView } from "../data/migration";
 
 const noop = () => {};
-const app: App = { name: "docker-doom", namespace: "docker-doom", database: { name: "", user: "", schemas: [] }, environments: [],
+const app: App = { name: "docker-doom", namespace: "docker-doom", database: { name: "", user: "", schemas: [] }, resources: { postgres: false, s3: false }, environments: [],
   deploy: { repo: "org/doom", branch: "main", environments: ["gke", "onprem"], autoDeploy: false, spec: { name: "docker-doom", services: [], resources: [] }, specCommit: "a", createdBy: "test", createdAt: "2026-11-08T00:00:00Z", status: [], instances: [] } };
 const view: MigrationView = { live: true, app: "docker-doom", stage: "setup", src: "gke", tgt: "onprem", srcLabel: "", tgtLabel: "", targets: [], setTarget: noop, ready: true,
   sessions: [], sessionEvents: () => [], selectSession: noop, events: [], busy: false, notice: "", makePlan: noop, approve: noop, reject: noop, doSwitch: noop, abort: noop, resume: noop, rollback: noop, reset: noop };
@@ -42,7 +42,7 @@ it("removes DB nodes and links for registered DB-free apps while preserving app,
 
 it("keeps a file-only data pipe and removes it when the plan explicitly moves no data", () => {
   const send = renderer();
-  const endpoint = { kind: "none", env: "gke", namespace: "", cluster: "" };
+  const endpoint = { kind: "none" as const, env: "gke", namespace: "", cluster: "" };
   const plan: PlanRecord = { ref: "p", status: "approved", revision: 1, submittedBy: "operator", submittedAt: "2026-11-08T00:00:00Z",
     summary: { planId: "p", source: endpoint, target: { ...endpoint, env: "onprem" }, files: true, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" } };
   send(buildMapSnapshot({ ...view, stage: "review", plan }, { now: Date.now() }));

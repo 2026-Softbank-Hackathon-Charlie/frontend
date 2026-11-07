@@ -19,8 +19,8 @@ import {
   switchMigration,
 } from "../api/client";
 import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useEnvironments, useRun, useRuns, useTraffic } from "../api/hooks";
-import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, EnginePlan, Environment, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
-import { ENV, ENV_ORDER, SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
+import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, AppResources, EnginePlan, Environment, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
+import { ENV, ENV_ORDER, SAMPLE, STATELESS_SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
 import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, iso, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
@@ -83,9 +83,26 @@ export function startRequest(planRef: string, gatewayMode: string | undefined, o
   return req;
 }
 
+/** An older server sends no `resources`: the app then has both, as every app had before. */
+export const ALL_RESOURCES: AppResources = { postgres: true, s3: true };
+
+/**
+ * What the migrating app keeps state in: the app's `resources`, and no database once its plan or run says so
+ * (endpoint kind "none", ADR 0018), for a plan or run on screen whose app the list no longer has.
+ */
+export function resourcesOf(app: { resources?: AppResources } | undefined, ...ends: ({ kind?: string } | undefined)[]): AppResources {
+  const r = app?.resources ?? ALL_RESOURCES;
+  return { postgres: r.postgres && !ends.some((e) => e?.kind === "none"), s3: r.s3 };
+}
+
+/** The view's resources; a view without them is an app with both. */
+export const resOf = (v: Pick<MigrationView, "resources">): AppResources => v.resources ?? ALL_RESOURCES;
+
 export interface MigrationView {
   live: boolean;
   app: string;
+  /** what the app keeps state in; absent means both (an older server) */
+  resources?: AppResources;
   /** setup → ai (plan and rehearsal) → review (plan waits for approval) → run */
   stage: "setup" | "ai" | "review" | "run";
   src: string;
@@ -158,7 +175,9 @@ export interface MigrationView {
 
 // The checks a simulated start passes, in the shape the platform writes to the audit log.
 // Numbers are fictional like every simulated value (top banner).
-function simPreflight(time: string): PreflightView | undefined {
+function simPreflight(time: string, stateless: boolean): PreflightView | undefined {
+  // an app without a database has no connections, standby or replication to measure
+  if (stateless) return preflightOf({ time, detail: { residency: "allowed", capacity: { allowed: true, checks: [] } } });
   return preflightOf({
     time,
     detail: {
@@ -184,10 +203,15 @@ function simPreflight(time: string): PreflightView | undefined {
 export function useSimMigration(): MigrationView {
   const { S, dispatch } = useSim();
   const m = S.mig;
-  const app = S.apps[SAMPLE.id];
+  const stateless = m.app === STATELESS_SAMPLE.id;
+  const app = stateless ? true : S.apps[SAMPLE.id];
   return {
     live: false,
-    app: SAMPLE.id,
+    app: m.app,
+    resources: stateless ? { postgres: false, s3: false } : ALL_RESOURCES,
+    // the demo's two apps; another app can be picked while nothing is at work
+    apps: (S.apps[SAMPLE.id] ? [SAMPLE.id, STATELESS_SAMPLE.id] : [STATELESS_SAMPLE.id]).map((x) => ({ value: x, label: x === STATELESS_SAMPLE.id ? x + " (DB 없음)" : x })),
+    setApp: (name) => dispatch({ type: "mig-app", app: name }),
     stage: m.stage,
     src: m.src,
     tgt: m.tgt,
@@ -197,17 +221,17 @@ export function useSimMigration(): MigrationView {
     setTarget: (v) => dispatch({ type: "mig-target", env: v as EnvKey }),
     ready: !!app,
     plan: m.plan ?? undefined,
-    engine: m.plan ? enginePlan(m.src, m.tgt) : undefined,
+    engine: m.plan ? enginePlan(m.src, m.tgt, m.app) : undefined,
     sessions: m.sessions,
     sessionEvents: (id) => m.sessionEvents[id] ?? [],
     selectSession: () => {},
-    fix: m.plan?.attachments?.length ? fixDiff(m.src, m.tgt) : undefined,
+    fix: m.plan?.attachments?.length && !stateless ? fixDiff(m.src, m.tgt) : undefined,
     run: m.run ?? undefined,
     lastRun: m.history[0],
     now: Date.parse(iso(m.now)),
     events: m.events,
     counters: migCounters(m),
-    preflight: m.run ? simPreflight(m.run.startedAt) : undefined,
+    preflight: m.run ? simPreflight(m.run.startedAt, stateless) : undefined,
     busy: false,
     notice: S.migNotice,
     makePlan: () => dispatch({ type: "mig-plan" }),
@@ -389,6 +413,15 @@ export function touches(ns: string, x: { source: { namespace: string }; target: 
 }
 
 /**
+ * Whether a run or plan is the app's. A run or plan without a database names its app (`app`, ADR 0049), and its
+ * namespaces may be empty; one with databases names none, and its namespaces name the app.
+ */
+export function ofApp(app: Pick<App, "name" | "namespace">, x: { app?: string; source: { namespace?: string }; target: { namespace?: string } }): boolean {
+  if (x.app) return x.app === app.name;
+  return !!app.namespace && (x.source.namespace === app.namespace || x.target.namespace === app.namespace);
+}
+
+/**
  * The environment whose database is primary now. The gateway sends the app's writes there (its backends are named
  * after the environments), and a migration moves both. Without the gateway's answer, the environment the database
  * was born primary in (dbTopology, which a migration does not update); without that either, undefined.
@@ -502,8 +535,8 @@ export interface AIRunView {
   start(): void;
 }
 
-function planFromAIRun(plan: PlanRecord, job: AIRun, namespace?: string): boolean {
-  return !!namespace && touches(namespace, plan.summary) && isAfter(plan.submittedAt, job.createdAt)
+function planFromAIRun(plan: PlanRecord, job: AIRun, app?: App): boolean {
+  return !!app && ofApp(app, plan.summary) && isAfter(plan.submittedAt, job.createdAt)
     && plan.summary.source.env === job.source && plan.summary.target.env === job.target;
 }
 
@@ -535,13 +568,13 @@ export function useLiveMigration(): MigrationView {
   // The app on screen: the one picked (or named in the hash), else the first with work in progress, else the
   // first that can be migrated. Once chosen it stays, so a run that ends does not move the page to another app.
   const list = migratableApps(apps.data ?? []);
-  const newestPending = (ns?: string) =>
-    [...(plans.data ?? [])].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).find((p) => p.status === "pending_approval" && (ns === undefined || touches(ns, p.summary)));
+  const newestPending = (a?: App) =>
+    [...(plans.data ?? [])].sort((x, y) => y.submittedAt.localeCompare(x.submittedAt)).find((p) => p.status === "pending_approval" && (a === undefined || ofApp(a, p.summary)));
   const busyRun = runs.data?.find((r) => ACTIVE.has(r.status));
   const busyPlan = newestPending();
   const app =
     list.find((a) => a.name === appName) ??
-    list.find((a) => (busyRun && touches(a.namespace, busyRun)) || (busyPlan && touches(a.namespace, busyPlan.summary))) ??
+    list.find((a) => (busyRun && ofApp(a, busyRun)) || (busyPlan && ofApp(a, busyPlan.summary))) ??
     list[0];
   useEffect(() => {
     if (app && app.name !== appName) setAppName(app.name);
@@ -558,7 +591,7 @@ export function useLiveMigration(): MigrationView {
       if (started) setRunId(started.runId);
       return;
     }
-    const mine = runs.data?.filter((r) => touches(ns, r));
+    const mine = runs.data?.filter((r) => ofApp(app!, r));
     const newest = mine?.[0];
     const active = mine?.find((r) => ACTIVE.has(r.status)) ?? (newest?.status === "halted" && newest.runId !== dismissed ? newest : undefined);
     if (active) {
@@ -566,23 +599,23 @@ export function useLiveMigration(): MigrationView {
       setPlanRef(active.planRef);
       return;
     }
-    const pending = newestPending(ns);
+    const pending = newestPending(app);
     if (pending) setPlanRef(pending.ref);
   }, [enabled, runs.data, plans.data, runId, planRef, dismissed, ns]);
 
   const plan = plans.data?.find((p) => p.ref === planRef) ?? (acceptedPlan?.ref === planRef ? acceptedPlan : undefined);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
   const preflight = usePreflight(planRef, runId, startKey);
-  const mineRuns = ns ? (runs.data ?? []).filter((r) => touches(ns, r)) : [];
+  const mineRuns = app ? (runs.data ?? []).filter((r) => ofApp(app, r)) : [];
   const past = usePastPreflight(!planRef && !runId, {
     runIds: mineRuns.map((r) => r.runId),
-    planRefs: [...mineRuns.map((r) => r.planRef), ...(ns ? (plans.data ?? []).filter((p) => touches(ns, p.summary)).map((p) => p.ref) : [])],
+    planRefs: [...mineRuns.map((r) => r.planRef), ...(app ? (plans.data ?? []).filter((p) => ofApp(app, p.summary)).map((p) => p.ref) : [])],
   });
   const watch = useRun(enabled ? runId : null, revived.epoch);
   const run = watch.run ?? (revived.run?.runId === runId ? revived.run : undefined);
   const aiRuns = useAIRuns(app?.name, 5000);
   const accepted = acceptedAI?.app === app?.name ? (aiRuns.data?.find((r) => r.name === acceptedAI.name) ?? acceptedAI) : undefined;
-  const currentAI = accepted && (!plan || !planFromAIRun(plan, accepted, ns)) ? accepted : undefined;
+  const currentAI = accepted && (!plan || !planFromAIRun(plan, accepted, app)) ? accepted : undefined;
   const envs = app ? migrationEnvironments(app) : [];
   const databaseEnvs = app?.environments.map((e) => e.env) ?? [];
   const databaseless = !!app && isDatabaselessApp(app);
@@ -612,7 +645,7 @@ export function useLiveMigration(): MigrationView {
   useEffect(() => {
     if (!currentAI || !ns) return;
     const submitted = [...(plans.data ?? [])]
-      .filter((p) => p.status === "pending_approval" && planFromAIRun(p, currentAI, ns))
+      .filter((p) => p.status === "pending_approval" && planFromAIRun(p, currentAI, app))
       .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
     if (submitted) {
       setTracked(undefined);
@@ -624,7 +657,7 @@ export function useLiveMigration(): MigrationView {
     if (!planning || !ns) return;
     // only this app's Plan: another app's Plan submitted meanwhile (another operator's migration) is not this session's
     const submitted = [...(plans.data ?? [])]
-      .filter((p) => p.status === "pending_approval" && touches(ns, p.summary) && isAfter(p.submittedAt, planning.createdAt))
+      .filter((p) => p.status === "pending_approval" && !!app && ofApp(app, p.summary) && isAfter(p.submittedAt, planning.createdAt))
       .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
     if (!submitted) return;
     setTracked(undefined);
@@ -683,7 +716,7 @@ export function useLiveMigration(): MigrationView {
           ? "DB가 없는 앱의 이전에는 공개 HTTP 서비스와 앱별 게이트웨이가 필요합니다. 앱 설정을 확인하세요."
           : undefined
     : undefined;
-  const myRun = ns ? runs.data?.find((r) => touches(ns, r) && runInProgress(r)) : undefined;
+  const myRun = app ? runs.data?.find((r) => ofApp(app, r) && runInProgress(r)) : undefined;
   // while it loads or when it fails the buttons stay on: the platform checks the pair again at the start
   const pair: PairCheck | undefined =
     choosing && topology
@@ -712,9 +745,20 @@ export function useLiveMigration(): MigrationView {
   // an older Plan the page may have picked up.
   const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
 
+  // The Plan from the platform's draft, without the AI: the "Plan 작성" path, and an AI start answered no_database.
+  const draftAndSubmit = async (name: string, source: string) => {
+    const draft = await draftPlan({ app: name, source, target });
+    setEngine(draft);
+    const rec = await submitPlan(draft);
+    setAcceptedPlan(rec);
+    setPlanRef(rec.ref);
+    setStartKey(newIdempotencyKey());
+    plans.reload();
+  };
   return {
     live: true,
     app: app?.name ?? "",
+    resources: resourcesOf(app, run?.source ?? plan?.summary.source),
     stage,
     src,
     tgt: target,
@@ -772,7 +816,14 @@ export function useLiveMigration(): MigrationView {
           if (!app) return;
           if (!src || src === target || !envs.includes(target) || preparation) throw new ApiError(409, "app_environment_required", preparation ?? "이전 대상 환경을 앱에 먼저 추가하고 원본 상태를 확인하세요.");
           setAppName(app.name);
-          const accepted = await startAIRun({ app: app.name, source: src, target });
+          let accepted: AIRun;
+          try {
+            accepted = await startAIRun({ app: app.name, source: src, target });
+          } catch (e) {
+            // An app without a database gets no AI run (409 no_database, ADR 0049): its Plan is drafted directly.
+            if (e instanceof ApiError && e.code === "no_database") return draftAndSubmit(app.name, src);
+            throw e;
+          }
           setAcceptedAI(accepted);
           aiRuns.reload();
         }),
@@ -782,13 +833,7 @@ export function useLiveMigration(): MigrationView {
         if (!app) return;
         if (!src || src === target || !envs.includes(target) || preparation) throw new ApiError(409, "app_environment_required", preparation ?? "이전 대상 환경을 앱에 먼저 추가하고 원본 상태를 확인하세요.");
         setAppName(app.name);
-        const draft = await draftPlan({ app: app.name, source: src, target });
-        setEngine(draft);
-        const rec = await submitPlan(draft);
-        setAcceptedPlan(rec);
-        setPlanRef(rec.ref);
-        setStartKey(newIdempotencyKey());
-        plans.reload();
+        await draftAndSubmit(app.name, src);
       }),
     approve: () =>
       act(async () => {

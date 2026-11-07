@@ -38,6 +38,7 @@ export type App = S["App"];
 export type AppDatabase = S["AppDatabase"];
 export type AppEnvironment = S["AppEnvironment"];
 export type AppList = S["AppList"];
+export type AppResources = S["AppResources"];
 
 export type StartMigrationRequest = S["StartMigrationRequest"];
 export type StartMigrationResponse = S["StartMigrationResponse"];

@@ -2,7 +2,7 @@ import { fakeAgentSession, fakeRun } from "../api/fakes";
 import type { App, PlanRecord } from "../api/types";
 import { sessionContext } from "./agentContext";
 
-const app: App = { name: "moimroom-mig", namespace: "room", database: { name: "app", user: "app", schemas: [] },
+const app: App = { name: "moimroom-mig", namespace: "room", database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
   environments: ["gke", "eks"].map(env => ({ env, cnpgCluster: "room-db", dbHost: "host" })) };
 const plan: PlanRecord = { ref: "pln_one", revision: 1, status: "approved", submittedBy: "operator", submittedAt: "2026-11-08T00:00:00Z",
   summary: { planId: "not-an-app-name", source: { env: "gke", namespace: "room", cluster: "room-db" }, target: { env: "eks", namespace: "room", cluster: "room-db" }, files: true, gatewayMode: "http", fenceGate: true, maxDowntime: "30s" } };

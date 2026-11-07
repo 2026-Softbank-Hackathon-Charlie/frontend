@@ -5,6 +5,107 @@
 
 
 export interface paths {
+  "/v1/migration-recommendations": {
+    /**
+     * Read or start one cached assessment using the existing sandbox AI
+     * @description Viewer access. No query parameters. At most one assessment per fifteen minutes; this never creates a migration Plan or starts a migration.
+     */
+    get: operations["getMigrationRecommendations"];
+  };
+  "/v1/migration-recommendations/status": {
+    /** Read the assessment cache without querying prices or starting AI work */
+    get: operations["getMigrationRecommendationStatus"];
+  };
+  "/v1/migration-recommendations/{id}/result": {
+    /** Submit a nonce-bound result from the existing AI agent */
+    post: operations["completeMigrationRecommendation"];
+  };
+  "/v1/onprem/enrollments": {
+    /**
+     * @description Operator-only issuance of a 256-bit, 15-minute, one-use bootstrap grant.
+     * Only its hash is persisted. Idempotency-Key is scoped to the actor:
+     * the first response includes code and installCommand; a replay returns
+     * the same enrollment without either secret. Issuance is disabled unless
+     * the real registration worker, shipped binaries and network are configured.
+     */
+    post: operations["createOnpremEnrollment"];
+  };
+  "/v1/onprem/enrollments/{id}": {
+    /** @description Operator-only state lookup. Never returns the code, hash or command. */
+    get: operations["getOnpremEnrollment"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/enrollments/{id}/revoke": {
+    /** @description Operator-only, idempotent revocation; atomically fences concurrent and later claims. */
+    post: operations["revokeOnpremEnrollment"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/enrollments/{id}/claim": {
+    /**
+     * @description Public installer handshake, authenticated by the one-use code in JSON
+     * (never a URL/query parameter). Atomically consumes only the matching
+     * enrollment, environment and install choice before expiry. Rate/body/
+     * concurrency bounded. Returns a device-scoped connection token, never
+     * an operator credential. Only server observations can make it ready.
+     */
+    post: operations["claimOnpremEnrollment"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/installer.sh": {
+    /** @description Linux/WSL2 installer that installs a local connector and waits for server-verified registration. Never uploads administrator kubeconfig. */
+    get: operations["getOnpremInstaller"];
+  };
+  "/v1/onprem/agent.bin": {
+    get: operations["getOnpremAgentBinary"];
+  };
+  "/v1/onprem/enrollments/{id}/bootstrap.yaml": {
+    /** @description Device-session Bearer only. Contains scoped secrets; Cache-Control no-store. */
+    get: operations["getOnpremBootstrap"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/enrollments/{id}/connection/status": {
+    /** @description Device-session Bearer only; no operator token is accepted. */
+    get: operations["getOnpremConnectionStatus"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/enrollments/{id}/connection": {
+    /** @description Device-session Bearer only. Enroll or renew the same cluster identity; the server constructs the endpoint and runs every check. */
+    post: operations["registerOnpremConnection"];
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+  };
+  "/v1/onprem/admission/cluster-secret": {
+    /**
+     * @description Stateless admission.k8s.io/v1 Secret validation. No credentials are
+     * reflected, no storage or network is accessed, and no mutation occurs.
+     * The management API server invokes this HTTPS endpoint through a
+     * narrowly matched, failurePolicy Fail validating webhook.
+     */
+    post: operations["validateOnpremClusterSecret"];
+  };
   "/healthz": {
     get: operations["getHealth"];
   };
@@ -149,7 +250,15 @@ export interface paths {
      * @description The human gate between AI planning and execution. Send the plan's
      * `revision` you reviewed: approving a plan that has attachments without
      * it, or with a revision that changed since (an attachment was uploaded),
-     * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Role operator.
+     * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Unless the
+     * server turns the check off, the plan's source database must be reachable
+     * from where the API runs, as the engine will need it at the start: its
+     * name must resolve, its port accept connections and the database accept
+     * the login of the plan's DSN. If not, the answer is
+     * 409 `db_unreachable` (a status and a code `dns`, `tcp` or `auth` in the
+     * message, never an address) and the plan stays pending; it is not an approval that would
+     * fail at the precheck of a started run. The target is not checked (it may
+     * not exist yet), and a check that cannot tell does not block. Role operator.
      */
     post: operations["approvePlan"];
     parameters: {
@@ -628,6 +737,12 @@ export interface paths {
      * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
      * - `files` is set when both environments have a bucket, unless `files` is false.
      * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+     * - For an app without a database (`resources.postgres` false, ADR 0049)
+     *   both endpoints are `{kind: none, env}`, `gateway` must be the
+     *   app's scope (a server without a gateway answers 400), and
+     *   `sourceStats` and `writtenRecordsStream` are refused (400). The
+     *   traffic gateway must already route the app to both backends,
+     *   otherwise 400 `gateway_backend_missing`.
      * - With `sourceStats: true` the server also measures the source database
      *   and the response is a `PlanDraftResult`: the plan under `plan`, the
      *   numbers under `sourceStats`. This takes about five seconds (the WAL
@@ -653,7 +768,9 @@ export interface paths {
      * never returned. Redaction cannot know every secret.
      *
      * A service belongs to the app when its name is the app's or starts with
-     * `<app>-`. Without PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
+     * `<app>-`, unless it belongs to another registered app whose name starts
+     * with `<app>-` (the services of `moimroom-mig` are not `moimroom`'s).
+     * Without PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
      * `observability_not_configured`; if ClickHouse cannot be read, 502
      * `observability_unavailable`.
      *
@@ -673,6 +790,23 @@ export interface paths {
      * total calls. No raw spans, URLs, prompts, credentials or request IDs return.
      */
     get: operations["getAppAIServices"];
+  };
+  "/v1/apps/{name}/llm-observability": {
+    /**
+     * @description Read app-bound Langfuse generation metadata. Viewer, agent and operator.
+     * Only registered apps are answered. Server configuration binds each app
+     * to a project and an exact generation metadata key whose value is the
+     * registered app name. Caller-provided projects, URLs and filters are rejected.
+     * Public/secret project keys stay in mounted server files.
+     * Source status distinguishes missing setup, unmapped scope, unsupported
+     * version/API, collection failure and no scoped observation. None proves no AI.
+     * At most 100 generations are sampled; counts and metrics describe that
+     * sample, not all calls in the window. Missing metrics are null. Summary
+     * latencyMillis is the sample mean, only when every duration is known.
+     * Prompts, inputs, outputs, arbitrary metadata and provider error text are
+     * never returned. Langfuse v3/v4 health selects its supported read API.
+     */
+    get: operations["getAppLLMObservability"];
   };
   "/v1/ai-activity": {
     /**
@@ -704,9 +838,12 @@ export interface paths {
      * @description Start the AI runner for one app and route, so nobody runs hopai by
      * hand. The app and both environments must be in the server's
      * configuration (`GET /v1/apps`). One run per app at a time: a second
-     * one while the first is running answers 409 `ai_run_active`. Without a
-     * configured Job template (PLATFORM_AIRUN_JOB_TEMPLATE) the server
-     * answers 503 `ai_runner_not_configured`.
+     * one while the first is running answers 409 `ai_run_active`. An app
+     * without a database (`resources.postgres` false) answers 409
+     * `no_database`: the runner plans database moves, so draft and submit
+     * its plan directly (ADR 0049). Without a configured Job template
+     * (PLATFORM_AIRUN_JOB_TEMPLATE) the server answers 503
+     * `ai_runner_not_configured`.
      *
      * Roles: operator.
      */
@@ -1214,12 +1351,312 @@ export interface paths {
      */
     post: operations["receiveGitHubWebhook"];
   };
+  "/v1/onboardings": {
+    /**
+     * @description Every onboarding, newest first, done ones included.
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["listOnboardings"];
+    /**
+     * @description Start onboarding an app that runs outside the platform, with docker
+     * compose on one VM (ADR 0042). The platform reads GitHub, DNS, the
+     * cloud, the VM and its database (`discovering`), has hopai write a
+     * contract branch and opens a PR (`patching`), deploys the PR branch
+     * as a temporary app (`checking`) and waits for an operator's approval
+     * (`awaiting_approval`). Only after the approval does it change the
+     * source VM and database (`connecting`), then registers the app with
+     * its database a replica of the source (`registering`, `syncing`)
+     * until `ready`, when `POST /v1/onboardings/{id}/cutover` moves it.
+     * The steps are in `GET /v1/onboardings/{id}/events`.
+     *
+     * The app's name is the service address's label, so the address must
+     * be `https://<label>.<app domain>`. Without `targetEnv` the target is
+     * the environment of the VM's cloud (`eks` for AWS, `gke` for GCP).
+     *
+     * The feature is off unless the server runs with
+     * PLATFORM_ONBOARDING=1; the routes are not there then (404). While
+     * it is being built every onboarding endpoint answers 501
+     * not_implemented.
+     *
+     * Error codes: invalid_request (400: `repo` is not owner/name, or
+     * `serviceUrl` is not `https://<label>.<app domain>`), env_not_found
+     * (404: `targetEnv`), app_exists (409: an app of that name is
+     * registered), onboarding_exists (409: the app has an onboarding that
+     * is not done), github_not_configured (503), secrets_not_configured
+     * (503), not_implemented (501). Role operator.
+     *
+     * While an app name has an onboarding that is not done, these answer
+     * 409 onboarding_exists for that name: `POST /v1/apps`, `DELETE
+     * /v1/apps/{name}`, `POST /v1/apps/{name}/environments`, `DELETE
+     * /v1/apps/{name}/environments/{env}`, and plans (`POST /v1/plans`,
+     * `POST /v1/plans/draft`, `POST /v1/migrations`) of the app's database
+     * pair; the onboarding's own cutover plan is the exception. `POST
+     * /v1/apps` also refuses names starting with `onb-`, the test apps'.
+     */
+    post: operations["startOnboarding"];
+  };
+  "/v1/onboardings/{id}": {
+    /**
+     * @description One onboarding: its state, the facts summary, the report, the PR,
+     * the test deployment, what was added to the source and what a person
+     * has to do. Error codes: onboarding_not_found (404).
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["getOnboarding"];
+    /**
+     * @description Stop and remove an onboarding. The hopai Job and the temporary app
+     * are always stopped and deleted first. Then, by state:
+     *
+     * - Up to `awaiting_approval` (or `failed` in one of them): the PR is
+     *   closed and the onboarding deleted.
+     * - From `connecting` to `ready` (or `failed` in one of them): every
+     *   `legacyChanges` entry is undone in reverse order, the gateway app
+     *   and the registered app are deleted, then the onboarding. A merged
+     *   PR stays merged.
+     * - From `cutting_over` on, and `failed` in `cutting_over` or
+     *   `decommissioning`: refused.
+     *
+     * The answer comes at once with `deleting` true; the onboarding is
+     * gone when `GET /v1/onboardings/{id}` answers 404. A step that fails
+     * sets `failure` and leaves the onboarding with `deleting` true, and
+     * only DELETE is accepted then: it tries again. Error codes:
+     * onboarding_not_found (404), onboarding_state_conflict (409:
+     * `cutting_over` or later, or `failed` in them), onboarding_deleting
+     * (409: a deletion is running; one that failed is retried),
+     * not_implemented (501). Role operator.
+     */
+    delete: operations["deleteOnboarding"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
+  "/v1/onboardings/{id}/events": {
+    /**
+     * @description Server-Sent Events, with the same contract as a deployment's events.
+     *
+     * - The first message is `snapshot` (data: `Onboarding`). Snapshots
+     *   carry no SSE id.
+     * - Then every `OnboardingEvent`, with its `kind` as the SSE event
+     *   name and its `seq` as the SSE id. Every change of the onboarding
+     *   (state, report, human actions, legacy changes) also sends a new
+     *   `snapshot`.
+     * - When the onboarding is `done`, or deleted: a final `snapshot` (for
+     *   a deletion, the last one before it), then the stream closes.
+     *   Otherwise it stays open, `failed` included, with `: keep-alive`
+     *   comments.
+     *
+     * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events
+     * missed. Error codes: onboarding_not_found (404).
+     *
+     * Roles: viewer, agent, operator.
+     */
+    get: operations["streamOnboardingEvents"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
+  "/v1/onboardings/{id}/approve": {
+    /**
+     * @description Approve the PR and what will be added to the source, in
+     * `awaiting_approval` only. `headSha` is the PR head the operator
+     * reviewed (`pr.headSha`). When the PR's head is another commit, or
+     * the PR is not up to date with the default branch, the answer is 409
+     * pr_head_mismatch and the platform makes the branch again and tests
+     * it again (`patching`). Once approved the onboarding goes to
+     * `connecting`, which disables the source's deploy workflows: the
+     * source is not deployed again until it is decommissioned.
+     *
+     * Error codes: invalid_request (400: no `headSha`),
+     * onboarding_not_found (404), onboarding_state_conflict (409: not
+     * `awaiting_approval`), pr_head_mismatch (409), github_unreachable
+     * (502), not_implemented (501). Role operator.
+     */
+    post: operations["approveOnboarding"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
+  "/v1/onboardings/{id}/cutover": {
+    /**
+     * @description Move the app to the platform, in `ready` only: the platform submits
+     * and starts the onboarding's own migration plan (external source,
+     * cold target app) and keeps its run id in `runId`; the run is in
+     * `GET /v1/migrations/{runId}`, without a rollback. The plan is
+     * reserved by the platform itself, not through `POST /v1/plans`, and
+     * shows in `GET /v1/plans` with the id `<onboarding id>-<attempt>`.
+     *
+     * How the run ends moves the onboarding:
+     *
+     * - succeeded: `decommissioning`.
+     * - rolled back or cancelled before the promotion (the source took the
+     *   writes back): `ready` again, so the operator can cut over again
+     *   with the next attempt.
+     * - halted after the promotion: it stays `cutting_over`; the run goes
+     *   on with `POST /v1/migrations/{runId}/resume`.
+     * - refused before a run started (the plan's gates): `failed` with
+     *   `failedState` `cutting_over`; resume goes back to `ready`.
+     *
+     * Error codes: onboarding_not_found (404), onboarding_state_conflict
+     * (409: not `ready`), onboarding_deleting (409), cluster_busy (409),
+     * not_implemented (501). Role operator.
+     */
+    post: operations["cutOverOnboarding"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
+  "/v1/onboardings/{id}/decommission": {
+    /**
+     * @description Confirm stopping the source VM, in `decommissioning` only, after the
+     * legacy backend left the gateway and the tailnet device and route
+     * were removed. The platform stops (never terminates) the tagged
+     * instance and the onboarding is `done`. The disk and the source
+     * bucket stay for the operator to delete in the cloud.
+     *
+     * Error codes: onboarding_not_found (404), onboarding_state_conflict
+     * (409: not `decommissioning`, or the earlier steps of it are not
+     * finished), not_implemented (501). Role operator.
+     */
+    post: operations["decommissionOnboarding"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
+  "/v1/onboardings/{id}/resume": {
+    /**
+     * @description Check again and carry on: from `failed` it goes back to
+     * `failedState`; in a state waiting for a person (a `humanActions`
+     * entry not done, such as installing the GitHub App or deleting the
+     * DNS record) it checks again now instead of at the next poll. A
+     * failed cutover run is resumed through the run (`POST
+     * /v1/migrations/{runId}/resume`), not here. `failed` in `cutting_over`
+     * (the run never started) goes back to `ready`, not to `cutting_over`.
+     *
+     * Error codes: onboarding_not_found (404), onboarding_state_conflict
+     * (409: neither failed nor waiting for a person), onboarding_deleting
+     * (409: `deleting` is true), not_implemented (501). Role operator.
+     */
+    post: operations["resumeOnboarding"];
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+  };
 }
 
 export type webhooks = Record<string, never>;
 
 export interface components {
   schemas: {
+    MigrationRecommendationSource: {
+      title: string;
+      /** Format: uri */
+      url: string;
+      /** Format: date-time */
+      observedAt: string | null;
+    };
+    MigrationRecommendation: {
+      id: string;
+      app: string;
+      source: string | null;
+      target: string | null;
+      /** @enum {string} */
+      action: "move" | "stay" | "insufficient";
+      title: string;
+      reasons: string[];
+      missing: string[];
+      sources: components["schemas"]["MigrationRecommendationSource"][];
+      /** Format: double */
+      estimatedMonthlySavingsUsd: number | null;
+    };
+    MigrationRecommendations: {
+      /** @enum {string} */
+      status: "ready" | "generating" | "not_configured" | "unavailable";
+      /** Format: date-time */
+      generatedAt: string;
+      /** Format: date-time */
+      nextRefreshAt: string;
+      /** Format: date-time */
+      nextCheckAt: string | null;
+      /** @enum {integer} */
+      ttlSeconds: 900;
+      /** @enum {string} */
+      cacheStatus: "fresh" | "cached";
+      recommendations: components["schemas"]["MigrationRecommendation"][];
+      ai: {
+        status: string;
+        model: string | null;
+        sessionId: string | null;
+      };
+    };
+    MigrationRecommendationResult: {
+      nonce: string;
+      snapshotId: string;
+      /** @enum {string} */
+      status: "ready" | "unavailable";
+      model?: string;
+      sessionId?: string;
+      /** @enum {string} */
+      errorCode?: "ai_unavailable" | "invalid_input";
+      recommendations?: ({
+          id: string;
+          /** @enum {string} */
+          action: "move" | "stay" | "insufficient";
+          title?: string;
+          reasons: string[];
+        })[];
+    };
+    OnpremEnrollmentCreateRequest: {
+      environment: string;
+      installK3s: boolean;
+    };
+    OnpremEnrollmentClaimRequest: {
+      code: string;
+      environment: string;
+      installK3s: boolean;
+    };
+    OnpremEnrollmentCheck: {
+      id: string;
+      status: string;
+      message?: string;
+      /** Format: date-time */
+      checkedAt?: string;
+    };
+    OnpremEnrollment: {
+      id: string;
+      environment: string;
+      status: string;
+      /** @description Last persisted registration phase. */
+      stage?: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      /** Format: date-time */
+      expiresAt: string;
+      checks: components["schemas"]["OnpremEnrollmentCheck"][];
+    };
+    OnpremEnrollmentCreated: {
+      enrollment: components["schemas"]["OnpremEnrollment"];
+      code?: string;
+      installCommand?: string;
+    };
+    OnpremEnrollmentResponse: {
+      enrollment: components["schemas"]["OnpremEnrollment"];
+    };
     Error: {
       error: components["schemas"]["ErrorBody"];
     };
@@ -1351,15 +1788,26 @@ export interface components {
         maxFenceGate?: string;
       };
     };
+    /**
+     * @description One environment of the plan. With `kind` `none` (an app without a
+     * database, ADR 0049; source and target both) the endpoint is only
+     * `env` and `kind`: there is no namespace, cluster or DSN. Otherwise
+     * `namespace`, `cluster` and `dsn` are required.
+     */
     EnginePlanEndpoint: {
+      /**
+       * @description `cnpg` (absent means cnpg): a CNPG cluster. `external` (source only): a PostgreSQL primary outside CNPG (engine ADR 0017). `none` (source and target both): the app has no database (ADR 0049).
+       * @enum {string}
+       */
+      kind?: "cnpg" | "external" | "none";
       /** @example gke */
       env: string;
       kubeconfig?: string;
       context?: string;
-      namespace: string;
+      namespace?: string;
       /** @description CNPG Cluster name */
-      cluster: string;
-      dsn: string;
+      cluster?: string;
+      dsn?: string;
       /** @description target only */
       manifest?: string;
     };
@@ -1367,6 +1815,11 @@ export interface components {
     PlanStatus: "pending_approval" | "approved" | "rejected" | "starting" | "started";
     /** @description The non-secret view of a plan endpoint. */
     PlanEndpoint: {
+      /**
+       * @description the plan endpoint's kind; `none`: an app without a database (ADR 0049), whose namespace and cluster are empty
+       * @enum {string}
+       */
+      kind?: "cnpg" | "external" | "none";
       env: string;
       context?: string;
       namespace: string;
@@ -1376,6 +1829,8 @@ export interface components {
     };
     PlanSummary: {
       planId: string;
+      /** @description the app a plan without a database moves, from its gateway scope (ADR 0049); absent for a plan with databases */
+      app?: string;
       source: components["schemas"]["PlanEndpoint"];
       target: components["schemas"]["PlanEndpoint"];
       /** @description the plan also moves object storage */
@@ -1468,6 +1923,7 @@ export interface components {
       service: string;
       /** @description redacted, numbers and ids folded to # and «id», at most 160 characters */
       text: string;
+      /** @description how many of the newest 500 error and warning lines of the window have this pattern, not a count over the whole window */
       count: number;
       /** Format: date-time */
       lastSeen: string;
@@ -1536,6 +1992,60 @@ export interface components {
           observedAt: string;
           detail: string;
         }[];
+    };
+    LLMMetrics: {
+      inputTokens: number | null;
+      outputTokens: number | null;
+      totalTokens: number | null;
+      /** @description Reported Langfuse cost in USD; never estimated by the console. */
+      costUsd: number | null;
+      latencyMillis: number | null;
+    };
+    LLMObservation: components["schemas"]["LLMMetrics"] & ({
+      id: string;
+      traceId: string;
+      /** Format: date-time */
+      startTime: string;
+      model?: string;
+      /** @enum {string|null} */
+      level: "ERROR" | "WARNING" | "DEFAULT" | "DEBUG" | null;
+      /**
+       * Format: uri
+       * @description Optional credential-free trace link from the trusted server UI base.
+       */
+      url?: string;
+    });
+    LLMSummary: (components["schemas"]["LLMMetrics"] & ({
+      generations: number;
+      traces: number;
+      errors: number | null;
+    })) | null;
+    LLMObservability: {
+      app: string;
+      /** Format: date-time */
+      generatedAt: string;
+      window: {
+        /** Format: date-time */
+        from: string;
+        /** Format: date-time */
+        to: string;
+      };
+      source: {
+        /** @enum {string} */
+        name: "langfuse";
+        /** @enum {string} */
+        status: "observed" | "unobserved" | "not_configured" | "scope_unmapped" | "unavailable" | "unsupported";
+        reason: string;
+        version?: string;
+      };
+      sample: {
+        /** @enum {integer} */
+        limit: 100;
+        returned: number;
+        truncated: boolean;
+      };
+      summary: components["schemas"]["LLMSummary"];
+      observations: components["schemas"]["LLMObservation"][];
     };
     AIActivityEvent: {
       /** Format: date-time */
@@ -1752,6 +2262,8 @@ export interface components {
       runId: string;
       planRef: string;
       planId: string;
+      /** @description the app a run without a database moves (PlanSummary.app, ADR 0049); absent for a run with databases, whose namespaces name the app */
+      app?: string;
       source: components["schemas"]["PlanEndpoint"];
       target: components["schemas"]["PlanEndpoint"];
       status: components["schemas"]["RunStatus"];
@@ -2040,6 +2552,16 @@ export interface components {
       writeBackend: string;
       /** @description Share of read requests per backend, summing to 100. */
       readWeights: {
+        [key: string]: number;
+      };
+      /** @description Current gateway instance supports durable lease-owned source read exclusion. Absent or false is unsupported; this is not an HA-wide drain proof. */
+      sourceReadExclusionSupported?: boolean;
+      /** @description Persisted backend-to-owner-lease exclusions on the current gateway instance, including exclusions still draining or whose acknowledgment failed. */
+      readExclusions?: {
+        [key: string]: string;
+      };
+      /** @description Active or reserved read attempts and health probes per backend on the current gateway instance. Includes already selected retry alternatives; all configured backends are listed with zero when idle. */
+      readInFlight?: {
         [key: string]: number;
       };
       writesHeld: boolean;
@@ -3089,6 +3611,11 @@ export interface components {
       accepted: number;
     };
     WrittenRecordStats: {
+      /**
+       * Format: date-time
+       * @description Server receipt time of the latest valid authenticated application collector batch, including identical retries. Independent of the committed-write timestamp; absent when collector activity has not been observed.
+       */
+      lastReceivedAt?: string;
       generation?: string;
       /** Format: int64 */
       lastSeq?: number;
@@ -3125,7 +3652,11 @@ export interface components {
      * what migrations use; `deploy` is set for registered apps. A
      * registered app that is not in the file has `namespace` = name,
      * `database` = `{name: app, user: app, schemas: []}` and no
-     * `environments`.
+     * `environments`, unless plans can be drafted for it: one with a
+     * database pair (ADR 0030), or one without a postgres resource or pair, with a public service,
+     * that is registered in two or more environments (ADR 0049). The latter has
+     * `database` = `{name: "", user: "", schemas: []}` and
+     * `resources.postgres` false.
      */
     App: {
       /** @example shop */
@@ -3133,9 +3664,22 @@ export interface components {
       /** @example shop */
       namespace: string;
       database: components["schemas"]["AppDatabase"];
-      /** @description The environments the app runs in according to PLATFORM_APPS_FILE, in PLATFORM_ENVS_FILE order. Empty for an app that is only registered from GitHub (see deploy.environments). */
+      /** @description The environments plans can be drafted between, in PLATFORM_ENVS_FILE order. Empty for a registered app plans cannot be drafted for (see deploy.environments). */
       environments: components["schemas"]["AppEnvironment"][];
+      resources: components["schemas"]["AppResources"];
       deploy?: components["schemas"]["AppDeploy"];
+    };
+    /**
+     * @description What the app keeps besides its services (ADR 0049). An app of
+     * PLATFORM_APPS_FILE always has a database, and object storage when an
+     * environment has a bucket; a registered app has what the platform.yaml
+     * of its default instance declares (a postgres or s3 resource). A
+     * migration of an app without a database moves only its traffic (and
+     * its files, with s3).
+     */
+    AppResources: {
+      postgres: boolean;
+      s3: boolean;
     };
     AppDatabase: {
       /** @example app */
@@ -3145,16 +3689,17 @@ export interface components {
       /** @description Schemas verification compares. Empty means the engine default (public). */
       schemas: string[];
     };
+    /** @description The app in one environment. `cnpgCluster` and `dbHost` are absent for an app without a database (`resources.postgres` false). */
     AppEnvironment: {
       /** @example gke */
       env: string;
       /** @example shop-db-gke */
-      cnpgCluster: string;
+      cnpgCluster?: string;
       /**
        * @description host:port of the cluster's -rw service
        * @example shop-db-gke-rw.shop.gke.ts.net:5432
        */
-      dbHost: string;
+      dbHost?: string;
       /**
        * @description the rclone remote and bucket of the app's files
        * @example gcs:shop-uploads-gke
@@ -4032,6 +4577,270 @@ export interface components {
        */
       expiresAt: string;
     };
+    OnboardingRequest: {
+      /**
+       * @description owner/name of the app's repository, without .git.
+       * @example 2026-Softbank-Hackathon-Charlie/moimroom-legacy
+       */
+      repo: string;
+      /**
+       * @description Where the app answers now, https://<label>.<app domain>. The label is the app's name.
+       * @example https://moimroom-legacy.hopcharlie.dev
+       */
+      serviceUrl: string;
+      /**
+       * @description The environment to move it to. Default the VM's cloud's (eks for AWS, gke for GCP).
+       * @example eks
+       */
+      targetEnv?: string;
+    };
+    OnboardingApproveRequest: {
+      /** @description The PR head commit the operator reviewed (`pr.headSha`). */
+      headSha: string;
+    };
+    /**
+     * @description Where an onboarding is (ADR 0042, "흐름과 상태"). `failed` keeps the
+     * state it failed in in `failedState`.
+     *
+     * @enum {string}
+     */
+    OnboardingState: "discovering" | "patching" | "checking" | "awaiting_approval" | "connecting" | "registering" | "syncing" | "ready" | "cutting_over" | "decommissioning" | "done" | "failed";
+    OnboardingList: {
+      onboardings: components["schemas"]["Onboarding"][];
+    };
+    Onboarding: {
+      /**
+       * @description onb- and 12 lowercase hex digits; also the name of the test app and the start of the cutover plan ids (<id>-<attempt>)
+       * @example onb-3f9a1c2b7d4e
+       */
+      id: string;
+      /** @example 2026-Softbank-Hackathon-Charlie/moimroom-legacy */
+      repo: string;
+      /** @example https://moimroom-legacy.hopcharlie.dev */
+      serviceUrl: string;
+      /**
+       * @description The app's name: serviceUrl's label.
+       * @example moimroom-legacy
+       */
+      app: string;
+      /**
+       * @description The environment it moves to; empty until discovery chose it.
+       * @example eks
+       */
+      targetEnv: string;
+      state: components["schemas"]["OnboardingState"];
+      /** @description With state failed, the state it failed in, which resume goes back to. */
+      failedState?: components["schemas"]["OnboardingState"];
+      /** @description Why it failed, or why a step of a deletion failed. */
+      failure?: string;
+      /** @description DELETE was asked for and is undoing what was done. */
+      deleting: boolean;
+      /**
+       * @description The source's deploy workflows are disabled (from connecting on,
+       * until it is deleted). The console says so on every screen while
+       * it is true.
+       */
+      legacyDeployStopped: boolean;
+      /** @description What a person has to do, which the platform cannot (ADR 0042, "한 번 하는 설정"). The platform checks it itself; resume checks again at once. */
+      humanActions: components["schemas"]["OnboardingHumanAction"][];
+      facts?: components["schemas"]["OnboardingFactsSummary"];
+      report: components["schemas"]["OnboardingReport"];
+      pr?: components["schemas"]["OnboardingPR"];
+      check?: components["schemas"]["OnboardingCheck"];
+      /** @description What connecting will do once approved, for the approval screen, in order. Set from awaiting_approval on. */
+      plannedLegacyChanges?: components["schemas"]["OnboardingPlannedChange"][];
+      /** @description What was added to or changed on the source VM, its database, GitHub and the management cluster, in the order it was done. DELETE undoes them in reverse. */
+      legacyChanges: components["schemas"]["OnboardingLegacyChange"][];
+      /** @description The cutover's migration run, from cutting_over on. */
+      runId?: string;
+      createdBy: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      approvedBy?: string;
+      /** Format: date-time */
+      approvedAt?: string;
+      /** @description The PR head commit that was approved. */
+      approvedSha?: string;
+    };
+    OnboardingHumanAction: {
+      /** @enum {string} */
+      kind: "install_github_app" | "delete_dns_record";
+      /**
+       * @description install_github_app: the App's installation page
+       * @example https://github.com/apps/hopcharlie-platform/installations/new
+       */
+      url?: string;
+      record?: components["schemas"]["OnboardingDNSRecord"];
+      /** @description The platform saw it done (the App can read the repository; the name resolves to the gateway). */
+      done: boolean;
+    };
+    /** @description delete_dns_record: the individual record to delete, so the wildcard sends the name to the gateway. */
+    OnboardingDNSRecord: {
+      /** @example moimroom-legacy.hopcharlie.dev */
+      name: string;
+      /** @example A */
+      type: string;
+      /** @example 203.0.113.10 */
+      value: string;
+    };
+    /** @description The parts of the discovery's facts the console shows. The full facts are pkg/onboard/facts.Facts and go only to hopai. */
+    OnboardingFactsSummary: {
+      /** @enum {string} */
+      cloud?: "aws" | "gcp";
+      /** @example ap-northeast-2 */
+      region?: string;
+      /** @example i-0abc1234def567890 */
+      instanceId?: string;
+      /** @example 203.0.113.10 */
+      publicIp?: string;
+      ssmManaged?: boolean;
+      /** @example main */
+      defaultBranch?: string;
+      /** @description The default branch's head commit. */
+      head?: string;
+      /** @description The workflows that deploy to the VM, which connecting disables. */
+      deployWorkflows?: string[];
+      /** @example moimroom */
+      composeProject?: string;
+      /** @description compose services: container names */
+      containers?: string[];
+      /** @example postgres:17.11-alpine */
+      dbImage?: string;
+      /** @example 170011 */
+      dbServerVersionNum?: number;
+      /** @enum {string} */
+      dbLibc?: "glibc" | "musl";
+      /** @example moimroom */
+      dbDatabase?: string;
+      /** @example moimroom */
+      dbOwner?: string;
+      /** Format: int64 */
+      dbSizeBytes?: number;
+      /** @description The CNPG image chosen, pinned by digest. */
+      image?: string;
+      /** @example 2Gi */
+      storageSize?: string;
+      /** @description "schema.index" names rebuilt after the promotion */
+      reindex?: string[];
+      /** @description The source bucket of the app's files. */
+      bucket?: string;
+      /** Format: int64 */
+      objectCount?: number;
+    };
+    OnboardingReport: {
+      /** @description Why it cannot go on (pkg/onboard/facts Block* codes). Any blocker stops it in failed. */
+      blockers: components["schemas"]["OnboardingFinding"][];
+      /** @description What the operator should know before approving (pkg/onboard/facts Warn* codes). */
+      warnings: components["schemas"]["OnboardingFinding"][];
+      drift?: components["schemas"]["OnboardingDrift"];
+      /** @description The estimated write hold of the cutover. */
+      holdSeconds?: number;
+      /**
+       * @description The gateway's MaxHold less 15 seconds.
+       * @example 40
+       */
+      holdBudgetSeconds?: number;
+    };
+    OnboardingFinding: {
+      /**
+       * @description pkg/onboard/facts BlockerCodes for blockers, WarningCodes for warnings.
+       * @enum {string}
+       */
+      code: "instance_not_found" | "gcp_inspection_not_yet" | "vm_not_ssm_managed" | "vm_in_autoscaling_group" | "vm_is_eks_node" | "no_compose_project" | "db_not_postgres_container" | "managed_database" | "storage_out_of_scope" | "data_volume_out_of_scope" | "domain_out_of_scope" | "not_https" | "image_unavailable" | "icu_version_unavailable" | "collation_dependent_constraint" | "auto_conf_settings" | "role_read_only_setting" | "wal_keep_size_command_line" | "no_superuser" | "disk_too_small" | "hold_budget_exceeded" | "app_code_change_required" | "check_failed" | "alter_system_disabled" | "wal_level_minimal" | "max_wal_senders_zero" | "password_encryption_md5" | "name_too_long" | "db_unreadable" | "pending_config" | "config_not_writable" | "collation_other_database" | "vm_image_pull_failed" | "drift_running_revision" | "drift_last_deploy" | "glibc_release_mismatch" | "reindex_required" | "app_account_superuser" | "legacy_deploy_stopped";
+      message: string;
+      /** @description What it is about, such as a container, setting or index. */
+      subject?: string;
+    };
+    /** @description What runs differs from the default branch's head. Shown first; it does not block. */
+    OnboardingDrift: {
+      head: string;
+      /** @description The org.opencontainers.image.revision label of the running image. */
+      runningRevision?: string;
+      /** @description The commit of the newest successful deploy workflow run. */
+      lastDeployCommit?: string;
+    };
+    OnboardingPR: {
+      /** @example 12 */
+      number: number;
+      /** @example https://github.com/2026-Softbank-Hackathon-Charlie/moimroom-legacy/pull/12 */
+      url: string;
+      headSha: string;
+      merged?: boolean;
+    };
+    /** @description The test deployment of the PR branch. */
+    OnboardingCheck: {
+      /**
+       * @description The temporary app, named after the onboarding id and deleted when the test ends.
+       * @example onb-3f9a1c2b7d4e
+       */
+      app: string;
+      deploymentId?: string;
+      /** @enum {string} */
+      result: "running" | "passed" | "failed";
+      /** @description Test deployments so far, at most 2. */
+      attempts: number;
+      /** @description From the Deployment's creation until it was Ready. */
+      startSeconds?: number;
+      message?: string;
+    };
+    /**
+     * @description One thing added to the source or done for it, in order:
+     * workflow_disabled (`target` the workflow path), instance_tagged
+     * (the instance id), postgres_role_created, replication_role_created
+     * (`hopcharlie_replicator`), tailscale_volume_created,
+     * tailscale_container_started, tailscale_device_joined (the tailnet
+     * hostname), hba_line_added (the line), wal_keep_size_added (the
+     * line), db_route_created (the management cluster's Service).
+     */
+    OnboardingLegacyChange: {
+      kind: components["schemas"]["OnboardingLegacyChangeKind"];
+      target: string;
+      /** Format: date-time */
+      at: string;
+      /**
+       * Format: date-time
+       * @description When DELETE undid it.
+       */
+      undoneAt?: string;
+    };
+    /** @enum {string} */
+    OnboardingLegacyChangeKind: "workflow_disabled" | "instance_tagged" | "postgres_role_created" | "replication_role_created" | "tailscale_volume_created" | "tailscale_container_started" | "tailscale_device_joined" | "hba_line_added" | "wal_keep_size_added" | "db_route_created";
+    /**
+     * @description One thing connecting will do, as the approval screen shows it:
+     * `target` as in OnboardingLegacyChange and `detail` the exact value,
+     * such as the hba line with the compose network's subnet
+     * (`host replication hopcharlie_replicator 172.18.0.0/16 scram-sha-256`),
+     * the Tailscale container and its image digest, or the roles made.
+     */
+    OnboardingPlannedChange: {
+      kind: components["schemas"]["OnboardingLegacyChangeKind"];
+      target: string;
+      detail?: string;
+    };
+    /**
+     * @description One step of an onboarding.
+     * - state: it entered `state`; `message` may say more.
+     * - step: something it did or found in `state`.
+     * - log: one line of output (hopai, the test deployment, an SSM command) in `message`.
+     * - human: it waits for a person (`humanActions`).
+     * - error: a step failed; `message` is why.
+     */
+    OnboardingEvent: {
+      /** Format: int64 */
+      seq: number;
+      onboardingId: string;
+      /** Format: date-time */
+      time: string;
+      state: components["schemas"]["OnboardingState"];
+      /** @enum {string} */
+      kind: "state" | "step" | "log" | "human" | "error";
+      message?: string;
+      data?: {
+        [key: string]: unknown;
+      };
+    };
   };
   responses: {
     /** @description invalid_request, invalid_plan */
@@ -4052,13 +4861,13 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found, device_login_not_found, secret_not_found, bucket_not_registered, prefix_not_listed, repo_not_found */
+    /** @description plan_not_found, run_not_found, env_not_found, app_not_found, instance_not_found, deployment_not_found, device_login_not_found, secret_not_found, bucket_not_registered, prefix_not_listed, repo_not_found, onboarding_not_found */
     NotFound: {
       content: {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, version_mismatch, device_login_state_conflict, nothing_to_redeploy, storage_cleanup_pending, deployment_in_progress, ai_run_active */
+    /** @description plan_state_conflict, run_state_conflict, cluster_busy, idempotency_key_reused, app_exists, app_not_registered, branch_exists, instance_exists, instance_limit, default_instance, residency_denied, capacity_insufficient, version_mismatch, db_unreachable, device_login_state_conflict, nothing_to_redeploy, storage_cleanup_pending, deployment_in_progress, ai_run_active, onboarding_exists, onboarding_state_conflict, pr_head_mismatch, onboarding_deleting */
     Conflict: {
       content: {
         "application/json": components["schemas"]["Error"];
@@ -4094,6 +4903,12 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
+    /** @description not_implemented: the endpoint is in the contract and not built yet */
+    NotImplemented: {
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
     /** @description too_many_attempts */
     TooManyRequests: {
       headers: {
@@ -4112,6 +4927,7 @@ export interface components {
     AppName: string;
     InstanceName: string;
     DeploymentId: string;
+    OnboardingId: string;
     /** @description The code the CLI shows. Case, spaces and '-' do not matter. */
     UserCode: string;
   };
@@ -4126,6 +4942,287 @@ export type external = Record<string, never>;
 
 export interface operations {
 
+  /**
+   * Read or start one cached assessment using the existing sandbox AI
+   * @description Viewer access. No query parameters. At most one assessment per fifteen minutes; this never creates a migration Plan or starts a migration.
+   */
+  getMigrationRecommendations: {
+    responses: {
+      /** @description Cached recommendations, generating, unavailable or not configured */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MigrationRecommendations"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  /** Read the assessment cache without querying prices or starting AI work */
+  getMigrationRecommendationStatus: {
+    responses: {
+      /** @description Cheap cache-only status; nextCheckAt controls manual checks */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MigrationRecommendations"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  /** Submit a nonce-bound result from the existing AI agent */
+  completeMigrationRecommendation: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MigrationRecommendationResult"];
+      };
+    };
+    responses: {
+      /** @description The result was validated and cached */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MigrationRecommendations"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  /**
+   * @description Operator-only issuance of a 256-bit, 15-minute, one-use bootstrap grant.
+   * Only its hash is persisted. Idempotency-Key is scoped to the actor:
+   * the first response includes code and installCommand; a replay returns
+   * the same enrollment without either secret. Issuance is disabled unless
+   * the real registration worker, shipped binaries and network are configured.
+   */
+  createOnpremEnrollment: {
+    parameters: {
+      header: {
+        "Idempotency-Key": string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["OnpremEnrollmentCreateRequest"];
+      };
+    };
+    responses: {
+      /** @description Idempotent replay; enrollment only, no code or command. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentCreated"];
+        };
+      };
+      /** @description Newly issued grant, returned once. Cache-Control no-store. */
+      201: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentCreated"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Operator-only state lookup. Never returns the code, hash or command. */
+  getOnpremEnrollment: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description Current enrollment, with pending grants expired at their deadline. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Operator-only, idempotent revocation; atomically fences concurrent and later claims. */
+  revokeOnpremEnrollment: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description Revoked enrollment, no code or command. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Public installer handshake, authenticated by the one-use code in JSON
+   * (never a URL/query parameter). Atomically consumes only the matching
+   * enrollment, environment and install choice before expiry. Rate/body/
+   * concurrency bounded. Returns a device-scoped connection token, never
+   * an operator credential. Only server observations can make it ready.
+   */
+  claimOnpremEnrollment: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["OnpremEnrollmentClaimRequest"];
+      };
+    };
+    responses: {
+      /** @description Bootstrap grant consumed and device connection session created. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"] & {
+            /** @description Device-scoped secret returned only on successful claim. */
+            connectionToken: string;
+          };
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Linux/WSL2 installer that installs a local connector and waits for server-verified registration. Never uploads administrator kubeconfig. */
+  getOnpremInstaller: {
+    responses: {
+      /** @description The actual installer served by this API version. */
+      200: {
+        content: {
+          "text/plain": string;
+        };
+      };
+    };
+  };
+  getOnpremAgentBinary: {
+    parameters: {
+      query: {
+        arch: "amd64" | "arm64";
+      };
+    };
+    responses: {
+      /** @description Shipped connector binary; the bootstrap manifest pins its SHA-256. */
+      200: {
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Device-session Bearer only. Contains scoped secrets; Cache-Control no-store. */
+  getOnpremBootstrap: {
+    parameters: {
+      query: {
+        arch: "amd64" | "arm64";
+      };
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description Server-generated local connector resources. */
+      200: {
+        content: {
+          "text/plain": string;
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Device-session Bearer only; no operator token is accepted. */
+  getOnpremConnectionStatus: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      /** @description Registration state without connection secrets. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /** @description Device-session Bearer only. Enroll or renew the same cluster identity; the server constructs the endpoint and runs every check. */
+  registerOnpremConnection: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          clusterUID: string;
+          /** @description Base64 encoded PEM CA. */
+          caData: string;
+          platformToken: string;
+          argoToken: string;
+          /** Format: date-time */
+          tokenExpiresAt: string;
+        };
+      };
+    };
+    responses: {
+      /** @description All five checks passed and environment registered. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"];
+        };
+      };
+      /** @description Device authenticated; registration or checks still pending. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["OnpremEnrollmentResponse"];
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Stateless admission.k8s.io/v1 Secret validation. No credentials are
+   * reflected, no storage or network is accessed, and no mutation occurs.
+   * The management API server invokes this HTTPS endpoint through a
+   * narrowly matched, failurePolicy Fail validating webhook.
+   */
+  validateOnpremClusterSecret: {
+    requestBody: {
+      content: {
+        "application/json": {
+          [key: string]: unknown;
+        };
+      };
+    };
+    responses: {
+      /** @description AdmissionReview with only response UID, decision and generic status. */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      default: components["responses"]["Internal"];
+    };
+  };
   getHealth: {
     responses: {
       /** @description The server is up. */
@@ -4437,7 +5534,15 @@ export interface operations {
    * @description The human gate between AI planning and execution. Send the plan's
    * `revision` you reviewed: approving a plan that has attachments without
    * it, or with a revision that changed since (an attachment was uploaded),
-   * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Role operator.
+   * fails with 409 `plan_state_conflict`. Approving twice is a no-op. Unless the
+   * server turns the check off, the plan's source database must be reachable
+   * from where the API runs, as the engine will need it at the start: its
+   * name must resolve, its port accept connections and the database accept
+   * the login of the plan's DSN. If not, the answer is
+   * 409 `db_unreachable` (a status and a code `dns`, `tcp` or `auth` in the
+   * message, never an address) and the plan stays pending; it is not an approval that would
+   * fail at the precheck of a started run. The target is not checked (it may
+   * not exist yet), and a check that cannot tell does not block. Role operator.
    */
   approvePlan: {
     parameters: {
@@ -5544,6 +6649,12 @@ export interface operations {
    * - DSNs read the password from the environment's `passwordEnv` as `${VAR}`.
    * - `files` is set when both environments have a bucket, unless `files` is false.
    * - `gateway` is mode `http` with the platform gateway when the server has one, otherwise `none`.
+   * - For an app without a database (`resources.postgres` false, ADR 0049)
+   *   both endpoints are `{kind: none, env}`, `gateway` must be the
+   *   app's scope (a server without a gateway answers 400), and
+   *   `sourceStats` and `writtenRecordsStream` are refused (400). The
+   *   traffic gateway must already route the app to both backends,
+   *   otherwise 400 `gateway_backend_missing`.
    * - With `sourceStats: true` the server also measures the source database
    *   and the response is a `PlanDraftResult`: the plan under `plan`, the
    *   numbers under `sourceStats`. This takes about five seconds (the WAL
@@ -5572,6 +6683,50 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description What the observability stack's logs (HyperDX's ClickHouse) show about
+   * one registered app lately: line, error and warning counts in total,
+   * per service and per five minutes, and the errors and warnings that
+   * repeat. The repeated ones are returned as patterns only: redacted
+   * (passwords, tokens, keys, emails and long token-like strings are
+   * hidden) and with numbers and ids folded away. An ordinary log line is
+   * never returned. Redaction cannot know every secret.
+   *
+   * A service belongs to the app when its name is the app's or starts with
+   * `<app>-`, unless it belongs to another registered app whose name starts
+   * with `<app>-` (the services of `moimroom-mig` are not `moimroom`'s).
+   * Without PLATFORM_AIOBS_CLICKHOUSE_URL the server answers 503
+   * `observability_not_configured`; if ClickHouse cannot be read, 502
+   * `observability_unavailable`.
+   *
+   * Roles: viewer, agent, operator.
+   */
+  getAppObservability: {
+    parameters: {
+      query?: {
+        /** @description how far back to read */
+        minutes?: number;
+      };
+      path: {
+        name: string;
+      };
+    };
+    responses: {
+      /** @description The summary. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AppObservation"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      502: components["responses"]["BadGateway"];
+      503: components["responses"]["Unavailable"];
       default: components["responses"]["Internal"];
     };
   };
@@ -5609,6 +6764,43 @@ export interface operations {
     };
   };
   /**
+   * @description Read app-bound Langfuse generation metadata. Viewer, agent and operator.
+   * Only registered apps are answered. Server configuration binds each app
+   * to a project and an exact generation metadata key whose value is the
+   * registered app name. Caller-provided projects, URLs and filters are rejected.
+   * Public/secret project keys stay in mounted server files.
+   * Source status distinguishes missing setup, unmapped scope, unsupported
+   * version/API, collection failure and no scoped observation. None proves no AI.
+   * At most 100 generations are sampled; counts and metrics describe that
+   * sample, not all calls in the window. Missing metrics are null. Summary
+   * latencyMillis is the sample mean, only when every duration is known.
+   * Prompts, inputs, outputs, arbitrary metadata and provider error text are
+   * never returned. Langfuse v3/v4 health selects its supported read API.
+   */
+  getAppLLMObservability: {
+    parameters: {
+      query?: {
+        minutes?: number;
+      };
+      path: {
+        name: string;
+      };
+    };
+    responses: {
+      /** @description Langfuse source state and the bounded generation sample. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["LLMObservability"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
    * @description What the AI runner (hopai) did lately, read from the observability
    * stack's ClickHouse (the HyperDX store): the model it asked, the
    * read-only tools the model requested, the sandbox steps and rehearsal
@@ -5620,32 +6812,6 @@ export interface operations {
    *
    * Roles: viewer, agent, operator.
    */
-  getAppObservability: {
-    parameters: {
-      query?: {
-        /** @description how far back to read */
-        minutes?: number;
-      };
-      path: {
-        name: string;
-      };
-    };
-    responses: {
-      /** @description The summary. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["AppObservation"];
-        };
-      };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthorized"];
-      403: components["responses"]["Forbidden"];
-      404: components["responses"]["NotFound"];
-      502: components["responses"]["BadGateway"];
-      503: components["responses"]["Unavailable"];
-      default: components["responses"]["Internal"];
-    };
-  };
   getAIActivity: {
     parameters: {
       query?: {
@@ -5702,9 +6868,12 @@ export interface operations {
    * @description Start the AI runner for one app and route, so nobody runs hopai by
    * hand. The app and both environments must be in the server's
    * configuration (`GET /v1/apps`). One run per app at a time: a second
-   * one while the first is running answers 409 `ai_run_active`. Without a
-   * configured Job template (PLATFORM_AIRUN_JOB_TEMPLATE) the server
-   * answers 503 `ai_runner_not_configured`.
+   * one while the first is running answers 409 `ai_run_active`. An app
+   * without a database (`resources.postgres` false) answers 409
+   * `no_database`: the runner plans database moves, so draft and submit
+   * its plan directly (ADR 0049). Without a configured Job template
+   * (PLATFORM_AIRUN_JOB_TEMPLATE) the server answers 503
+   * `ai_runner_not_configured`.
    *
    * Roles: operator.
    */
@@ -6598,6 +7767,355 @@ export interface operations {
       };
       413: components["responses"]["TooLarge"];
       503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Every onboarding, newest first, done ones included.
+   *
+   * Roles: viewer, agent, operator.
+   */
+  listOnboardings: {
+    responses: {
+      /** @description The onboardings. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["OnboardingList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Start onboarding an app that runs outside the platform, with docker
+   * compose on one VM (ADR 0042). The platform reads GitHub, DNS, the
+   * cloud, the VM and its database (`discovering`), has hopai write a
+   * contract branch and opens a PR (`patching`), deploys the PR branch
+   * as a temporary app (`checking`) and waits for an operator's approval
+   * (`awaiting_approval`). Only after the approval does it change the
+   * source VM and database (`connecting`), then registers the app with
+   * its database a replica of the source (`registering`, `syncing`)
+   * until `ready`, when `POST /v1/onboardings/{id}/cutover` moves it.
+   * The steps are in `GET /v1/onboardings/{id}/events`.
+   *
+   * The app's name is the service address's label, so the address must
+   * be `https://<label>.<app domain>`. Without `targetEnv` the target is
+   * the environment of the VM's cloud (`eks` for AWS, `gke` for GCP).
+   *
+   * The feature is off unless the server runs with
+   * PLATFORM_ONBOARDING=1; the routes are not there then (404). While
+   * it is being built every onboarding endpoint answers 501
+   * not_implemented.
+   *
+   * Error codes: invalid_request (400: `repo` is not owner/name, or
+   * `serviceUrl` is not `https://<label>.<app domain>`), env_not_found
+   * (404: `targetEnv`), app_exists (409: an app of that name is
+   * registered), onboarding_exists (409: the app has an onboarding that
+   * is not done), github_not_configured (503), secrets_not_configured
+   * (503), not_implemented (501). Role operator.
+   *
+   * While an app name has an onboarding that is not done, these answer
+   * 409 onboarding_exists for that name: `POST /v1/apps`, `DELETE
+   * /v1/apps/{name}`, `POST /v1/apps/{name}/environments`, `DELETE
+   * /v1/apps/{name}/environments/{env}`, and plans (`POST /v1/plans`,
+   * `POST /v1/plans/draft`, `POST /v1/migrations`) of the app's database
+   * pair; the onboarding's own cutover plan is the exception. `POST
+   * /v1/apps` also refuses names starting with `onb-`, the test apps'.
+   */
+  startOnboarding: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["OnboardingRequest"];
+      };
+    };
+    responses: {
+      /** @description Started; discovery runs in the background. */
+      202: {
+        headers: {
+          /** @description /v1/onboardings/{id} */
+          Location?: string;
+        };
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
+      503: components["responses"]["Unavailable"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description One onboarding: its state, the facts summary, the report, the PR,
+   * the test deployment, what was added to the source and what a person
+   * has to do. Error codes: onboarding_not_found (404).
+   *
+   * Roles: viewer, agent, operator.
+   */
+  getOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description The onboarding. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Stop and remove an onboarding. The hopai Job and the temporary app
+   * are always stopped and deleted first. Then, by state:
+   *
+   * - Up to `awaiting_approval` (or `failed` in one of them): the PR is
+   *   closed and the onboarding deleted.
+   * - From `connecting` to `ready` (or `failed` in one of them): every
+   *   `legacyChanges` entry is undone in reverse order, the gateway app
+   *   and the registered app are deleted, then the onboarding. A merged
+   *   PR stays merged.
+   * - From `cutting_over` on, and `failed` in `cutting_over` or
+   *   `decommissioning`: refused.
+   *
+   * The answer comes at once with `deleting` true; the onboarding is
+   * gone when `GET /v1/onboardings/{id}` answers 404. A step that fails
+   * sets `failure` and leaves the onboarding with `deleting` true, and
+   * only DELETE is accepted then: it tries again. Error codes:
+   * onboarding_not_found (404), onboarding_state_conflict (409:
+   * `cutting_over` or later, or `failed` in them), onboarding_deleting
+   * (409: a deletion is running; one that failed is retried),
+   * not_implemented (501). Role operator.
+   */
+  deleteOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description Being deleted. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Server-Sent Events, with the same contract as a deployment's events.
+   *
+   * - The first message is `snapshot` (data: `Onboarding`). Snapshots
+   *   carry no SSE id.
+   * - Then every `OnboardingEvent`, with its `kind` as the SSE event
+   *   name and its `seq` as the SSE id. Every change of the onboarding
+   *   (state, report, human actions, legacy changes) also sends a new
+   *   `snapshot`.
+   * - When the onboarding is `done`, or deleted: a final `snapshot` (for
+   *   a deletion, the last one before it), then the stream closes.
+   *   Otherwise it stays open, `failed` included, with `: keep-alive`
+   *   comments.
+   *
+   * Reconnect with `Last-Event-ID` (or `?after=`) to replay the events
+   * missed. Error codes: onboarding_not_found (404).
+   *
+   * Roles: viewer, agent, operator.
+   */
+  streamOnboardingEvents: {
+    parameters: {
+      query?: {
+        /** @description Replay events with seq greater than this. Same as Last-Event-ID. */
+        after?: number;
+      };
+      header?: {
+        "Last-Event-ID"?: string;
+      };
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description An event stream. */
+      200: {
+        content: {
+          "text/event-stream": string;
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Approve the PR and what will be added to the source, in
+   * `awaiting_approval` only. `headSha` is the PR head the operator
+   * reviewed (`pr.headSha`). When the PR's head is another commit, or
+   * the PR is not up to date with the default branch, the answer is 409
+   * pr_head_mismatch and the platform makes the branch again and tests
+   * it again (`patching`). Once approved the onboarding goes to
+   * `connecting`, which disables the source's deploy workflows: the
+   * source is not deployed again until it is decommissioned.
+   *
+   * Error codes: invalid_request (400: no `headSha`),
+   * onboarding_not_found (404), onboarding_state_conflict (409: not
+   * `awaiting_approval`), pr_head_mismatch (409), github_unreachable
+   * (502), not_implemented (501). Role operator.
+   */
+  approveOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["OnboardingApproveRequest"];
+      };
+    };
+    responses: {
+      /** @description Approved; connecting runs in the background. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
+      502: components["responses"]["BadGateway"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Move the app to the platform, in `ready` only: the platform submits
+   * and starts the onboarding's own migration plan (external source,
+   * cold target app) and keeps its run id in `runId`; the run is in
+   * `GET /v1/migrations/{runId}`, without a rollback. The plan is
+   * reserved by the platform itself, not through `POST /v1/plans`, and
+   * shows in `GET /v1/plans` with the id `<onboarding id>-<attempt>`.
+   *
+   * How the run ends moves the onboarding:
+   *
+   * - succeeded: `decommissioning`.
+   * - rolled back or cancelled before the promotion (the source took the
+   *   writes back): `ready` again, so the operator can cut over again
+   *   with the next attempt.
+   * - halted after the promotion: it stays `cutting_over`; the run goes
+   *   on with `POST /v1/migrations/{runId}/resume`.
+   * - refused before a run started (the plan's gates): `failed` with
+   *   `failedState` `cutting_over`; resume goes back to `ready`.
+   *
+   * Error codes: onboarding_not_found (404), onboarding_state_conflict
+   * (409: not `ready`), onboarding_deleting (409), cluster_busy (409),
+   * not_implemented (501). Role operator.
+   */
+  cutOverOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description The run started. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Confirm stopping the source VM, in `decommissioning` only, after the
+   * legacy backend left the gateway and the tailnet device and route
+   * were removed. The platform stops (never terminates) the tagged
+   * instance and the onboarding is `done`. The disk and the source
+   * bucket stay for the operator to delete in the cloud.
+   *
+   * Error codes: onboarding_not_found (404), onboarding_state_conflict
+   * (409: not `decommissioning`, or the earlier steps of it are not
+   * finished), not_implemented (501). Role operator.
+   */
+  decommissionOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description Stopping the instance. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
+      default: components["responses"]["Internal"];
+    };
+  };
+  /**
+   * @description Check again and carry on: from `failed` it goes back to
+   * `failedState`; in a state waiting for a person (a `humanActions`
+   * entry not done, such as installing the GitHub App or deleting the
+   * DNS record) it checks again now instead of at the next poll. A
+   * failed cutover run is resumed through the run (`POST
+   * /v1/migrations/{runId}/resume`), not here. `failed` in `cutting_over`
+   * (the run never started) goes back to `ready`, not to `cutting_over`.
+   *
+   * Error codes: onboarding_not_found (404), onboarding_state_conflict
+   * (409: neither failed nor waiting for a person), onboarding_deleting
+   * (409: `deleting` is true), not_implemented (501). Role operator.
+   */
+  resumeOnboarding: {
+    parameters: {
+      path: {
+        id: components["parameters"]["OnboardingId"];
+      };
+    };
+    responses: {
+      /** @description Resumed. */
+      202: {
+        content: {
+          "application/json": components["schemas"]["Onboarding"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      501: components["responses"]["NotImplemented"];
       default: components["responses"]["Internal"];
     };
   };

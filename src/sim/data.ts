@@ -48,6 +48,13 @@ export const SAMPLE = {
   tables: 5,
 };
 
+// The demo's app without a database or files, after docker-doom (a static web game in one container): it migrates with
+// the gateway route only, without the AI plan, the rehearsal, the database pair or a bucket (platform ADR 0018).
+export const STATELESS_SAMPLE = {
+  id: "docker-doom",
+  namespace: "docker-doom",
+};
+
 // The platform names an app's bucket <bucketPrefix><instance> (platform ADR 0016), and eks's prefix is hopcharlie-eks-.
 // MOCK: gke와 k3s는 플랫폼이 아직 접두어를 정하지 않아 eks와 같은 모양으로 지어 둔 이름이다.
 const BUCKET_REMOTE: Record<EnvKey, string> = { aws: "s3:hopcharlie-eks-", gcp: "gcs:hopcharlie-gke-", onprem: "minio:hopcharlie-k3s-" };

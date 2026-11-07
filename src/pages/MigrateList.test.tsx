@@ -11,7 +11,7 @@ it("lists every migration candidate and does not copy the selected app's plan or
   const plansReady = new Promise<void>(resolve => { releasePlans = resolve; });
   const databaseApp: App = {
     name: "moimroom-mig", namespace: "moimroom-mig",
-    database: { name: "app", user: "app", schemas: [] },
+    database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: ["gke", "eks"].map((env) => ({ env, cnpgCluster: "db", dbHost: "db-" + env })),
   };
   const doom: App = {
