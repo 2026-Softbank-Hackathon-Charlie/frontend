@@ -325,7 +325,7 @@ describe("HopCharlie console (platform API)", () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
     await logInAs(user);
-    expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     window.location.hash = "#migrate-shop";
     expect(await screen.findByText(/Plan pln_1 \(revision 3\)을 승인할까요\?/)).toBeInTheDocument();
     const startCall = async () => {
@@ -711,7 +711,7 @@ describe("mode choice and login", () => {
     const { user } = setup("", "live");
     await logInAs(user, "s3cret");
 
-    expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     const header = screen.getByRole("banner");
     expect(within(header).getByText("admin")).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
@@ -809,7 +809,7 @@ describe("mode choice and login", () => {
     expect(localStorage.getItem("hopcharlie.session")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     expect(within(screen.getByRole("banner")).getByText("admin")).toBeInTheDocument();
   });
 
@@ -817,7 +817,7 @@ describe("mode choice and login", () => {
     installFetch(notFound);
     storeSession();
     setup("", "live");
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     cleanup();
 
     storeSession(new Date(Date.now() - 1000).toISOString());
@@ -846,7 +846,7 @@ describe("mode choice and login", () => {
     installFetch(notFound);
     storeSession(new Date(Date.now() + 300).toISOString());
     setup("", "live");
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     expect(await screen.findByText("세션이 만료되었습니다. 다시 로그인하세요", undefined, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
     expect(localStorage.getItem("hopcharlie.session")).toBeNull();
@@ -871,7 +871,7 @@ describe("mode choice and login", () => {
     const { user } = setup("", "demo");
     vi.spyOn(Date, "now").mockReturnValue(later);
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
-    expect(screen.queryByText(/실제 플랫폼 API/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "로그아웃" })).not.toBeInTheDocument();
     expect(screen.getByText("세션이 만료되었습니다. 다시 로그인하세요")).toBeInTheDocument();
   });
 
@@ -888,7 +888,7 @@ describe("mode choice and login", () => {
 
     await user.click(screen.getByRole("button", { name: "일반 모드로 전환" }));
     await logInAs(user);
-    expect(await screen.findByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
   });
@@ -1085,7 +1085,7 @@ describe("CLI login approval (#device)", () => {
     installFetch(route());
     setup("#device", "demo");
     expect(await screen.findByRole("heading", { level: 1, name: "CLI 연결" })).toBeInTheDocument();
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     expect(localStorage.getItem("hopcharlie.mode")).toBe("live");
   });
 });
@@ -1110,7 +1110,7 @@ describe("several tabs", () => {
     localStorage.setItem(KEY, JSON.stringify(s1));
     installFetch(notFound);
     setup("", "live");
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     otherTab(null);
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
     expect(screen.queryByText(/세션이 만료되었습니다/)).not.toBeInTheDocument();
@@ -1121,7 +1121,7 @@ describe("several tabs", () => {
     setup("", "live");
     expect(screen.getByRole("form", { name: "관리자 로그인" })).toBeInTheDocument();
     otherTab(JSON.stringify(s2));
-    expect(screen.getByText(/실제 플랫폼 API/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
     expect(within(screen.getByRole("banner")).getByText("admin2")).toBeInTheDocument();
   });
 

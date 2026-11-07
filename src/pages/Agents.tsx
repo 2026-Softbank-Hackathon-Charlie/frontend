@@ -8,8 +8,6 @@ import { fmt } from "../sim/format";
 import { allSessions } from "../sim/mig";
 import { useSim } from "../sim/store";
 
-const SUB = "AI가 한 일을 모두 기록합니다: 도구 호출과 결과, 막힌 명령, 결정. AI는 운영 클러스터를 바꾸지 않고, 실행은 승인된 Plan으로 엔진만 합니다.";
-
 export function Agents() {
   return useLive() ? <LiveAgents /> : <SimAgents />;
 }
@@ -60,7 +58,7 @@ function AgentsView({
   const tokens = sessions.reduce((a, s) => [a[0] + s.totals.inputTokens, a[1] + s.totals.outputTokens], [0, 0]);
   return (
     <div className="page">
-      <PageHead icon="bot" title="AI 활동" sub={SUB} />
+      <PageHead icon="bot" title="AI 활동" />
       {error ? (
         <LoadError title="AI 세션을 불러오지 못했습니다." error={error} retry={retry} />
       ) : loading ? (
