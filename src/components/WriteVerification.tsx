@@ -6,6 +6,18 @@ import "../styles/write-verification.css";
 
 export type WriteVerificationRecord = WriteVerificationData;
 
+/** Configuration visible before approval is not a measured verification result. */
+export function PlanWriteVerification({ configured }: { configured?: boolean }) {
+  return <section className="write-verification" aria-label="실행 전 쓰기 검증">
+    <div className="write-verification-heading"><h3>쓰기 누락 검증</h3><Chip kind={configured === true ? "neu" : "warn"}>{configured === true ? "쓰기 기록 연결됨" : configured === false ? "쓰기 기록 미연결" : "쓰기 검증 설정 미확인"}</Chip></div>
+    <p className="hint">{configured === true
+      ? "Plan에 쓰기 기록이 연결돼 있습니다. 실제 검사 기록 수와 누락 결과는 실행 후 확인해야 합니다. 연결만으로 누락 0건을 보장하지 않습니다."
+      : configured === false
+        ? "이 Plan에는 쓰기 기록이 연결되지 않았습니다. 이대로 시작하면 쓰기 누락은 미측정으로 남습니다. 앱의 쓰기 기록 수집을 활성화하고 기록을 받은 뒤 새 Plan을 작성하세요. 기존 Plan은 자동으로 변경되지 않습니다."
+        : "서버가 이 Plan의 쓰기 기록 연결 여부를 제공하지 않습니다. 쓰기 검증 설정을 확인한 뒤 승인하세요."}</p>
+  </section>;
+}
+
 export function writeVerificationOf(result: RunResult): WriteVerificationRecord | undefined {
   return result.writeVerification;
 }
