@@ -25,14 +25,22 @@ function renderer(reduced = false) {
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
-it("renders each major group as a connected circle with its real internal step below", () => {
+it("renders the major title, real internal step and status inside every connected circle", () => {
   const send = renderer(), snap = snapshot(); send(snap);
   const groups = [...new Set(snap.phases.map(phase => phase.group))];
   expect(document.querySelectorAll("#stepsSimple .phase-circle")).toHaveLength(groups.length);
   expect(document.querySelectorAll("#stepsSimple .phase-arrow")).toHaveLength(groups.length - 1);
+  for (const item of document.querySelectorAll("#stepsSimple > li")) {
+    const circle = item.querySelector(".phase-circle")!;
+    expect(circle).toContainElement(item.querySelector(".phase-label"));
+    expect(circle).toContainElement(item.querySelector(".cs"));
+    expect(circle).toContainElement(item.querySelector(".phase-status"));
+    expect(circle).not.toContainElement(item.querySelector(".phase-arrow"));
+  }
   const current = document.querySelector('#stepsSimple [aria-current="step"]')!;
   expect(current.querySelector(".phase-label")).toHaveTextContent(snap.phases[snap.cur].group);
   expect(current.querySelector(".cs")).toHaveTextContent(snap.phases[snap.cur].label);
+  expect(current.querySelector(".phase-circle")).toHaveTextContent(snap.phases[snap.cur].label);
   expect(current).toHaveClass("is-live");
   expect(document.getElementById("kWeights")).toHaveTextContent(snap.kpi.weights);
   expect(document.getElementById("kSync")).toHaveTextContent(snap.kpi.sync[0]);
@@ -48,12 +56,30 @@ it("does not pulse a halted, completed or disconnected last-known position", () 
   }
 });
 
-it("names a real approval wait below its major circle", () => {
+it("names a real approval wait inside its major circle", () => {
   const send = renderer(), snap = snapshot("awaiting_switch"); send(snap);
   const current = document.querySelector('#stepsSimple [aria-current="step"]')!;
   expect(current).toHaveClass("wait", "is-live");
   expect(current.querySelector(".cs")).toHaveTextContent("전환 승인");
   expect(current.querySelector(".phase-status")).toHaveTextContent("대기");
+});
+
+it("preserves complete long Japanese labels and status in accessible circle text", () => {
+  const send = renderer(), snap = snapshot();
+  const label = "移行先のデータベースとストレージの準備状況を確認しています";
+  const group = "データ移行と整合性の確認";
+  const originalGroup = snap.phases[snap.cur].group;
+  for (const phase of snap.phases) if (phase.group === originalGroup) phase.group = group;
+  snap.phases[snap.cur].label = label;
+  send(snap);
+  const current = document.querySelector('#stepsSimple [aria-current="step"]')!;
+  const circle = current.querySelector(".phase-circle")!;
+  expect(circle).toHaveTextContent(label);
+  expect(circle.querySelector(".phase-label")).toHaveTextContent(group);
+  expect(current.getAttribute("aria-label")).toContain(label);
+  expect(circle.getAttribute("title")).toContain(label);
+  expect(html).toMatch(/\.steps\.simple \.phase-circle\{[^}]*width:144px;[^}]*height:144px/);
+  expect(html).toMatch(/\.steps\.simple[^}]*-webkit-line-clamp:2/);
 });
 
 it("keeps the major circles visible with detailed checks and respects reduced motion", () => {
