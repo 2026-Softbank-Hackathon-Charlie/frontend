@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, createOnpremEnrollment, getOnpremEnrollment, revokeOnpremEnrollment } from "../api/client";
+import { ApiError, createOnpremEnrollment, getOnpremEnrollment, newIdempotencyKey, revokeOnpremEnrollment } from "../api/client";
 import type { OnpremCheckId, OnpremEnrollment } from "../api/onprem";
 import { errorText, useAuth } from "../data/live";
 import { Chip, Table, td, type ChipKind } from "./ui";
@@ -40,6 +40,7 @@ export function OnpremEnrollmentPanel({ operator, onClose, onReady, pollMs = 500
   const [installK3s, setInstallK3s] = useState(false);
   const [enrollment, setEnrollment] = useState<OnpremEnrollment>();
   const [issued, setIssued] = useState<{ code: string; installCommand: string }>();
+  const issuance = useRef<{ intent: string; key: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
   const [error, setError] = useState("");
@@ -95,7 +96,9 @@ export function OnpremEnrollmentPanel({ operator, onClose, onReady, pollMs = 500
         if (revoked.status !== "revoked") throw new Error("기존 코드를 폐기하지 못해 새 코드를 발급하지 않았습니다.");
       }
       activeId.current = undefined; setIssued(undefined);
-      const result = await createOnpremEnrollment({ environment, installK3s });
+      const intent = JSON.stringify([environment, installK3s, replace ? enrollment?.id : null]);
+      if (issuance.current?.intent !== intent) issuance.current = { intent, key: newIdempotencyKey() };
+      const result = await createOnpremEnrollment({ environment, installK3s }, issuance.current.key);
       if (!mounted.current || !allowed.current) return;
       if (!validEnrollment(result.enrollment)) throw new Error("서버의 등록 응답을 확인할 수 없습니다.");
       activeId.current = result.enrollment.id; setEnrollment(result.enrollment); setNow(Date.now());
