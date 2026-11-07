@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { Environment, TrafficState } from "../api/types";
+import type { App, Environment, TrafficState } from "../api/types";
 import { fakeRun } from "../api/fakes";
 import { useEnvironments, useTraffic } from "../api/hooks";
 import { createSim, SimProvider } from "../sim/store";
@@ -9,8 +9,9 @@ const state = vi.hoisted(() => ({
   live: false,
   envs: { data: undefined as Environment[] | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
   traffic: { data: undefined as TrafficState | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
+  apps: { data: undefined as App[] | undefined, error: undefined as { message: string } | undefined, loading: true, reload: vi.fn() },
 }));
-vi.mock("../api/hooks", () => ({ useEnvironments: vi.fn(() => state.envs), useTraffic: vi.fn(() => state.traffic) }));
+vi.mock("../api/hooks", () => ({ useEnvironments: vi.fn(() => state.envs), useTraffic: vi.fn(() => state.traffic), useApps: vi.fn(() => state.apps) }));
 vi.mock("../data/live", () => ({ useLive: () => state.live, errorText: (error: { message: string }) => error.message }));
 
 const environment: Environment = {
@@ -33,6 +34,7 @@ beforeEach(() => {
   state.live = false;
   state.envs = { data: undefined, error: undefined, loading: true, reload: vi.fn() };
   state.traffic = { data: undefined, error: undefined, loading: true, reload: vi.fn() };
+  state.apps = { data: undefined, error: undefined, loading: true, reload: vi.fn() };
 });
 
 describe("environment mode parity", () => {
@@ -52,7 +54,7 @@ describe("environment mode parity", () => {
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(demoColumns);
     expect(screen.getByText("API EKS")).toBeInTheDocument();
     expect(useEnvironments).toHaveBeenCalledWith(10_000);
-    expect(useTraffic).toHaveBeenCalledWith(5_000, "1m");
+    expect(useTraffic).toHaveBeenCalledWith(5_000, "1m", undefined, false);
   });
 
   it("shows partial, unreachable and backup states as labelled demo observations", () => {
@@ -131,5 +133,53 @@ describe("environment mode parity", () => {
     expect(state.envs.reload).toHaveBeenCalledOnce();
     expect(state.traffic.reload).toHaveBeenCalledOnce();
     expect(screen.queryByText("AWS EKS")).not.toBeInTheDocument();
+  });
+  describe("live traffic gateway of the registered apps", () => {
+    // an app of the apps file has a gateway of its own; a registered one with no database pair has none
+    const app = (name: string, gateway = true) =>
+      ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: gateway ? [{ env: "eks", cnpgCluster: name + "-db", dbHost: "h" }] : [] }) as App;
+    const live = () => {
+      state.live = true;
+      state.envs = { ...state.envs, data: [environment], loading: false };
+      state.traffic = { ...state.traffic, data: traffic, loading: false };
+    };
+
+    it("reads nothing from the gateway until the app list has answered", () => {
+      live();
+      open();
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", undefined, false);
+    });
+
+    it("reads the first registered app's gateway, not the one without an app, and lets the user pick another app", () => {
+      live();
+      // docker-doom comes first but has no gateway (the platform answers 400 for it), so it is neither read nor offered
+      state.apps = { ...state.apps, data: [app("docker-doom", false), app("moimroom-mig"), app("pxls"), app("board")], loading: false };
+      open();
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", "moimroom-mig", true);
+      const pick = screen.getByRole("combobox", { name: "트래픽을 볼 앱" });
+      expect(within(pick).getAllByRole("option").map((o) => o.textContent)).toEqual(["moimroom-mig", "pxls", "board"]);
+      fireEvent.change(pick, { target: { value: "pxls" } });
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", "pxls", true);
+      expect(screen.getByRole("combobox", { name: "트래픽을 볼 앱" })).toHaveValue("pxls");
+    });
+
+    it("falls back to the gateway without an app when no app is registered, or none has a gateway", () => {
+      live();
+      state.apps = { ...state.apps, data: [], loading: false };
+      open();
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", undefined, true);
+      expect(screen.queryByRole("combobox", { name: "트래픽을 볼 앱" })).not.toBeInTheDocument();
+      state.apps = { ...state.apps, data: [app("docker-doom", false)], loading: false };
+      open();
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", undefined, true);
+    });
+
+    it("says so when the app list cannot be read, and shows the gateway without an app", () => {
+      live();
+      state.apps = { ...state.apps, error: { message: "boom" }, loading: false };
+      open();
+      expect(useTraffic).toHaveBeenLastCalledWith(5_000, "1m", undefined, true);
+      expect(screen.getByText(/앱 목록을 읽지 못해/)).toBeInTheDocument();
+    });
   });
 });

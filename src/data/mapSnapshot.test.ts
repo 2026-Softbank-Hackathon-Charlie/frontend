@@ -1,5 +1,5 @@
 import { at, fakeAgentSession, fakeRun } from "../api/fakes";
-import type { AgentEvent, AIActivity, PlanRecord, Run, RunEvent, TrafficState } from "../api/types";
+import type { AgentEvent, AIActivity, App, Environment, PlanRecord, Run, RunEvent, TrafficState } from "../api/types";
 import { aiFacts, buildMapSnapshot, currentOf } from "./mapSnapshot";
 import type { MigrationView } from "./migration";
 
@@ -145,6 +145,50 @@ describe("migration map snapshot: one map from the setup to the end of the run",
     expect(s.nodes["aws.app"][0]).toBe("idle");
     expect(s.activity).toBe("none");
     expect(s.actions).toEqual([]);
+  });
+
+  describe("setup: what the target already holds", () => {
+    // moimroom-mig runs in gke and eks; its database in gke is a replica; moving eks to gke
+    const status = (env: string, st: "healthy" | "pending" | "degraded" | "failed", sync = "Synced", health = "Healthy") => ({ env, status: st, syncStatus: sync, healthStatus: health });
+    const app = (...status: object[]) => ({ name: "moimroom-mig", namespace: "moimroom-mig", deploy: { instances: [{ name: "moimroom-mig", default: true, status }], status } }) as unknown as App;
+    const env = (name: string, databases?: { namespace: string; name: string; instances: number; readyInstances: number; replica: boolean }[]) =>
+      ({ name, provider: "gcp", displayName: name, kubeContext: name, gatewayBackend: name, live: false, status: { reachable: true, checkedAt: at(0), databases } }) as Environment;
+    const db = { namespace: "moimroom-mig", name: "moimroom-mig-db", instances: 1, readyInstances: 1, replica: true };
+    const setup = (ctx: { app?: App; envs?: Environment[] }) => buildMapSnapshot(view({ app: "moimroom-mig", src: "eks", tgt: "gke" }), { now: Date.parse(at(30)), ...ctx });
+
+    it("shows the app and the database that are already there instead of 배포 전 and 생성 전", () => {
+      const s = setup({ app: app(status("gke", "healthy"), status("eks", "healthy")), envs: [env("gke", [db, { ...db, namespace: "other", name: "other-db" }]), env("eks")] });
+      expect(s.nodes["gcp.app"]).toEqual(["ready", "Synced · Healthy"]);
+      expect(s.nodes["gcp.db"]).toEqual(["ready", "replica · 정상"]);
+      expect(s.nodes["gcp.cluster"][1]).not.toBe("배포 전");
+    });
+
+    it("shows a deployment that is not healthy and a database that is not ready as they are", () => {
+      const s = setup({ app: app(status("gke", "degraded", "Synced", "Degraded")), envs: [env("gke", [{ ...db, readyInstances: 0, replica: false }])] });
+      expect(s.nodes["gcp.app"]).toEqual(["crit", "Synced · Degraded"]);
+      expect(s.nodes["gcp.db"]).toEqual(["busy", "primary · 준비 중 0/1"]);
+      expect(setup({ app: app({ env: "gke", status: "pending" }) }).nodes["gcp.app"]).toEqual(["busy", "배포 대기"]);
+    });
+
+    it("keeps 배포 전 and 생성 전 where the inputs do not say the target has the app or a database", () => {
+      for (const ctx of [
+        {},
+        { app: app(status("eks", "healthy")), envs: [env("gke"), env("eks", [db])] }, // the app is not in gke, and gke has no database of it
+        { app: app(status("eks", "healthy")), envs: [env("gke", [{ ...db, namespace: "other" }])] },
+        { app: { name: "moimroom-mig", namespace: "moimroom-mig", environments: [] } as unknown as App }, // a file app: no deployment record
+      ]) {
+        const s = setup(ctx);
+        expect(s.nodes["gcp.app"]).toEqual(["idle", "배포 전"]);
+        expect(s.nodes["gcp.db"]).toEqual(["idle", "생성 전"]);
+      }
+    });
+
+    it("leaves the source and the other stages alone", () => {
+      const holds = { app: app(status("gke", "healthy")), envs: [env("gke", [db])] };
+      expect(setup(holds).nodes["aws.app"]).toEqual(setup({}).nodes["aws.app"]);
+      const planned = buildMapSnapshot(view({ app: "moimroom-mig", stage: "review", plan: plan() }), { now: Date.parse(at(30)), ...holds });
+      expect(planned.nodes["aws.app"][0]).toBe("plan");
+    });
   });
 
   it("does not invent live traffic before the run: without the gateway the share is unknown, not 0", () => {

@@ -247,6 +247,34 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(within(head()).getByRole("link", { name: "이전" })).toHaveAttribute("href", "#migrate-app?app=moimroom");
   });
 
+  it("says which database is primary now, not the roles it was created with, once a migration swapped them", async () => {
+    // created with gke as primary and eks as the replica; the readiness reads the Clusters as they are: eks primary, gke replica
+    const swapped = appIn(["eks", "gke"], {
+      primary: "gke",
+      replica: "eks",
+      replicaPresent: true,
+      readiness: {
+        ready: true,
+        reason: "ready",
+        message: "ok",
+        environments: [
+          { env: "gke", inApp: true, deployed: true, gatewayBackend: true, role: "replica", healthy: true },
+          { env: "eks", inApp: true, deployed: true, gatewayBackend: true, role: "primary", healthy: true },
+        ],
+      },
+    });
+    setup("#app-moimroom", "live");
+    live(swapped);
+    expect(await screen.findByText("DB는 지금 AWS EKS에서 primary로, GCP GKE에서 그 replica로 있습니다. 두 환경이 모두 준비되면 이전할 수 있습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/태어납니다/)).toBeNull();
+  });
+
+  it("calls the topology the creation roles when the readiness does not tell the roles", async () => {
+    setup("#app-moimroom", "live");
+    live(appIn(["eks", "gke"], { primary: "gke", replica: "eks", replicaPresent: true }));
+    expect(await screen.findByText("DB는 처음 GCP GKE에서 primary로, AWS EKS에서 그 replica로 만들어졌습니다. 이전하면 역할이 서로 바뀝니다. 두 환경이 모두 준비되면 이전할 수 있습니다.")).toBeInTheDocument();
+  });
+
   it("keeps the 이전 link for a server without readiness or replicaPresent", async () => {
     setup("#app-moimroom", "live");
     live(appIn(["eks", "gke"], { primary: "eks", replica: "gke" } as AppDBTopology));
@@ -581,7 +609,8 @@ describe("Japanese", () => {
       "DB 짝이 이전할 준비가 되었는지 확인하는 중입니다",
       "DB 짝이 이전할 준비가 되었는지 읽지 못했습니다. 계획은 만들 수 있고, 플랫폼이 시작할 때 다시 확인합니다",
       "진행 중인 이전 보기",
-      "DB는 AWS EKS에서 primary로, GCP GKE에서 그 replica로 태어납니다. 두 환경이 모두 준비되면 이전할 수 있습니다.",
+      "DB는 지금 AWS EKS에서 primary로, GCP GKE에서 그 replica로 있습니다. 두 환경이 모두 준비되면 이전할 수 있습니다.",
+      "DB는 처음 GCP GKE에서 primary로, AWS EKS에서 그 replica로 만들어졌습니다. 이전하면 역할이 서로 바뀝니다. 두 환경이 모두 준비되면 이전할 수 있습니다.",
       "온프레미스 k3s 환경을 뺐습니다. Argo CD가 그 환경의 네임스페이스와 DB, 파일을 지우고 있습니다.",
       "앱의 모든 인스턴스에서 GCP GKE 환경을 뺍니다. gitops 저장소에서 각 인스턴스의 gke.yaml을 지우고, Argo CD가 이 환경의 네임스페이스와 그 안의 파일(버킷)을 지웁니다. 데이터는 되돌릴 수 없습니다. 다른 환경은 그대로 둡니다.",
       "지금 쓰기를 받는 환경이라 뺄 수 없습니다",

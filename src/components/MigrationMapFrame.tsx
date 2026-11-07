@@ -3,9 +3,9 @@
 // console's simulation, in live mode the platform: plans, AI sessions, the run over SSE and the gateway.
 // The map's buttons come back as {type:"hc-cmd"} and run the same actions as the rest of the page.
 import { useEffect, useRef, useState } from "react";
-import { useAIActivity, useEnvironments, useSourceRetention, useTraffic } from "../api/hooks";
+import { useAIActivity, useApp, useEnvironments, useSourceRetention, useTraffic } from "../api/hooks";
 import { useAuth } from "../data/live";
-import type { AIActivity, Environment, TrafficState } from "../api/types";
+import type { AIActivity, App, Environment, TrafficState } from "../api/types";
 import type { MigrationView } from "../data/migration";
 import { buildMapSnapshot, type MapAction, type MapSnapshot } from "../data/mapSnapshot";
 
@@ -28,13 +28,15 @@ function LiveFrame(p: MapFrameProps) {
   // the migrating app's gateway scope, which its run holds and routes
   const traffic = useTraffic(2000, "30s", p.v.app || undefined);
   const envs = useEnvironments(30000);
+  // what the target environment already runs of the app (its instance status)
+  const app = useApp(p.v.app, 15000);
   // what hopai really did in the last hour, from the observability logs; a 502 or 503 just leaves the numbers out
   const ai = useAIActivity(10000, AI_MINUTES);
   // resume is an operator command (the platform answers 403 to other roles)
   const operator = useAuth().session?.principal.role === "operator";
   const retention = useSourceRetention(p.v.run?.status === "succeeded" ? p.v.run.runId : null);
   const canRollback = p.v.run?.status !== "succeeded" || (!!retention.data && !retention.error && !["deleting", "deleted"].includes(retention.data.job?.status ?? ""));
-  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} ai={ai.error ? undefined : ai.data} canResume={operator} canRollback={canRollback} />;
+  return <MapFrame {...p} traffic={traffic.data} envs={envs.data} app={app.data} ai={ai.error ? undefined : ai.data} canResume={operator} canRollback={canRollback} />;
 }
 
 const RUN: Record<MapAction, (v: MigrationView) => void> = {
@@ -46,13 +48,13 @@ const RUN: Record<MapAction, (v: MigrationView) => void> = {
   reset: (v) => v.reset(),
 };
 
-export function MapFrame({ v, hero, traffic, envs, ai, canResume = true, canRollback = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; ai?: AIActivity; canResume?: boolean; canRollback?: boolean }) {
+export function MapFrame({ v, hero, traffic, envs, app, ai, canResume = true, canRollback = true }: MapFrameProps & { traffic?: TrafficState; envs?: Environment[]; app?: App; ai?: AIActivity; canResume?: boolean; canRollback?: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const pending = useRef(false);
   const [height, setHeight] = useState(1240);
   const [ready, setReady] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const snap = buildMapSnapshot(v, { traffic, envs, now, hero, ai, aiMinutes: AI_MINUTES });
+  const snap = buildMapSnapshot(v, { traffic, envs, app, now, hero, ai, aiMinutes: AI_MINUTES });
   if (!canResume) snap.actions = snap.actions.filter((a) => a.key !== "resume");
   if (!canRollback) snap.actions = snap.actions.filter((a) => a.key !== "rollback");
   const json = JSON.stringify(snap);
