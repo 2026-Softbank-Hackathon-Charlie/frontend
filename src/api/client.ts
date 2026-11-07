@@ -572,11 +572,11 @@ export const getAppSecret = (name: string, secret: string, q: { instance?: strin
 export const listGitHubRepos = (o?: RequestOptions) => request<GitHubRepoList>("GET", "/v1/github/repos", o);
 
 /** Issue one short-lived on-prem enrollment. The server authorizes the operator and generates the command. */
-export const createOnpremEnrollment = (body: OnpremEnrollmentCreateRequest, o?: RequestOptions) =>
-  request<OnpremEnrollmentCreated>("POST", "/v1/onprem/enrollments", { ...o, body });
+export const createOnpremEnrollment = (body: OnpremEnrollmentCreateRequest, idempotencyKey: string, o?: RequestOptions) =>
+  request<OnpremEnrollmentCreated>("POST", "/v1/onprem/enrollments", { ...o, body, headers: { "Idempotency-Key": idempotencyKey } });
 /** Status contains no enrollment code, kubeconfig or long-lived cluster credentials. */
 export const getOnpremEnrollment = (id: string, o?: RequestOptions) =>
-  request<OnpremEnrollment>("GET", `/v1/onprem/enrollments/${seg(id)}`, o);
+  request<{ enrollment: OnpremEnrollment }>("GET", `/v1/onprem/enrollments/${seg(id)}`, o).then((result) => result.enrollment);
 /** Revocation must succeed before the console issues a replacement. */
 export const revokeOnpremEnrollment = (id: string, o?: RequestOptions) =>
-  request<OnpremEnrollment>("POST", `/v1/onprem/enrollments/${seg(id)}/revoke`, o);
+  request<{ enrollment: OnpremEnrollment }>("POST", `/v1/onprem/enrollments/${seg(id)}/revoke`, o).then((result) => result.enrollment);

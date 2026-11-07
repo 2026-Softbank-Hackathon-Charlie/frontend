@@ -11,7 +11,9 @@ function enrollment(status: OnpremEnrollment["status"] = "pending"): OnpremEnrol
   return { id: "enr_test", environment: "edge-01", status, createdAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 900_000).toISOString(), checks: checks.map((id) => ({ id, status: status === "ready" ? "passed" : "pending" })) };
 }
 function json(value: unknown, status = 200) {
-  return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+  // GET and revoke return the server's enrollment envelope, unlike a raw enrollment.
+  const body = value && typeof value === "object" && "id" in value && "environment" in value ? { enrollment: value } : value;
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 function setup() {
   setToken("test-operator-only");
@@ -30,6 +32,7 @@ it("creates through the authenticated API and copies only the server installatio
   const command = "server-issued-install-command --code=ONETIME";
   const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
     expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("Idempotency-Key")).toMatch(/^[A-Za-z0-9-]{16,64}$/);
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer test-operator-only");
     expect(JSON.parse(init?.body as string)).toEqual({ environment: "edge-01", installK3s: false });
     return json({ enrollment: enrollment(), code: "ABCD-EFGH", installCommand: command }, 201);
@@ -46,6 +49,24 @@ it("creates through the authenticated API and copies only the server installatio
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(localStorage.getItem("onprem.enrollment")).toBeNull();
   expect(screen.getByText(/PowerShell에서는 직접 실행할 수 없습니다/)).toBeInTheDocument();
+});
+
+it("reuses the issuance key after network failure and changes it when the install choice changes", async () => {
+  const keys: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    keys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+    throw new TypeError("network failure");
+  }));
+  setup(); const user = await issue();
+  await screen.findByRole("alert");
+  await user.click(screen.getByRole("button", { name: "등록 코드 발급" }));
+  await waitFor(() => expect(keys).toHaveLength(2));
+  expect(keys[0]).toMatch(/^[A-Za-z0-9._:-]{8,128}$/);
+  expect(keys[1]).toBe(keys[0]);
+  await user.click(screen.getByRole("checkbox"));
+  await user.click(screen.getByRole("button", { name: "등록 코드 발급" }));
+  await waitFor(() => expect(keys).toHaveLength(3));
+  expect(keys[2]).not.toBe(keys[0]);
 });
 
 it("does not fabricate codes or installation commands for an unsupported server", async () => {
