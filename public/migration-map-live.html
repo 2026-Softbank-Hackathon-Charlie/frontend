@@ -113,14 +113,15 @@ button.attn{background:var(--st-info);border-color:var(--st-info);color:#fff}
 .stephead .seg button{font-size:13px;padding:3px 12px}
 /* labels wrap inside their own column instead of running into the next step (long Japanese labels too) */
 .steps .nm,.steps .group,.steps .cs{word-break:keep-all;overflow-wrap:anywhere}
-.steps.simple{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(110px,1fr);grid-template-columns:none;gap:22px;padding:4px 4px 8px;min-width:min-content}
+.steps.simple{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(148px,1fr);grid-template-columns:none;gap:28px;padding:4px 4px 8px;min-width:min-content}
 .steps.simple li{position:relative;align-items:center;border:0;background:none;padding:4px 0;gap:5px;text-align:center}
-.steps.simple .phase-circle{width:64px;height:64px;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;border:1.5px solid var(--sb-border-control);color:var(--sb-text-muted);background:var(--sb-canvas);line-height:1.3;flex:none}
+.steps.simple .phase-circle{width:144px;height:144px;box-sizing:border-box;padding:12px;border-radius:50%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;border:1.5px solid var(--sb-border-control);color:var(--sb-text-muted);background:var(--sb-canvas);line-height:1.3;flex:none}
 .steps.simple .phase-number{font:10px var(--font-mono)}
+.steps.simple .phase-label,.steps.simple .cs,.steps.simple .phase-status{width:100%;max-width:112px;flex:none;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;word-break:normal}
 .steps.simple .phase-label{font-size:13px;font-weight:700}
 .steps.simple .phase-status{font-size:10px;color:var(--sb-text-muted);font-family:var(--font-mono)}
-.steps.simple .phase-arrow{position:absolute;top:20px;right:-18px;color:var(--sb-text-muted);font-size:22px;line-height:1}
-.steps.simple .cs{font-size:11px;color:var(--sb-text-muted);line-height:1.45;min-height:32px;width:100%;max-width:160px}
+.steps.simple .phase-arrow{position:absolute;top:calc(50% - 11px);left:calc(100% + 3px);width:22px;color:var(--sb-text-muted);font-size:22px;line-height:1}
+.steps.simple .cs{font-size:11px;color:var(--sb-text-muted);line-height:1.4}
 .steps.simple li.done .phase-circle{color:var(--st-ok);border-color:var(--st-ok);background:var(--st-ok-bg)}
 .steps.simple li.skip .phase-circle{border-style:dashed}
 .steps.simple li.cur .phase-circle{color:var(--st-info);border-color:var(--st-info);--phase-tint:var(--st-info-bg)}
@@ -597,7 +598,7 @@ function buildSteps(s){
   const groups=groupsOf(s);
   groups.forEach((g,gi)=>{
     const li=document.createElement('li');
-    li.innerHTML='<span class="phase-circle" aria-hidden="true"><span class="phase-number"></span><span class="phase-label"></span></span><span class="cs"></span><span class="phase-status"></span>';
+    li.innerHTML='<span class="phase-circle" aria-hidden="true"><span class="phase-number"></span><span class="phase-label"></span><span class="cs"></span><span class="phase-status"></span></span>';
     li.querySelector('.phase-number').textContent = String(gi+1).padStart(2,'0');
     li.querySelector('.phase-label').textContent = g.name;
     if(gi<groups.length-1){const arrow=document.createElement('span');arrow.className='phase-arrow';arrow.setAttribute('aria-hidden','true');arrow.textContent='→';li.appendChild(arrow);}
@@ -706,7 +707,7 @@ function render(s){
     const counts=`완료 ${st.filter(c=>c==='done').length}/${st.length}`;
     let c='', cs='';
     if (past){ c=st.includes('warn')?'warn':st.every(x=>x==='skip')?'skip':'done'; cs=st.includes('warn')?'판단 보류 포함':st.includes('skip')?'건너뜀 포함':'완료'; }
-    else if (at>=0 && st[at]!=='todo'){ c=st[at]; cs=STEP_STATE[c]+' · '+s.phases[s.cur].label; }
+    else if (at>=0 && st[at]!=='todo'){ c=st[at]; cs=STEP_STATE[c]; }
     else if (st.includes('fail')){ c='fail'; cs='실패'; }
     else cs = '시작 전';
     const current=at>=0 && ['cur','wait','fail'].includes(st[at]);
@@ -715,6 +716,7 @@ function render(s){
     li.querySelector('.cs').textContent=focus.label;
     li.querySelector('.phase-status').textContent=counts+' · '+cs;
     li.setAttribute('aria-label',g.name+' · '+focus.label+' · '+counts+' · '+cs);
+    li.querySelector('.phase-circle').title=li.getAttribute('aria-label');
     li.setAttribute('aria-current',current?'step':'false');
   });
   // toolbar: the real commands the state allows
