@@ -226,8 +226,14 @@ function usePreflight(planRef: string | null, runId: string | null, attempt: str
 }
 
 const ACTIVE = new Set(["running", "awaiting_switch"]);
-/** the run statuses the platform counts as a migration in progress (migration_in_progress) */
-const RUN_IN_PROGRESS = new Set(["running", "awaiting_switch", "halted", "interrupted"]);
+/**
+ * Whether the platform counts a run as a migration in progress (migration_in_progress), by the rule POST
+ * /v1/migrations uses to refuse another run: running or awaiting its switch, and not ended. A run that ended halted
+ * (phase done, endedAt) or was interrupted holds no cluster, and a new migration may start.
+ */
+export function runInProgress(r: Run): boolean {
+  return ACTIVE.has(r.status) && !r.endedAt && r.phase !== "done";
+}
 
 /*
  * The AI runner (ai-sandbox hopai) plans before any Plan exists, so its plan session has no planRef.
@@ -363,7 +369,7 @@ const READINESS_REASONS: Record<string, string> = {
   app_degraded:
     "새 환경에서 앱이 Degraded로 실패했습니다. 앱이 시작할 때 DB에 쓰는 것 같습니다(replica DB는 쓰기를 거절합니다). 이런 앱은 엔진의 cold 모드로 옮겨야 합니다",
   deploy_failed: "DB 짝 환경의 배포가 실패했습니다. 배포 이력에서 원인을 확인하고 다시 배포하세요",
-  migration_in_progress: "이 앱의 이전이 진행 중이거나 멈춰 있거나, 게이트웨이가 쓰기를 잡고 있습니다. 그 이전이 끝난 뒤 다음 이전을 할 수 있습니다",
+  migration_in_progress: "이 앱의 이전이 진행 중이거나 게이트웨이가 쓰기를 잡고 있습니다. 그 이전이 끝난 뒤 다음 이전을 할 수 있습니다",
   gateway_unreachable: "트래픽 게이트웨이를 읽지 못해 이전할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 확인합니다",
   gateway_backend_missing: "트래픽 게이트웨이에 두 환경의 백엔드가 모두 있어야 합니다. 배포가 끝나면 등록됩니다",
   cluster_unreadable: "DB 클러스터(CNPG)를 읽지 못했습니다. 잠시 뒤 다시 확인합니다",
@@ -547,7 +553,7 @@ export function useLiveMigration(): MigrationView {
       ? "게이트웨이에서 지금 쓰기를 받는 곳을 읽지 못해 " + (topology ? "DB를 처음 primary로 만든 환경" : "첫 환경") + "을 원본으로 잡았습니다."
       : undefined;
   const target = run?.target.env ?? plan?.summary.target.env ?? (tgt && tgt !== src ? tgt : envs.find((e) => e !== src) ?? "");
-  const myRun = ns ? runs.data?.find((r) => touches(ns, r) && RUN_IN_PROGRESS.has(r.status)) : undefined;
+  const myRun = ns ? runs.data?.find((r) => touches(ns, r) && runInProgress(r)) : undefined;
   // while it loads or when it fails the buttons stay on: the platform checks the pair again at the start
   const pair: PairCheck | undefined =
     choosing && topology

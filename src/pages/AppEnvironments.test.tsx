@@ -5,7 +5,7 @@ import type { App as ApiApp, AppDBReadinessEnvironment, AppDBTopology, AppInstan
 import { App } from "../App";
 import { envErrorText } from "../data/deploy";
 import { initAuth, startSession } from "../data/live";
-import { pairCheck } from "../data/migration";
+import { pairCheck, runInProgress } from "../data/migration";
 import { ApiError } from "../api/client";
 import ja from "../i18n/ja.json";
 import { translateDom } from "../i18n/dom";
@@ -280,11 +280,38 @@ describe("adding and removing an app's environment (platform API)", () => {
   });
 
   it("links the app's migration in progress instead of planning another", async () => {
-    const run = fakeRun({ runId: "run_9", planRef: "pln_9", status: "interrupted", source: { env: "eks", namespace: "moimroom", cluster: "moimroom-db" }, target: { env: "gke", namespace: "moimroom", cluster: "moimroom-db" } });
+    const run = fakeRun({ runId: "run_9", planRef: "pln_9", status: "awaiting_switch", phase: "awaiting_switch", source: { env: "eks", namespace: "moimroom", cluster: "moimroom-db" }, target: { env: "gke", namespace: "moimroom", cluster: "moimroom-db" } });
     await migratePage(pairWith("migration_in_progress"), { runs: [run] });
-    await waitFor(() => expect(box()).toHaveTextContent("이 앱의 이전이 진행 중이거나 멈춰 있거나"));
+    await waitFor(() => expect(box()).toHaveTextContent("이 앱의 이전이 진행 중이거나 게이트웨이가 쓰기를 잡고 있습니다"));
     expect(screen.getByRole("button", { name: /Plan 작성/ })).toBeDisabled();
     expect(within(box()!).getByRole("button", { name: "진행 중인 이전 보기" })).toBeInTheDocument();
+  });
+
+  // the live moimroom-mig keeps an old incident run: halted, phase done, endedAt set; later runs succeeded after it
+  const endedHalted = fakeRun({
+    runId: "moimroom-mig-eks-to-gke-20261107-021354",
+    status: "halted",
+    phase: "done",
+    endedAt: at(30),
+    source: { env: "eks", namespace: "moimroom", cluster: "moimroom-db" },
+    target: { env: "gke", namespace: "moimroom", cluster: "moimroom-db" },
+  });
+
+  it("counts a run in progress by the platform's rule: not ended, running or awaiting its switch", () => {
+    expect(runInProgress(endedHalted)).toBe(false);
+    expect(runInProgress(fakeRun({ status: "interrupted", phase: "cutover" }))).toBe(false);
+    expect(runInProgress(fakeRun({ status: "running", phase: "sync" }))).toBe(true);
+    expect(runInProgress(fakeRun({ status: "awaiting_switch", phase: "awaiting_switch" }))).toBe(true);
+    expect(runInProgress(fakeRun({ status: "running", phase: "done", endedAt: at(9) }))).toBe(false);
+  });
+
+  it("does not hold the plan buttons for a run that ended halted", async () => {
+    // newest first: a later run succeeded, so the page does not open the halted one either
+    const later = fakeRun({ runId: "run_later", status: "succeeded", phase: "done", endedAt: at(50), source: endedHalted.target, target: endedHalted.source });
+    await migratePage(pairWith("migration_in_progress"), { runs: [later, endedHalted] });
+    await waitFor(() => expect(box()).toHaveTextContent("이 앱의 이전이 진행 중이거나 게이트웨이가 쓰기를 잡고 있습니다"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Plan 작성/ })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "진행 중인 이전 보기" })).not.toBeInTheDocument();
   });
 
   it("does not offer to take out the environment that receives the writes, and keeps the replica's DB out of other texts", async () => {

@@ -123,6 +123,7 @@ const ADD_ENV_ERRORS: Record<string, string> = {
     "이 앱의 DB를 이 환경과 짝(primary와 replica)으로 맺을 수 없어 환경을 더할 수 없습니다. 짝 없이 더하면 새 환경의 DB가 따로 태어나 다시는 이전할 수 없습니다. 이 기능 전에 한 환경으로 등록한 postgres 앱이면 앱을 삭제하고 다시 등록하세요",
   storage_not_configured: "앱에 s3 리소스가 있는데 이 환경에는 스토리지 드라이버가 설정되어 있지 않습니다",
   sealing_not_configured: "이 환경에 sealed-secrets 인증서가 없어 시크릿과 DB 비밀번호를 봉인할 수 없습니다",
+  deployment_not_queued: "환경은 앱에 더했지만 배포를 넣지 못했습니다. 같은 환경으로 환경 추가를 다시 누르면 배포만 다시 넣습니다",
 };
 
 /** Korean texts for DELETE /v1/apps/{name}/environments/{env} (ADR 0037). */

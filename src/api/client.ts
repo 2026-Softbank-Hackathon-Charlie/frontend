@@ -518,8 +518,9 @@ export const deleteAppInstance = (name: string, instance: string, o?: RequestOpt
  * (trigger environment) to all of the app's environments, without a build. 409 environment_exists,
  * deployment_in_progress, migration_in_progress, nothing_to_redeploy, db_pair_unavailable, app_not_registered,
  * environment_cleanup_pending (a removed environment Argo CD is still deleting), app_changed; 404 env_not_found;
- * 502/503 environment_cleanup_unknown; 503 storage_not_configured, sealing_not_configured. Sending it again for an
- * environment whose deployment failed deploys it again (202). Role operator.
+ * 502/503 environment_cleanup_unknown; 503 storage_not_configured, sealing_not_configured; 500 deployment_not_queued
+ * (the environment was added, its deployment was not). Sending it again for an environment whose deployment failed
+ * or was not queued deploys it again (202). Role operator.
  */
 export const addAppEnvironment = (name: string, req: AppEnvironmentAddRequest, o?: RequestOptions) =>
   request<AppEnvironmentAdded>("POST", `/v1/apps/${seg(name)}/environments`, { ...o, body: req });
