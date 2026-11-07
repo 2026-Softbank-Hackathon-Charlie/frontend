@@ -79,11 +79,11 @@ describe("overview (platform API)", () => {
 
     // a failure on onprem shows on its chip; a file app is only registered, not healthy
     const board = (await screen.findByRole("link", { name: "board" })).closest("tr") as HTMLElement;
-    expect(within(board).getByTitle("온프레미스 k3s 실패")).toHaveClass("bad");
+    expect(within(board).getByTitle("온프레미스 실패")).toHaveClass("bad");
     expect(within(board).getByTitle("AWS EKS 정상")).toHaveClass("ok");
     expect(within(board).getByTitle("GCP GKE 그 환경에 없음")).toHaveClass("off");
     const moimroom = screen.getByRole("link", { name: "moimroom" }).closest("tr") as HTMLElement;
-    for (const name of ["AWS EKS", "GCP GKE", "온프레미스 k3s"]) expect(within(moimroom).getByTitle(name + " 등록됨, 상태 모름")).toHaveAttribute("class", "chip");
+    for (const name of ["AWS EKS", "GCP GKE", "온프레미스"]) expect(within(moimroom).getByTitle(name + " 등록됨, 상태 모름")).toHaveAttribute("class", "chip");
 
     // the run in progress needs a look; a run that ended two days ago does not
     const now = screen.getByRole("heading", { name: "지금 볼 것" }).closest("section") as HTMLElement;
