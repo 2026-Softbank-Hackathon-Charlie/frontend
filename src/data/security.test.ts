@@ -1,4 +1,4 @@
-import type { SecurityReport } from "../api/types";
+import type { Environment, SecurityReport } from "../api/types";
 import { controlCounts, environmentLabel, filterControls, filterVulnerabilities, securityData, summarizeVulnerabilities, type ControlEvaluation, type VulnerabilityFinding } from "./security";
 
 const control = (id: string, status: ControlEvaluation["status"], environment: ControlEvaluation["environment"] = "eks", app?: string): ControlEvaluation => ({
@@ -39,8 +39,16 @@ describe("security scope and denominators", () => {
   });
 
   it("does not display advisories whose image has no occurrence in the selected scope", () => {
-    expect(filterVulnerabilities([vulnerability("one")], "k3s", "all")).toEqual([]);
+    expect(filterVulnerabilities([vulnerability("one")], "k3s", null)).toEqual([]);
     expect(filterVulnerabilities([vulnerability("one")], "all", "platform")).toEqual([]);
+  });
+
+  it("distinguishes the app named all from the unscoped app filter", () => {
+    const rows = [vulnerability("one"), vulnerability("two", { occurrences: [
+      { environment: "eks", app: "all", workload: "Deployment/all", namespace: "all", running: true },
+    ] })];
+    expect(filterVulnerabilities(rows, "eks", "all").map((row) => row.id)).toEqual(["two"]);
+    expect(filterVulnerabilities(rows, "eks", null)).toEqual(rows);
   });
 
   it("counts advisory IDs, image digests, running workload identities and package occurrences separately", () => {
@@ -92,9 +100,36 @@ describe("live security report adapter", () => {
 
   it("keeps account, custom and storage-only environments without inventing clusters", () => {
     const data = securityData(report);
-    expect(data.environments.map((e) => e.id)).toEqual(["aws-account", "edge-02", "storage-only"]);
+    expect(data.environments.map(({ id, scope }) => [id, scope])).toEqual([
+      ["aws-account", "account"], ["edge-02", "other"], ["storage-only", "other"],
+    ]);
     expect(data.environments[1].label).toBe("edge-02");
     expect(data.storageKeys).toEqual(report.storageKeys);
+  });
+
+  it("keeps reported scopes when the registry response is not an array", () => {
+    expect(securityData(report, { environments: {} as never }).environments).toEqual(securityData(report).environments);
+  });
+
+  it("uses registered cluster names and keeps account and unregistered scopes separate", () => {
+    const registered = (name: string, displayName: string, provider: Environment["provider"]): Environment => ({
+      name, displayName, provider, kubeContext: name, gatewayBackend: name, live: false,
+      status: { reachable: true, checkedAt: report.generatedAt },
+    });
+    const data = securityData({
+      ...report,
+      sources: [
+        ...report.sources,
+        { name: "cloudflare", provider: "cloudflare", environment: "cloudflare-account", status: "not_configured", checkedAt: report.generatedAt, findings: 0 },
+      ],
+    }, { environments: [registered("gce-k3s", "GCE k3s", "gcp"), registered("edge-02", "On-prem k3s", "onprem")] });
+    expect(data.environments.map(({ id, label, scope }) => [id, label, scope])).toEqual([
+      ["gce-k3s", "GCE k3s", "cluster"],
+      ["edge-02", "On-prem k3s", "cluster"],
+      ["aws-account", "AWS Cloud", "account"],
+      ["cloudflare-account", "Cloudflare", "account"],
+      ["storage-only", "storage-only", "other"],
+    ]);
   });
 
   it("preserves original findings without inventing app or official-control mappings", () => {

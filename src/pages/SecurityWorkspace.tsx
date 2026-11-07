@@ -22,6 +22,10 @@ const TABS = [
   { id: "overview", label: "개요" }, { id: "controls", label: "통제 점검" }, { id: "vulnerabilities", label: "취약점" },
   { id: "findings", label: "발견 항목" }, { id: "sources", label: "수집 상태" }, { id: "ocsf", label: "OCSF 내보내기" },
 ];
+const SCOPE_GROUPS = [
+  ["cluster", "클러스터"], ["account", "계정·프로젝트·플랫폼"], ["other", "기타 관측 범위"],
+] as const;
+const scopeOptions = (environments: SecurityDataset["environments"]) => environments.map((env) => <option key={env.id} value={env.id}>{env.label}</option>);
 const SEVERITY: Record<SecuritySeverity, [string, ChipKind]> = {
   critical: ["치명", "bad"], high: ["높음", "bad"], medium: ["중간", "warn"], low: ["낮음", ""], info: ["정보", ""], unknown: ["미확인", ""],
 };
@@ -179,8 +183,9 @@ function Unavailable({ kind, reason, observation }: { kind: "통제 평가" | "�
 export function SecurityWorkspace({ route, data, loading = false, error, reload }: { route: string; data: SecurityDataset; loading?: boolean; error?: string; reload?: () => void }) {
   const [, segment = "overview", itemId] = route.split("/");
   const tab = segment as Tab;
-  const [environment, setEnvironment] = useState<Scope>("all");
-  const [app, setApp] = useState("all");
+  const live = data.mode === "live";
+  const [selectedEnvironment, setEnvironment] = useState<Scope>("all");
+  const [selectedApp, setApp] = useState<string | null>(null);
   const [controlSearch, setControlSearch] = useState("");
   const [controlStatus, setControlStatus] = useState("all");
   const [domain, setDomain] = useState("all");
@@ -195,10 +200,20 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const [findingCategory, setFindingCategory] = useState("all");
   const focusRef = useRef<HTMLHeadingElement>(null);
   const previousDetail = useRef<{ id: string; tab: Tab; scroll: number } | null>(null);
-  const controls = filterControls(data.controls ?? [], environment, app);
+  const appHintId = useId();
+  const showApp = !live || tab === "vulnerabilities";
+  const environment = data.environments.some((env) => env.id === selectedEnvironment) ? selectedEnvironment : "all";
+  const environmentImages = data.runningImages?.filter((r) => environment === "all" || r.environment === environment);
+  const apps = live ? unique(environmentImages?.flatMap((r) => r.app ? [r.app] : []) ?? []).sort() : data.apps;
+  const appAvailable = live ? apps.length > 0 : data.appFilterAvailable;
+  const appInScope = selectedEnvironment === environment && selectedApp !== null && apps.includes(selectedApp);
+  const app = showApp && appInScope ? selectedApp : null;
+  const demoApp = live ? "all" : app ?? "all";
+  const allAppsValue = live ? "" : "all";
+  const controls = filterControls(data.controls ?? [], environment, demoApp);
   const vulnerabilities = filterVulnerabilities(data.vulnerabilities ?? [], environment, app);
-  const scopedImages = data.runningImages?.filter((r) => environment === "all" || r.environment === environment);
-  const missingScopeScans = data.mode === "live" && !!scopedImages && !scopedImages.some((r) => r.scanState === "scanned");
+  const scopedImages = app === null ? environmentImages : environmentImages?.filter((r) => r.app === app);
+  const missingScopeScans = live && !!scopedImages && !scopedImages.some((r) => r.scanState === "scanned");
   const vulnerabilitiesAvailable = data.vulnerabilities !== null && !missingScopeScans;
   const controlObservation = data.observations?.controls;
   const vulnerabilityObservation = data.observations?.vulnerabilities;
@@ -210,19 +225,27 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
   const controlScopeState = controls.length > 0 && controls.every((c) => c.status === "not_applicable") ? "해당 없음"
     : allUnsupported ? "미지원" : controlObservation?.state === "observed" ? "미관측" : controlState;
   const vulnerabilityState = missingScopeScans && vulnerabilityObservation?.state === "observed" ? "미관측" : OBSERVATION_LABEL[vulnerabilityObservation?.state ?? "unobserved"];
-  const scopeScanReason = missingScopeScans && data.vulnerabilities !== null ? "선택한 환경에서 성공한 컨테이너 스캔을 관측하지 못했습니다. 다른 환경의 스캔으로 취약점 0건을 추정하지 않습니다." : data.unavailable?.vulnerabilities;
-  const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (app === "all" || f.app === app));
+  const scopeScanReason = missingScopeScans && data.vulnerabilities !== null
+    ? app === null
+      ? "선택한 환경에서 성공한 컨테이너 스캔을 관측하지 못했습니다. 다른 환경의 스캔으로 취약점 0건을 추정하지 않습니다."
+      : "선택한 앱에서 성공한 컨테이너 스캔을 관측하지 못했습니다. 미검사·실패 상태는 실행 컨테이너 목록에서 확인할 수 있습니다."
+    : data.unavailable?.vulnerabilities;
+  const findings = data.findings.filter((f) => (environment === "all" || f.environment === environment) && (demoApp === "all" || f.app === demoApp));
   const sources = data.sources.filter((s) => environment === "all" || s.environment === environment);
   const missingSources = sources.filter((s) => s.status !== "ok" && s.status !== "idle");
   const counts = controlCounts(controls);
   const summary = summarizeVulnerabilities(vulnerabilities);
-  const apps = data.apps;
   const activeControls = controls.filter((c) => matches(controlSearch, c.title, c.controlId) && (controlStatus === "all" || c.status === controlStatus) && (domain === "all" || c.domain === domain));
   const activeVulnerabilities = vulnerabilities.filter((v) => matches(vulnSearch, v.advisory, v.package, v.installedVersion) && (vulnSeverity === "all" || v.severity === vulnSeverity) && (vulnKev === "all" || (vulnKev === "yes" ? v.kev === true : v.kev === null && v.kevState !== "no_cve")) && exceptionShown(vulnException, v.exception));
   const vulnerabilityGroups = sortByPriority(groupVulnerabilities(activeVulnerabilities));
   const selectedControl = tab === "controls" ? controls.find((c) => c.id === itemId) : undefined;
   const selectedVulnerability = tab === "vulnerabilities" ? vulnerabilities.find((v) => v.id === itemId) : undefined;
   const selectedFinding = tab === "findings" ? findings.find((f) => f.id === itemId) : undefined;
+
+  useEffect(() => {
+    if (selectedEnvironment !== environment) setEnvironment(environment);
+    if (selectedApp !== null && !appInScope) setApp(null);
+  }, [selectedEnvironment, environment, selectedApp, appInScope]);
 
   useEffect(() => {
     if (itemId) {
@@ -244,16 +267,30 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
     <div className="sp-preview-note"><Chip kind={data.mode === "demo" ? "run" : ""}>{data.mode === "demo" ? "데모 보안 데이터" : "플랫폼 API 데이터"}</Chip><span>{data.mode === "demo" ? "통제·CVE·자산 관계는 설명을 위한 시연 데이터이며 실제 인프라 점검 결과가 아닙니다." : "수집된 신호와 API별 관측 상태를 표시합니다. 수집 성공은 개별 통제 통과를 뜻하지 않습니다."}</span></div>
 
     <div className="sp-scope">
-      <div className="sp-scope-fields"><label>환경<select aria-label="보안 환경" value={environment} onChange={(e) => setEnvironment(e.target.value as Scope)}><option value="all">전체 환경</option>{data.environments.map((env) => <option key={env.id} value={env.id}>{env.label}</option>)}</select></label>
-      <label>앱<select aria-label="보안 앱" disabled={!data.appFilterAvailable} title={!data.appFilterAvailable ? "현재 API가 발견 항목과 앱의 관계를 제공하지 않습니다." : undefined} value={app} onChange={(e) => setApp(e.target.value)}><option value="all">전체 앱 · 계정 포함</option>{apps.map((name) => <option key={name}>{name}</option>)}</select></label>
-      {(environment !== "all" || app !== "all") && <button type="button" className="linkbtn" onClick={() => { setEnvironment("all"); setApp("all"); }}>범위 초기화</button>}</div>
+      <div className="sp-scope-fields">
+        <label>{live ? "점검 범위" : "환경"}<select aria-label={live ? undefined : "보안 환경"} value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+          <option value="all">{live ? "전체 점검 범위" : "전체 환경"}</option>
+          {live ? SCOPE_GROUPS.map(([group, label]) => {
+            const options = scopeOptions(data.environments.filter((env) => (env.scope ?? "other") === group));
+            return options.length ? <optgroup key={group} label={label}>{options}</optgroup> : null;
+          }) : scopeOptions(data.environments)}
+        </select></label>
+        {showApp && <label>앱<select aria-label="보안 앱" disabled={!appAvailable} aria-describedby={live && !appAvailable ? appHintId : undefined}
+          value={app ?? allAppsValue} onChange={(e) => setApp(e.target.value === allAppsValue ? null : e.target.value)}>
+          <option value={allAppsValue}>{live ? "전체 앱" : "전체 앱 · 계정 포함"}</option>
+          {apps.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select></label>}
+        {(environment !== "all" || app !== null) && <button type="button" className="linkbtn" onClick={() => { setEnvironment("all"); setApp(null); }}>범위 초기화</button>}
+      </div>
       <div className="sp-asof"><span>{data.mode === "demo" ? "시연 데이터 기준 시각" : "플랫폼 결과 수집 시각"}</span><b>{date(data.generatedAt)}</b></div>
     </div>
+    {live && showApp && !appAvailable && <p id={appHintId} className="hint sp-scope-note">선택한 범위에서 앱이 연결된 실행 이미지를 아직 확인하지 못했습니다.</p>}
+    {live && (tab === "controls" || tab === "findings") && <p className="hint sp-scope-note"><a href="#security/vulnerabilities">앱별 실행 이미지와 취약점 보기</a></p>}
     <Tabs label="보안 메뉴" items={TABS} current={tab} hrefOf={tabHref} />
     {data.observations && <div className="sp-observations" aria-label="보고서 관측 상태"><Observation title="발견 항목" value={data.observations.findings} /><Observation title="통제 평가" value={data.observations.controls} /><Observation title="취약점" value={data.observations.vulnerabilities} /></div>}
     {error && data.generatedAt && <LoadError title="최신 결과를 다시 읽지 못했습니다. 마지막 성공 결과를 표시합니다." error={error} retry={reload} />}
     {missingSources.length > 0 && <div className="sp-coverage-note"><div><b>점검이 완료되지 않은 출처 {missingSources.length}개</b><span> {unique(missingSources.map((s) => envLabel(s.environment))).join(", ")}의 일부 결과는 미확인·미연결 또는 오래된 상태입니다.</span></div><a href="#security/sources">범위 확인 →</a></div>}
-    {app !== "all" && tab !== "ocsf" && <p className="hint sp-scope-note">앱에 연결된 평가·자산만 표시합니다. 계정 수준 통제는 ‘전체 앱’에서, 수집 상태는 선택한 환경 범위에서 확인합니다.</p>}
+    {!live && app !== null && tab !== "ocsf" && <p className="hint sp-scope-note">앱에 연결된 평가·자산만 표시합니다. 계정 수준 통제는 ‘전체 앱’에서, 수집 상태는 선택한 환경 범위에서 확인합니다.</p>}
 
     {loading ? <Skeleton box rows={4} /> : error && !data.generatedAt ? <LoadError title="보안 점검 결과를 불러오지 못했습니다." error={error} retry={reload} /> : itemId ? <>
       <a className="sp-back" href={tabHref(tab)}><span aria-hidden="true">← </span>{TABS.find((t) => t.id === tab)?.label} 목록으로</a>
@@ -305,7 +342,7 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
       })} /> : <Empty reset={() => { setVulnSearch(""); setVulnSeverity("all"); setVulnKev("all"); setVulnException("exclude"); }}>현재 필터에 해당하는 취약점이 없습니다.</Empty>}</section>
       <p className="hint sp-footnote">{data.mode === "demo" ? "이미지 패키지 검사 범위의 예시입니다." : "이미지 패키지 검사 범위입니다."} 노드 OS·커널·Kubernetes 자체의 CVE까지 검사했다는 의미는 아닙니다.</p>
       </>}
-      {data.runningImages && <RunningImages rows={data.runningImages.filter((r) => environment === "all" || r.environment === environment)} />}
+      {scopedImages && <RunningImages rows={scopedImages} />}
     </Section> : tab === "findings" ? <>
       <Section title="발견 항목" sub="우선순위 목록 밖의 항목까지, 모든 유형을 찾아봅니다.">
         <div className="sp-filters"><label className="sp-search">항목 검색<input aria-label="발견 항목 검색" placeholder="제목, 리소스 또는 출처" value={findingSearch} onChange={(e) => setFindingSearch(e.target.value)} /></label><label>유형<select aria-label="발견 항목 유형" value={findingKind} onChange={(e) => setFindingKind(e.target.value)}><option value="all">전체 유형</option>{Object.entries(KIND).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
@@ -317,9 +354,9 @@ export function SecurityWorkspace({ route, data, loading = false, error, reload 
         {data.mode === "live" && <p className="hint">심각도마다 산정 주체(벤더 등급 또는 HopCharlie 정책)와 정책 버전을 상세에 표시합니다. 설정 점검에는 임의 점수를 붙이지 않습니다.</p>}
         <FindingsList findings={findings} vulnerabilities={vulnerabilities} search={findingSearch} kind={findingKind} severity={findingSeverity} category={findingCategory} exception={findingException} reset={() => { setFindingSearch(""); setFindingKind("all"); setFindingSeverity("all"); setFindingCategory("all"); setFindingException("exclude"); }} />
       </Section>
-      <SecurityStorageKeys keys={data.storageKeys?.filter((k) => (environment === "all" || k.environment === environment) && (app === "all" || k.app === app))} sources={data.storageKeySources.filter((s) => environment === "all" || s.environment === environment)} />
+      <SecurityStorageKeys keys={data.storageKeys?.filter((k) => (environment === "all" || k.environment === environment) && (demoApp === "all" || k.app === demoApp))} sources={data.storageKeySources.filter((s) => environment === "all" || s.environment === environment)} />
     </> : tab === "ocsf" ? <Section title="OCSF 내보내기">
-      <SecurityOCSF live={data.mode === "live"} environment={environment === "all" ? undefined : environment} app={app === "all" ? undefined : app} />
+      <SecurityOCSF live={live} environment={environment === "all" ? undefined : environment} app={app ?? undefined} />
     </Section> : <Section title="수집 상태" sub="결과를 읽었다는 것과 모든 검사를 통과했다는 것은 다릅니다.">
       <div className="sp-source-summary"><b>선택 환경의 출처 {sources.length}개</b><span>수집 완료 {sources.filter((s) => s.status === "ok").length} · 그 외 {missingSources.length}</span><small>앱 필터와 관계없이 환경 수준의 수집 범위를 표시합니다.</small></div>
       <div className="box sp-table-box"><Table head={["출처 / 환경", "상태", "점검 범위", "수집 / 검사 시각"]} rows={sources.map((s) => [td(<><b>{s.name}</b><small className="block"><SecurityEnvLabel env={s.environment} /></small></>), td(<Chip kind={SOURCE_STATUS[s.status][1]}>{SOURCE_STATUS[s.status][0]}</Chip>), td(<>{s.scope}<small className="block">{s.detail}</small>{s.codeUrl && <small className="block"><EvidenceLink href={s.codeUrl}>구현 코드</EvidenceLink></small>}{s.scannerVersion && <small className="block m">엔진 {s.scannerVersion}</small>}{s.databaseUpdatedAt && <small className="block">DB 기준 {date(s.databaseUpdatedAt)}</small>}</>), td(<ScanTimes collected={s.lastCollected} scanned={s.lastScanned} />, "nw")])} /></div>

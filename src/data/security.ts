@@ -1,6 +1,6 @@
 // Shared presentation models. A missing capability is null, never a successful empty scan.
 import type {
-  SecurityCategory, SecurityControlCoverage, SecurityControlReport, SecurityReport, SecuritySeverityBasis, SecuritySource,
+  Environment, SecurityCategory, SecurityControlCoverage, SecurityControlReport, SecurityReport, SecuritySeverityBasis, SecuritySource,
   SecurityDeployedImage, SecurityException, SecurityRunningImage, SecurityVulnerabilityReport, StorageKey,
 } from "../api/types";
 import { PROVIDER_LABEL, SOURCE_LABEL } from "./securityMatrix";
@@ -62,7 +62,7 @@ export interface SecuritySourceRow {
 export interface SecurityDataset {
   mode: "demo" | "live";
   generatedAt: string | null;
-  environments: { id: EnvId; label: string; provider: string }[];
+  environments: { id: EnvId; label: string; provider: string; scope?: "cluster" | "account" | "other" }[];
   apps: string[];
   appFilterAvailable: boolean;
   controls: ControlEvaluation[] | null;
@@ -82,10 +82,12 @@ export interface SecurityDataset {
 }
 
 const ENV_LABEL: Record<string, string> = { eks: "AWS EKS", gke: "GCP GKE", k3s: "onprem k3s", onprem: "onprem", "aws-account": "AWS Cloud", "gcp-project": "GCP Cloud", "cloudflare-account": "Cloudflare", platform: "Platform" };
+const ACCOUNT_SCOPES = new Set(["aws-account", "gcp-project", "cloudflare-account", "platform"]);
 export const environmentLabel = (id: string) => ENV_LABEL[id] ?? id;
 
 /** Optional parts of a live dataset. A missing report or an error leaves its capability null with the reason. */
 export interface SecurityPosture {
+  environments?: Environment[];
   controls?: SecurityControlReport; controlsError?: string;
   vulnerabilities?: SecurityVulnerabilityReport; vulnerabilitiesError?: string;
   findingsRequest?: SecurityRequestState; controlsRequest?: SecurityRequestState; vulnerabilitiesRequest?: SecurityRequestState;
@@ -103,12 +105,19 @@ export function basisText(b: SecuritySeverityBasis): string {
 
 /** Maps the platform's reports. Controls and vulnerabilities come only from their own APIs, never from findings or fixtures. */
 export function securityData(report?: SecurityReport, posture: SecurityPosture = {}): SecurityDataset {
-  const environments = new Map<string, { id: string; label: string; provider: string }>();
+  const environments = new Map<string, SecurityDataset["environments"][number]>();
+  const registered = Array.isArray(posture.environments) ? posture.environments : [];
+  for (const env of registered) {
+    if (!env || typeof env.name !== "string" || typeof env.displayName !== "string") continue;
+    environments.set(env.name, { id: env.name, label: env.displayName, provider: PROVIDER_LABEL[env.provider], scope: "cluster" });
+  }
   for (const row of [...(report?.sources ?? []), ...(report?.findings ?? [])]) {
-    environments.set(row.environment, { id: row.environment, label: ENV_LABEL[row.environment] ?? row.environment, provider: PROVIDER_LABEL[row.provider] });
+    if (environments.get(row.environment)?.scope !== "cluster") {
+      environments.set(row.environment, { id: row.environment, label: environmentLabel(row.environment), provider: PROVIDER_LABEL[row.provider] });
+    }
   }
   for (const key of report?.storageKeys ?? []) {
-    if (!environments.has(key.environment)) environments.set(key.environment, { id: key.environment, label: ENV_LABEL[key.environment] ?? key.environment, provider: key.driver });
+    if (!environments.has(key.environment)) environments.set(key.environment, { id: key.environment, label: environmentLabel(key.environment), provider: key.driver });
   }
   const domainByCategory: Record<string, Domain> = { identity: "identity", data: "data", logging: "logging", network: "policy", workload: "policy" };
   // A response that does not follow the contract (an older server, a proxy page) is unavailable, not empty.
@@ -172,7 +181,8 @@ export function securityData(report?: SecurityReport, posture: SecurityPosture =
   }));
   return {
     mode: "live", generatedAt: report?.generatedAt ?? controlReport?.generatedAt ?? vulnReport?.generatedAt ?? null,
-    environments: [...environments.values()], apps: [], appFilterAvailable: false,
+    environments: [...environments.values()].map((env) => ({ ...env, scope: ACCOUNT_SCOPES.has(env.id) ? "account" : env.scope ?? "other" })),
+    apps: [], appFilterAvailable: false,
     controls, vulnerabilities, unavailable, observations,
     runningImages: vulnReport ? runningImageRows(vulnReport) : undefined,
     coverage: controlReport?.coverage, policyVersion: controlReport?.policyVersion,
@@ -296,9 +306,9 @@ export const DOMAINS: { id: Domain; label: string }[] = [
 export function filterControls(controls: ControlEvaluation[], environment: "all" | EnvId, app: string): ControlEvaluation[] {
   return controls.filter((c) => (environment === "all" || c.environment === environment) && (app === "all" || c.app === app));
 }
-export function filterVulnerabilities(vulnerabilities: VulnerabilityFinding[], environment: "all" | EnvId, app: string): VulnerabilityFinding[] {
+export function filterVulnerabilities(vulnerabilities: VulnerabilityFinding[], environment: "all" | EnvId, app: string | null): VulnerabilityFinding[] {
   return vulnerabilities.flatMap((v) => {
-    const occurrences = v.occurrences.filter((o) => (environment === "all" || o.environment === environment) && (app === "all" || o.app === app));
+    const occurrences = v.occurrences.filter((o) => (environment === "all" || o.environment === environment) && (app === null || o.app === app));
     return occurrences.length ? [{ ...v, occurrences }] : [];
   });
 }

@@ -22,7 +22,7 @@ it("keeps an onprem image-only scope unobserved when controls were evaluated onl
   const row = screen.getByRole("row", { name: /^onprem/ });
   expect(within(row).getAllByText("미관측")).toHaveLength(5);
   expect(row).not.toHaveTextContent("통과 0");
-  await userEvent.setup().selectOptions(screen.getByLabelText("보안 환경"), "onprem");
+  await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "점검 범위" }), "onprem");
   expect(screen.getByRole("link", { name: /실패한 통제 평가/ })).toHaveTextContent("미관측");
   expect(screen.getByRole("link", { name: /통제 평가 완료/ })).toHaveTextContent("미관측");
 });

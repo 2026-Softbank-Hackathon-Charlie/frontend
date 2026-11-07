@@ -78,3 +78,13 @@ test("the DOM layer translates new and changed text and restores the Korean on s
   expect(root.querySelector("span")!.textContent).toBe("높음 2");
   expect(p.textContent).toBe("3분 전");
 });
+
+test("translates select group labels without changing option values", () => {
+  document.body.innerHTML = `<select><optgroup label="앱"><option value="shop">shop</option></optgroup></select>`;
+  const stop = translateDom(document.body, tr);
+  const group = document.querySelector("optgroup")!;
+  expect(group.label).toBe("アプリ");
+  expect(document.querySelector("select")!.value).toBe("shop");
+  stop();
+  expect(group.label).toBe("앱");
+});
