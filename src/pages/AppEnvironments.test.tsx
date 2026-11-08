@@ -142,7 +142,7 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(form).toHaveTextContent("최대 세 환경");
   });
 
-  it("marks the traffic receiver separately from the onprem primary and refuses three-member removal", async () => {
+  it("marks the traffic receiver separately from the onprem primary and offers three-member removal by the pair's rules", async () => {
     const envs = ["gke","eks","onprem"];
     const three = appIn(envs,{ primary:"gke",replica:"eks",replicaPresent:true,readiness:{ready:true,reason:"ready",message:"ready",environments:envs.map((env) => ({env,inApp:true,deployed:true,gatewayBackend:true,healthy:true,role:env === "onprem" ? "primary" as const : "replica" as const}))} });
     setup("#app-moimroom","live");
@@ -156,6 +156,19 @@ describe("adding and removing an app's environment (platform API)", () => {
     expect(star).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByText("트래픽 받는 중")).toBeInTheDocument();
     expect(screen.getByRole("button",{name:/AWS EKS 환경 빼기/})).toBeDisabled();
+    expect(screen.getByText("지금 쓰기를 받는 환경이라 뺄 수 없습니다")).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:/온프레미스 k3s 환경 빼기/})).toBeDisabled();
+    expect(screen.getByText("지금 DB primary가 있는 환경이라 뺄 수 없습니다")).toBeInTheDocument();
+    expect(screen.queryByText(/세 환경 DB 그룹의 환경 제거/)).toBeNull();
+  });
+
+  it("offers to take a replica member out of a three-environment DB group", async () => {
+    const envs = ["gke","eks","onprem"];
+    const three = appIn(envs,{ primary:"gke",replica:"eks",replicaPresent:true,readiness:{ready:true,reason:"ready",message:"ready",environments:envs.map((env) => ({env,inApp:true,deployed:true,gatewayBackend:true,healthy:true,role:env === "gke" ? "primary" as const : "replica" as const}))} });
+    setup("#app-moimroom","live");
+    live(three,(_c,u) => u.pathname === "/v1/traffic" ? traffic("gke",envs) : undefined);
+    expect(await screen.findByRole("button",{name:/온프레미스 k3s 환경 빼기/})).toBeEnabled();
+    expect(screen.getByRole("button",{name:/AWS EKS 환경 빼기/})).toBeEnabled();
   });
 
   it("shows the missing peer, warns beside the 이전 준비 link, and adds the pair's environment", async () => {
@@ -592,6 +605,9 @@ describe("Japanese", () => {
       "github_unreachable",
       "gateway_unreachable",
       "github_not_configured",
+      "db_topology_unready",
+      "db_topology_unknown",
+      "db_topology_unreachable",
     ];
     const reasons = [
       "replica_missing",

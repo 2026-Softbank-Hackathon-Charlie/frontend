@@ -300,7 +300,6 @@ function AppDetailView({ m, s, name, tab, fileDetails }: { m: AppModel; s: Secre
   const envBusyWhy = running ? "배포가 진행 중이라 끝난 뒤 환경을 더하거나 뺄 수 있습니다" : "";
   /** Why `env` cannot be taken out, or "" when it can (the first environment has no button). */
   const removeWhy = (env: string): string => {
-    if (d?.dbTopology && d.environments.length > 2) return "세 환경 DB 그룹의 환경 제거는 아직 지원하지 않습니다";
     if (env === m.writeBackend) return "지금 쓰기를 받는 환경이라 뺄 수 없습니다";
     if (readiness?.environments.find((e) => e.env === env)?.role === "primary" || roles?.[env]?.role === "primary") return "지금 DB primary가 있는 환경이라 뺄 수 없습니다";
     return envBusyWhy;

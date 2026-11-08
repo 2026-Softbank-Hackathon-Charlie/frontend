@@ -145,6 +145,11 @@ const REMOVE_ENV_ERRORS: Record<string, string> = {
   github_unreachable: "gitops 저장소(GitHub)에 연결하지 못했습니다. 환경은 아직 앱에 남아 있으니 잠시 뒤 다시 빼기를 누르세요",
   gateway_unreachable: "트래픽 게이트웨이에 연결하지 못했습니다. 환경은 아직 앱에 남아 있으니 잠시 뒤 다시 빼기를 누르세요",
   github_not_configured: DEPLOY_ERRORS.github_not_configured,
+  // a member of a three-environment database group (platform ADR 0063): the two that remain must be a pair
+  db_topology_unready:
+    "남는 두 환경의 DB가 정상 primary 하나와 그 primary를 바로 따르는 replica 하나가 아니라 뺄 수 없습니다. 아무것도 바꾸지 않았습니다. DB가 정상이 된 뒤 다시 시도하세요",
+  db_topology_unknown: "플랫폼이 남는 환경의 DB 클러스터를 읽지 못해 아무것도 바꾸지 않았습니다. 잠시 뒤 다시 시도하세요",
+  db_topology_unreachable: "primary DB가 강등 뒤 따라갈 replica를 바꾸지 못했습니다. 다른 것은 바꾸지 않았으니 잠시 뒤 다시 빼기를 누르세요",
 };
 
 /** A short Korean message for a failed add or removal of an app's environment. */
