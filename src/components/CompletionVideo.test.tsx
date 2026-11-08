@@ -62,3 +62,28 @@ describe("the popup", () => {
     expect(screen.queryByRole("button", { name: /완료 영상 보기/ })).toBeNull();
   });
 });
+
+describe("motion", () => {
+  const withMotion = (reduce: boolean) => vi.stubGlobal("matchMedia", (q: string) => ({ matches: reduce && q.includes("reduce"), addEventListener: () => {}, removeEventListener: () => {} }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  const open = () => {
+    const { rerender } = render(<CompletionVideo run={run()} />);
+    rerender(<CompletionVideo run={run({ status: "succeeded" })} />);
+    return screen.getByRole("dialog").querySelector("video")!;
+  };
+
+  it("plays by itself, muted", () => {
+    withMotion(false);
+    const v = open();
+    expect(v.autoplay).toBe(true);
+    expect(v.muted).toBe(true);
+  });
+
+  it("waits for the person to press play when the system is set to reduce motion", () => {
+    withMotion(true);
+    const v = open();
+    expect(v.autoplay).toBe(false);
+    expect(v).toHaveAttribute("controls");
+  });
+});

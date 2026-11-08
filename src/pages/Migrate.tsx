@@ -221,7 +221,7 @@ function SimMigrate() {
   return <MigrateView v={useSimMigration()} />;
 }
 
-function MigrateView({ v }: { v: MigrationView }) {
+export function MigrateView({ v }: { v: MigrationView }) {
   const live = v.live;
   const res = resOf(v);
   const { gkeDemoApp, setApp } = v;

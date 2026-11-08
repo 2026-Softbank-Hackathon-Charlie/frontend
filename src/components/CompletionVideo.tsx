@@ -12,6 +12,9 @@ export function justSucceeded(prev: { id?: string; status?: string }, run?: Pick
   return !!run && prev.id === run.runId && prev.status !== undefined && prev.status !== "succeeded" && run.status === "succeeded" && !run.rollbackOf;
 }
 
+/** The person asked the system to reduce motion: the video then waits for them to press play. */
+export const prefersReducedMotion = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export function CompletionVideo({ run }: { run?: Run }) {
   const [open, setOpen] = useState(false);
   const seen = useRef<{ id?: string; status?: string }>({});
@@ -21,7 +24,7 @@ export function CompletionVideo({ run }: { run?: Run }) {
   useEffect(() => {
     if (justSucceeded(seen.current, run)) setOpen(true);
     seen.current = { id: run?.runId, status: run?.status };
-  }, [run?.runId, run?.status, run?.rollbackOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [run?.runId, run?.status, run?.rollbackOf]);
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +60,7 @@ export function CompletionVideo({ run }: { run?: Run }) {
                 닫기
               </button>
             </header>
-            <video src={COMPLETION_VIDEO_SRC} controls autoPlay muted playsInline aria-label="이전 완료 영상" />
+            <video src={COMPLETION_VIDEO_SRC} controls autoPlay={!prefersReducedMotion()} muted playsInline aria-label="이전 완료 영상" />
           </div>
         </div>
       )}
