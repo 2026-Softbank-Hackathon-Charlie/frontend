@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fakeSession, hang, installFetch, json, sse, type FakeCall, type FakeHandler } from "../api/fakes";
 import type { Onboarding, OnboardingEvent } from "../api/types";
@@ -61,8 +61,8 @@ const evMsg = (e: Partial<OnboardingEvent> & { seq: number }) => {
 };
 
 /** GET events answers the snapshot (and events), then stays open; `routes` answers the rest by "METHOD path". */
-function live(o: Onboarding, routes: Record<string, FakeHandler> = {}, events: string[] = []): FakeCall[] {
-  startSession(fakeSession());
+function live(o: Onboarding, routes: Record<string, FakeHandler> = {}, events: string[] = [], role: "operator" | "viewer" = "operator"): FakeCall[] {
+  startSession(fakeSession({ principal: { name: "admin", role } }));
   return installFetch((call) => {
     const path = new URL(call.url, "http://x").pathname;
     const key = call.method + " " + path;
@@ -143,6 +143,22 @@ describe("live: list and start", () => {
     show();
     expect(await screen.findByText(/실행기가 설정되어 있지 않습니다 \(501\)/)).toBeInTheDocument();
   });
+
+  it("hides the start form when the feature is off", async () => {
+    startSession(fakeSession());
+    installFetch((call) => (call.url.endsWith("/v1/onboardings") ? json(501, { error: { code: "not_implemented", message: "no runner" } }) : hang(call)));
+    show();
+    await screen.findByText(/실행기가 설정되어 있지 않습니다/);
+    expect(screen.queryByRole("button", { name: "조사 시작" })).not.toBeInTheDocument();
+  });
+
+  it("shows a viewer the list without the start form", async () => {
+    startSession(fakeSession({ principal: { name: "viewer", role: "viewer" } }));
+    installFetch((call) => (call.url.endsWith("/v1/onboardings") ? json(200, { onboardings: [] }) : hang(call)));
+    show();
+    expect(screen.getByText(/operator 역할만 할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "조사 시작" })).not.toBeInTheDocument();
+  });
 });
 
 describe("live: detail by state", () => {
@@ -179,10 +195,15 @@ describe("live: detail by state", () => {
     expect(within(appr).getByText(/배포 workflow를 끕니다/)).toBeInTheDocument();
 
     await user.click(within(appr).getByRole("button", { name: "PR head c07e4b8로 승인" }));
-    expect(await screen.findByText(/PR이 그사이 바뀌었습니다/)).toBeInTheDocument();
+    const confirm = within(appr).getByRole("group", { name: "승인 확인" });
+    expect(confirm).toHaveTextContent("꺼지는 배포 workflow: .github/workflows/deploy.yml");
+    expect(confirm).toHaveTextContent("원본 VM과 DB에 할 일: pg_hba 줄 추가 pg_hba.conf");
+    await user.click(within(confirm).getByRole("button", { name: "승인" }));
+    expect(await screen.findByText(/PR이 화면의 head와 다릅니다\(push했거나 닫힘\).*: head moved/)).toBeInTheDocument();
     expect(JSON.parse(posted(calls, "/approve")[0].body!)).toEqual({ headSha: HEAD });
 
     await user.click(within(appr).getByRole("button", { name: "PR head c07e4b8로 승인" }));
+    await user.click(within(appr).getByRole("button", { name: "승인" }));
     expect(await screen.findByRole("status", { name: "원본 배포 멈춤" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "승인" })).not.toBeInTheDocument();
   });
@@ -213,11 +234,16 @@ describe("live: detail by state", () => {
   });
 
   it("ready cuts over and then links the migration run", async () => {
-    const calls = live(onb({ state: "ready" }), {
+    const calls = live(onb({ state: "ready", report: { blockers: [], warnings: [], holdSeconds: 18 } }), {
       "POST /v1/onboardings/onb-3f9a1c2b7d4e/cutover": () => json(202, onb({ state: "cutting_over", runId: "run_42" })),
     });
     const { user } = show("onb-3f9a1c2b7d4e");
     await user.click(await screen.findByRole("button", { name: "전환" }));
+    const confirm = screen.getByRole("group", { name: "전환 확인" });
+    expect(confirm).toHaveTextContent("쓰기를 약 18초 보류합니다(예상).");
+    expect(confirm).toHaveTextContent("원본으로 되돌리지 않습니다");
+    expect(posted(calls, "/cutover")).toHaveLength(0);
+    await user.click(within(confirm).getByRole("button", { name: "전환 시작" }));
     await waitFor(() => expect(posted(calls, "/cutover")).toHaveLength(1));
     const run = await screen.findByRole("region", { name: "전환 run" });
     expect(within(run).getByText("run_42")).toBeInTheDocument();
@@ -229,7 +255,7 @@ describe("live: detail by state", () => {
   it("decommissioning asks before stopping the instance", async () => {
     const calls = live(onb({ state: "decommissioning", runId: "run_42", facts: { instanceId: "i-0abc" } }), {
       "POST /v1/onboardings/onb-3f9a1c2b7d4e/decommission": () => json(202, onb({ state: "done" })),
-    });
+    }, [evMsg({ seq: 1, state: "decommissioning", kind: "human", message: "confirm stopping the instance" })]);
     const { user } = show("onb-3f9a1c2b7d4e");
     await user.click(await screen.findByRole("button", { name: "원본 중지" }));
     const box = screen.getByRole("group", { name: "원본 중지 확인" });
@@ -253,7 +279,7 @@ describe("live: detail by state", () => {
     live(onb({ state: "failed", failedState: "discovering", report: { blockers: [{ code: "managed_database", message: "RDS" }], warnings: [] } }));
     const { user } = show("onb-3f9a1c2b7d4e");
     expect(await screen.findByText(FINDING_TEXT.managed_database)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument(); // resume checks again after a fix
     await user.click(screen.getByRole("button", { name: "가져오기 삭제" }));
     expect(screen.getByRole("group", { name: "가져오기 삭제 확인" })).toHaveTextContent("원본은 아직 바꾸지 않았습니다");
   });
@@ -263,6 +289,44 @@ describe("live: detail by state", () => {
     installFetch((call) => (call.url.endsWith("/events") ? json(404, { error: { code: "onboarding_not_found", message: "no" } }) : hang(call)));
     show("onb-3f9a1c2b7d4e");
     expect(await screen.findByText(/이 가져오기는 없습니다/)).toBeInTheDocument();
+  });
+});
+
+describe("live: roles, retries and a repository without a PR", () => {
+  it("hides every action from a viewer", async () => {
+    live(awaiting({ state: "failed", failedState: "checking" }), {}, [], "viewer");
+    show("onb-3f9a1c2b7d4e");
+    expect(await screen.findByText(/operator 역할만 할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "가져오기 삭제" })).not.toBeInTheDocument();
+  });
+
+  it("approves the default branch head when there is no PR", async () => {
+    const calls = live(awaiting({ pr: undefined, facts: { head: "9d2b71f3c0a4e5b6", deployWorkflows: [] } }), {
+      "POST /v1/onboardings/onb-3f9a1c2b7d4e/approve": () => json(202, onb({ state: "connecting" })),
+    });
+    const { user } = show("onb-3f9a1c2b7d4e");
+    await user.click(await screen.findByRole("button", { name: "기본 브랜치 head 9d2b71f로 승인" }));
+    await user.click(screen.getByRole("button", { name: "승인" }));
+    await waitFor(() => expect(JSON.parse(posted(calls, "/approve")[0].body!)).toEqual({ headSha: "9d2b71f3c0a4e5b6" }));
+  });
+
+  it("offers the delete again only after a failed undo step", async () => {
+    live(onb({ state: "syncing", deleting: true }));
+    show("onb-3f9a1c2b7d4e");
+    expect(await screen.findByText("삭제하는 중입니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "삭제 다시 시도" })).not.toBeInTheDocument();
+    cleanup();
+    live(onb({ state: "syncing", deleting: true, failure: "tailscale container: exit 1" }));
+    show("onb-3f9a1c2b7d4e");
+    expect(await screen.findByRole("button", { name: "삭제 다시 시도" })).toBeInTheDocument();
+  });
+
+  it("says it reconnects when the stream drops after a snapshot", async () => {
+    startSession(fakeSession());
+    installFetch((call) => (call.url.endsWith("/events") ? sse([snap(onb())], "drop")(call) : hang(call)));
+    show("onb-3f9a1c2b7d4e");
+    expect(await screen.findByText("다시 연결 중")).toBeInTheDocument();
   });
 });
 
@@ -277,12 +341,14 @@ describe("demo", () => {
     ticks(60);
     const appr = screen.getByRole("region", { name: "승인" });
     await user.click(within(appr).getByRole("button", { name: /^PR head .+로 승인$/ }));
+    await user.click(within(appr).getByRole("button", { name: "승인" }));
     ticks(40);
     expect(screen.getByRole("status", { name: "원본 배포 멈춤" })).toBeInTheDocument();
     expect(screen.getByText("moimroom.hopcharlie.dev A 203.0.113.10", { selector: "code" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "다시 확인" }));
     ticks(20);
     await user.click(screen.getByRole("button", { name: "전환" }));
+    await user.click(screen.getByRole("button", { name: "전환 시작" }));
     ticks(30);
     await user.click(screen.getByRole("button", { name: "원본 중지" }));
     await user.click(within(screen.getByRole("group", { name: "원본 중지 확인" })).getByRole("button", { name: "중지" }));

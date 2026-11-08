@@ -229,7 +229,7 @@ export function apply(S: SimState, a: Action): void {
       onb.onbStart(S.onb, a.req);
       break;
     case "onb-approve":
-      S.onbNotice = onb.onbApprove(S.onb, a.headSha) === "stale" ? "PR이 그사이 바뀌었습니다. 새 PR head로 시험한 결과를 확인하고 다시 승인하세요." : "";
+      S.onbNotice = onb.onbApprove(S.onb, a.headSha) === "stale" ? "PR이 화면의 head와 다릅니다(push했거나 닫힘). 되돌리거나 가져오기를 삭제하고 다시 시작하세요" : "";
       break;
     case "onb-resume":
       onb.onbResume(S.onb);

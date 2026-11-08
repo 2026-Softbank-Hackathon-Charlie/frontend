@@ -1,7 +1,7 @@
 // "기존 앱 가져오기": onboarding an app that runs with docker compose on one VM (platform ADR 0042).
 // Live mode follows GET /v1/onboardings/{id}/events; demo mode shows the same screens over sim/onboard.ts.
 import "../styles/onboard.css";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, approveOnboarding, cutOverOnboarding, decommissionOnboarding, deleteOnboarding, resumeOnboarding, startOnboarding } from "../api/client";
 import { useEnvironments, useOnboarding, useOnboardings, useRun } from "../api/hooks";
 import type {
@@ -15,9 +15,9 @@ import type {
 } from "../api/types";
 import { Icon } from "../components/Icon";
 import { Chip, LoadError, LogBox, PageHead, Skeleton, Table, td, type ChipKind } from "../components/ui";
-import { errorText, useLive } from "../data/live";
+import { errorText, useAuth, useLive } from "../data/live";
 import { navigate } from "../router";
-import { ENV, ENV_ORDER, type EnvKey } from "../sim/data";
+import { ENV, ENV_ORDER, SAMPLE, type EnvKey } from "../sim/data";
 import { statusText } from "../sim/mig";
 import { DEMO_REPO, DEMO_URL, deletable, ONB_STATE_LABEL, ONB_STATES } from "../sim/onboard";
 import type { LogLine } from "../sim/state";
@@ -131,6 +131,9 @@ function StateChip({ o }: { o: Onboarding }) {
   return <Chip kind={STATE_KIND[o.state]}>{ONB_STATE_LABEL[o.state]}</Chip>;
 }
 
+/** 409 pr_head_mismatch: the PR is not the head the operator saw. */
+export const PR_MOVED = "PR이 화면의 head와 다릅니다(push했거나 닫힘). 되돌리거나 가져오기를 삭제하고 다시 시작하세요";
+
 /** A short Korean message for an onboarding API error. */
 export function onbErrorText(e: unknown): string {
   if (e instanceof ApiError) {
@@ -148,7 +151,7 @@ export function onbErrorText(e: unknown): string {
       case "secrets_not_configured":
         return "서버에 비밀값 암호화 키가 설정되어 있지 않습니다";
       case "pr_head_mismatch":
-        return "PR이 그사이 바뀌었습니다. 플랫폼이 브랜치를 다시 만들고 시험부터 다시 합니다. 새 결과를 확인하고 다시 승인하세요";
+        return PR_MOVED + (e.message ? ": " + e.message : "");
       case "onboarding_deleting":
         return "삭제하는 중이라 할 수 없습니다";
       case "onboarding_state_conflict":
@@ -182,14 +185,17 @@ export function Onboard({ id }: { id?: string }) {
 
 /* ---------- live ---------- */
 
+const OPERATOR_ONLY = "가져오기를 시작하고 승인, 전환, 삭제하는 일은 operator 역할만 할 수 있습니다. 이 계정으로는 상태만 볼 수 있습니다.";
+
 function LiveList() {
   const list = useOnboardings(5000);
   const [open, setOpen] = useState(false);
   const off = list.error instanceof ApiError && (list.error.code === "not_implemented" || list.error.status === 404);
   const rows = list.data ?? [];
+  const operator = useAuth().session?.principal.role === "operator";
   return (
     <>
-      <StartForm live onStarted={(o) => navigate("#onboard-" + o.id)} />
+      {!operator ? <p className="hint">{OPERATOR_ONLY}</p> : off ? null : <StartForm live onStarted={(o) => navigate("#onboard-" + o.id)} />}
       <section className="box" aria-label="가져오기 목록">
         <div className="bh">
           <b>가져오기 목록</b>
@@ -238,6 +244,10 @@ function LiveDetail({ id }: { id: string }) {
   const w = useOnboarding(id);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const operator = useAuth().session?.principal.role === "operator";
+  // an answer about an earlier state does not stay once the onboarding moved on
+  const moved = w.onboarding ? w.onboarding.state + "|" + w.onboarding.updatedAt : "";
+  useEffect(() => setNotice(""), [moved]);
   if (w.gone)
     return (
       <div className="box fillbox" role="status">
@@ -270,7 +280,18 @@ function LiveDetail({ id }: { id: string }) {
     decommission: () => void call("decommission", () => decommissionOnboarding(id))(),
     remove: () => void call("delete", () => deleteOnboarding(id))(),
   };
-  return <Detail o={w.onboarding} events={w.events} acts={acts} busy={busy} notice={notice} run={<LiveRun o={w.onboarding} />} />;
+  return (
+    <Detail
+      o={w.onboarding}
+      events={w.events}
+      acts={acts}
+      busy={busy}
+      notice={notice}
+      can={operator}
+      reconnecting={!!w.error}
+      run={<LiveRun o={w.onboarding} />}
+    />
+  );
 }
 
 /** The cutover's migration run, from its own stream; the migration page has the whole run. */
@@ -319,7 +340,7 @@ function DemoOnboard() {
   return (
     <>
       <p className="hint">데모: 시뮬레이션입니다. 다시 확인을 누르면 DNS 레코드를 지운 것으로 봅니다.</p>
-      <Detail o={o.doc} events={o.events} acts={acts} busy="" notice={S.onbNotice} demo />
+      <Detail o={o.doc} events={o.events} acts={acts} busy="" notice={S.onbNotice} can demo />
     </>
   );
 }
@@ -421,7 +442,9 @@ interface Actions {
   remove(): void;
 }
 
-function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; events: OnboardingEvent[]; acts: Actions; busy: string; notice: string; run?: ReactNode; demo?: boolean }) {
+function Detail(p: { o: Onboarding; events: OnboardingEvent[]; acts: Actions; busy: string; notice: string; can: boolean; reconnecting?: boolean; run?: ReactNode; demo?: boolean }) {
+  // `can`: the operator role; without it every action is hidden
+  const { o, events, acts, busy, notice, run, demo, can } = p;
   const st = stateOf(o);
   const at = ONB_STATES.indexOf(st);
   const waiting = o.humanActions.some((h) => !h.done);
@@ -431,6 +454,7 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
         <div className="bh">
           <b>{o.app}</b>
           <StateChip o={o} />
+          {p.reconnecting && <Chip kind="warn">다시 연결 중</Chip>}
         </div>
         <div className="bb">
           <dl className="kv">
@@ -468,7 +492,7 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
           <div className="bb">
             <b>{ONB_STATE_LABEL[st]} 단계에서 멈췄습니다.</b>
             <p>{o.failure || "이유를 아래 기록에서 확인하세요."}</p>
-            {o.report.blockers.length === 0 && (
+            {can && (
               <div className="actrow">
                 <button type="button" className="btn" disabled={!!busy} onClick={acts.resume}>
                   <Icon name="refresh-cw" size={16} />
@@ -479,6 +503,7 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
           </div>
         </div>
       )}
+      {!can && <p className="hint">{OPERATOR_ONLY}</p>}
       {notice && (
         <div className="box badbox" role="alert">
           <div className="bb">
@@ -503,22 +528,14 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
         })}
       </ol>
 
-      {o.humanActions.length > 0 && <HumanActions o={o} busy={busy} waiting={waiting} onResume={acts.resume} />}
+      {o.humanActions.length > 0 && <HumanActions o={o} busy={busy} waiting={waiting} can={can} onResume={acts.resume} />}
       {o.report.drift && <Drift o={o} />}
       <Findings o={o} />
       {o.facts && <Facts o={o} />}
       {(o.pr || o.check) && <PrAndCheck o={o} />}
-      {o.state === "awaiting_approval" && !o.deleting && <Approval o={o} busy={busy} onApprove={acts.approve} />}
+      {o.state === "awaiting_approval" && !o.deleting && <Approval o={o} busy={busy} can={can} onApprove={acts.approve} />}
       {(st === "syncing" || (st === "ready" && o.state === "ready")) && <Syncing events={events} ready={o.state === "ready"} />}
-      {o.state === "ready" && !o.deleting && (
-        <div className="actrow">
-          <button type="button" className="btn primary" disabled={!!busy} onClick={acts.cutover}>
-            <Icon name="arrow-right-left" size={16} />
-            {busy === "cutover" ? "시작하는 중" : "전환"}
-          </button>
-          <span className="hint">쓰기를 잠깐 보류하고 DB를 승격한 뒤 게이트웨이가 모든 요청을 클러스터로 보냅니다.</span>
-        </div>
-      )}
+      {o.state === "ready" && !o.deleting && can && <Cutover o={o} busy={busy} onConfirm={acts.cutover} />}
       {o.runId && (
         <section className="box" aria-label="전환 run">
           <div className="bh">
@@ -539,7 +556,7 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
           </div>
         </section>
       )}
-      {o.state === "decommissioning" && !o.deleting && <Decommission o={o} busy={busy} onConfirm={acts.decommission} demo={demo} events={events} />}
+      {o.state === "decommissioning" && !o.deleting && <Decommission o={o} busy={busy} can={can} onConfirm={acts.decommission} events={events} />}
       {o.legacyChanges.length > 0 && <LegacyChanges o={o} />}
       {o.state === "done" && (
         <div className="box okbox" role="status">
@@ -547,8 +564,9 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
             <b>{o.app}을(를) 가져왔습니다.</b>
             <p>원본 인스턴스는 중지했고 지우지 않았습니다. 디스크와 원본 버킷은 확인한 뒤 클라우드에서 지우세요. 다른 클러스터에도 띄우려면 앱 상세에서 환경을 더하세요.</p>
             <div className="actrow">
-              <a className="btn primary" href={"#app-" + o.app}>
-                {o.app} 보기
+              {/* the demo registers the sample app, whatever address the form had */}
+              <a className="btn primary" href={"#app-" + (demo ? SAMPLE.id : o.app)}>
+                {(demo ? SAMPLE.id : o.app) + " 보기"}
               </a>
               {demo && (
                 <a className="btn ghost" href="#migrate-app">
@@ -567,12 +585,12 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
           <LogBox lines={events.filter((e) => !isMetric(e)).map((e): LogLine => [hms(e.time), "[" + ONB_STATE_LABEL[e.state] + "] " + (e.kind === "error" ? "오류: " : "") + (e.message ?? e.kind)])} empty="첫 기록을 기다리는 중입니다." />
         </div>
       </section>
-      {deletable(o) && <Delete o={o} busy={busy} onConfirm={acts.remove} />}
+      {can && deletable(o) && (!o.deleting || !!o.failure) && <Delete o={o} busy={busy} onConfirm={acts.remove} />}
     </>
   );
 }
 
-function HumanActions({ o, busy, waiting, onResume }: { o: Onboarding; busy: string; waiting: boolean; onResume: () => void }) {
+function HumanActions({ o, busy, waiting, can, onResume }: { o: Onboarding; busy: string; waiting: boolean; can: boolean; onResume: () => void }) {
   return (
     <section className={"box" + (waiting ? " fillbox" : "")} aria-label="사람이 할 일">
       <div className="bh">
@@ -611,7 +629,7 @@ function HumanActions({ o, busy, waiting, onResume }: { o: Onboarding; busy: str
             </li>
           ))}
         </ul>
-        {waiting && (
+        {waiting && can && (
           <div className="actrow">
             <button type="button" className="btn" disabled={!!busy || o.deleting} onClick={onResume}>
               <Icon name="refresh-cw" size={16} />
@@ -777,9 +795,14 @@ function PrAndCheck({ o }: { o: Onboarding }) {
   );
 }
 
-function Approval({ o, busy, onApprove }: { o: Onboarding; busy: string; onApprove: (sha: string) => void }) {
+function Approval({ o, busy, can, onApprove }: { o: Onboarding; busy: string; can: boolean; onApprove: (sha: string) => void }) {
+  const [asked, setAsked] = useState(false);
   const planned = o.plannedLegacyChanges ?? [];
-  const sha = o.pr?.headSha;
+  // the repository may already meet the contract (no PR): then the default branch's head is what is approved
+  const sha = o.pr?.headSha ?? o.facts?.head;
+  const what = (o.pr ? "PR head " : "기본 브랜치 head ") + short(sha);
+  const workflows = o.facts?.deployWorkflows ?? planned.filter((c) => c.kind === "workflow_disabled").map((c) => c.target);
+  const vm = planned.filter((c) => c.kind !== "workflow_disabled");
   return (
     <section className="box" aria-label="승인">
       <div className="bh">
@@ -798,15 +821,82 @@ function Approval({ o, busy, onApprove }: { o: Onboarding; busy: string; onAppro
           승인하면 원본 레포의 배포 workflow를 끕니다. 정리가 끝날 때까지 원본 VM에는 배포되지 않습니다. 삭제하면 위 변경을 거꾸로 되돌리지만, 머지한 PR은 남습니다.
         </p>
         <p className="hint">Tailscale 컨테이너가 붙어 있는 동안에는 손으로 docker compose down을 해도 compose 네트워크가 지워지지 않습니다.</p>
-        <div className="actrow">
-          <button type="button" className="btn primary" disabled={!sha || !!busy} onClick={() => sha && onApprove(sha)}>
-            <Icon name="check" size={16} />
-            {busy === "approve" ? "승인하는 중" : "PR head " + short(sha) + "로 승인"}
-          </button>
-          <span className="hint">화면에 보이는 PR head로 승인합니다. 그사이 PR이 바뀌었으면 다시 시험합니다.</span>
-        </div>
+        {can && !asked && (
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={!sha || !!busy} onClick={() => setAsked(true)}>
+              <Icon name="check" size={16} />
+              {busy === "approve" ? "승인하는 중" : what + "로 승인"}
+            </button>
+            <span className="hint">{o.pr ? "화면에 보이는 PR head로 승인합니다." : "레포가 이미 계약에 맞아 PR이 없습니다. 기본 브랜치 head로 승인합니다."}</span>
+          </div>
+        )}
+        {can && asked && sha && (
+          <div className="box badbox" role="group" aria-label="승인 확인">
+            <div className="bb">
+              <b>{what + "로 승인할까요?"}</b>
+              <p>{"꺼지는 배포 workflow: " + (workflows.join(", ") || "없음")}</p>
+              <p>{"원본 VM과 DB에 할 일: " + (vm.map((c) => (CHANGE_TEXT[c.kind] ?? c.kind) + " " + c.target).join(", ") || "없음")}</p>
+              <div className="actrow">
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={!!busy}
+                  onClick={() => {
+                    setAsked(false);
+                    onApprove(sha);
+                  }}
+                >
+                  승인
+                </button>
+                <button type="button" className="btn ghost" disabled={!!busy} onClick={() => setAsked(false)}>
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+function Cutover({ o, busy, onConfirm }: { o: Onboarding; busy: string; onConfirm: () => void }) {
+  const [asked, setAsked] = useState(false);
+  const hold = o.report.holdSeconds;
+  if (!asked)
+    return (
+      <div className="actrow">
+        <button type="button" className="btn primary" disabled={!!busy} onClick={() => setAsked(true)}>
+          <Icon name="arrow-right-left" size={16} />
+          {busy === "cutover" ? "시작하는 중" : "전환"}
+        </button>
+        <span className="hint">쓰기를 잠깐 보류하고 DB를 승격한 뒤 게이트웨이가 모든 요청을 클러스터로 보냅니다.</span>
+      </div>
+    );
+  return (
+    <div className="box badbox" role="group" aria-label="전환 확인">
+      <div className="bb">
+        <b>{o.app}을(를) 전환할까요?</b>
+        <p>{hold !== undefined ? "쓰기를 약 " + secs(hold) + " 보류합니다(예상)." : "쓰기를 잠깐 보류합니다."}</p>
+        <p>대상 DB를 승격한 뒤에는 원본으로 되돌리지 않습니다. 승격 뒤 실패하면 run이 멈추고, 이전 화면에서 이어서 합니다.</p>
+        <div className="actrow">
+          <button
+            type="button"
+            className="btn primary"
+            disabled={!!busy}
+            onClick={() => {
+              setAsked(false);
+              onConfirm();
+            }}
+          >
+            전환 시작
+          </button>
+          <button type="button" className="btn ghost" disabled={!!busy} onClick={() => setAsked(false)}>
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -851,10 +941,10 @@ function Syncing({ events, ready }: { events: OnboardingEvent[]; ready: boolean 
   );
 }
 
-function Decommission({ o, busy, onConfirm, demo, events }: { o: Onboarding; busy: string; onConfirm: () => void; demo?: boolean; events: OnboardingEvent[] }) {
+function Decommission({ o, busy, can, onConfirm, events }: { o: Onboarding; busy: string; can: boolean; onConfirm: () => void; events: OnboardingEvent[] }) {
   const [asked, setAsked] = useState(false);
-  // In the demo the button waits for the cleanup steps; live, the server answers 409 until they are done.
-  const cleaning = demo && !events.some((e) => e.state === "decommissioning" && e.kind === "human");
+  // the button waits for the cleanup steps: the platform asks for the stop with a human event once they are done
+  const cleaning = !events.some((e) => e.state === "decommissioning" && e.kind === "human");
   const inst = o.facts?.instanceId ?? "원본 인스턴스";
   return (
     <section className="box" aria-label="정리">
@@ -864,7 +954,7 @@ function Decommission({ o, busy, onConfirm, demo, events }: { o: Onboarding; bus
       </div>
       <div className="bb">
         <p>전환이 끝났습니다. 원본 인스턴스 {inst}을(를) 중지합니다. 지우지는 않습니다. 디스크와 원본 버킷은 남으니 확인한 뒤 클라우드에서 지우세요.</p>
-        {!asked ? (
+        {!can ? null : !asked ? (
           <div className="actrow">
             <button type="button" className="btn primary" disabled={!!busy || cleaning} onClick={() => setAsked(true)}>
               원본 중지

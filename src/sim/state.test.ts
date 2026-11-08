@@ -192,7 +192,7 @@ describe("migration simulation (platform contract shapes)", () => {
     expect(d().plannedLegacyChanges?.length).toBeGreaterThan(0);
     apply(S, { type: "onb-approve", headSha: "0000000" }); // not the PR head: refused
     expect(d().state).toBe("awaiting_approval");
-    expect(S.onbNotice).toMatch(/PR이 그사이 바뀌었습니다/);
+    expect(S.onbNotice).toMatch(/PR이 화면의 head와 다릅니다/);
     apply(S, { type: "onb-approve", headSha: d().pr!.headSha });
     expect(d().state).toBe("connecting");
     run(S, 40);
