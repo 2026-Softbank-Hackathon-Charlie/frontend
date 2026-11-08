@@ -39,7 +39,7 @@
 .mg-fold[open] > summary::after { margin-top: 3px; transform: rotate(-135deg); }
 .mg-progmore { border-top: 1px solid var(--line-soft); }
 
-/* "확인한 것": one row per check with a round state mark */
+/* "확인한 내용" (a fold like Plan 상세): one row per check with a round state mark */
 /* a plan attachment as uploaded (live) */
 /* min-width 0: the card body is a grid, and a grid item is as wide as its longest line unless it may shrink; the
    long lines of the attachment scroll inside its own box instead of running out of the card */
