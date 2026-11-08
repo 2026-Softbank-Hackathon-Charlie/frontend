@@ -1,7 +1,7 @@
 // Server-Sent Events over fetch. EventSource cannot send the Authorization
 // header, so the stream is read from a fetch body instead.
 import { ApiError, apiUrl, authHeaders, errorFromResponse, networkError, noteUnauthorized } from "./client";
-import type { AgentEvent, AgentSession, Deployment, DeploymentEvent, DeploymentStatus, Run, RunEvent, RunStatus } from "./types";
+import type { AgentEvent, AgentSession, Deployment, DeploymentEvent, DeploymentStatus, Onboarding, OnboardingEvent, Run, RunEvent, RunStatus } from "./types";
 
 // --- parser ---
 
@@ -116,6 +116,7 @@ export interface StreamHandlers<S, E> {
 export type WatchHandlers = StreamHandlers<Run, RunEvent>;
 export type AgentWatchHandlers = StreamHandlers<AgentSession, AgentEvent>;
 export type DeploymentWatchHandlers = StreamHandlers<Deployment, DeploymentEvent>;
+export type OnboardingWatchHandlers = StreamHandlers<Onboarding, OnboardingEvent>;
 
 /** healthy, failed and superseded are final; queued, building, committing and syncing are still going. */
 export function isFinalDeploymentStatus(s: DeploymentStatus): boolean {
@@ -207,7 +208,20 @@ export function watchDeployment(id: string, handlers: DeploymentWatchHandlers, o
 }
 
 /**
- * The loop behind watchRun, watchAgentSession and watchDeployment, for a stream at `path` that
+ * Follows an onboarding (GET /v1/onboardings/{id}/events) with the same
+ * guarantees as watchRun. Snapshots are the Onboarding (a new one on every
+ * change), events are OnboardingEvents named by their kind. The stream stays
+ * open in every state but done, failed included, and closes after the final
+ * snapshot of a done one. A deleted onboarding's stream closes too; the
+ * reconnect then answers 404 onboarding_not_found, which ends the watch.
+ */
+export function watchOnboarding(id: string, handlers: OnboardingWatchHandlers, opts: WatchOptions = {}): Promise<void> {
+  const path = `/v1/onboardings/${encodeURIComponent(id)}/events`;
+  return watchStream(path, "onboarding", (o) => o.state !== "done", handlers, opts);
+}
+
+/**
+ * The loop behind watchRun, watchAgentSession, watchDeployment and watchOnboarding, for a stream at `path` that
  * keeps their contract: a snapshot first on every connection, then stored
  * events with their seq as the SSE id, and, once `isActive` is false for a
  * snapshot, the server closes. `subject` names what the stream follows in

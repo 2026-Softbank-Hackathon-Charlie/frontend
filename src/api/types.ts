@@ -197,3 +197,23 @@ export type AppSecretInfo = S["AppSecretInfo"];
 export type AppSecrets = S["AppSecrets"];
 export type AppSecretsUpdate = S["AppSecretsUpdate"];
 export type AppSecretValue = S["AppSecretValue"];
+
+// Onboarding an app that runs outside the platform (ADR 0042).
+export type OnboardingRequest = S["OnboardingRequest"];
+export type OnboardingApproveRequest = S["OnboardingApproveRequest"];
+export type OnboardingState = S["OnboardingState"];
+export type OnboardingList = S["OnboardingList"];
+export type Onboarding = S["Onboarding"];
+export type OnboardingHumanAction = S["OnboardingHumanAction"];
+export type OnboardingDNSRecord = S["OnboardingDNSRecord"];
+export type OnboardingFactsSummary = S["OnboardingFactsSummary"];
+export type OnboardingReport = S["OnboardingReport"];
+export type OnboardingFinding = S["OnboardingFinding"];
+export type OnboardingFindingCode = OnboardingFinding["code"];
+export type OnboardingDrift = S["OnboardingDrift"];
+export type OnboardingPR = S["OnboardingPR"];
+export type OnboardingCheck = S["OnboardingCheck"];
+export type OnboardingLegacyChange = S["OnboardingLegacyChange"];
+export type OnboardingLegacyChangeKind = S["OnboardingLegacyChangeKind"];
+export type OnboardingPlannedChange = S["OnboardingPlannedChange"];
+export type OnboardingEvent = S["OnboardingEvent"];

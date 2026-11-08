@@ -23,13 +23,13 @@ const ALIASES: Record<string, string> = { "migrate-shop": "migrate-app" };
 export const PRIORITY_FINDINGS = "priority-findings";
 
 /**
- * #app-<name>[/<tab>] is one app, #deploy-<id> one deployment, #apps-<filter> the app list filtered by status.
+ * #app-<name>[/<tab>] is one app, #deploy-<id> one deployment, #onboard-<id> one onboarding, #apps-<filter> the app list filtered by status.
  * A query after the route (#migrate-app?app=<name>) is for the page and does not change the route.
  */
 export function parseRoute(hash: string): string {
   const raw = hash.replace(/^#/, "").replace(/\?.*$/, "") || "overview";
   const h = ALIASES[raw] ?? raw;
-  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h) || /^security\/(sources|ocsf|(controls|vulnerabilities|findings|priority-findings)(\/[A-Za-z0-9_-]+)?)$/.test(h)) return h;
+  if (ROUTES.includes(h) || /^app-[a-z0-9-]+(\/(instances|secrets|deploys))?$/.test(h) || /^deploy-[A-Za-z0-9_-]+$/.test(h) || /^onboard-onb-[a-z0-9]+$/.test(h) || /^security\/(sources|ocsf|(controls|vulnerabilities|findings|priority-findings)(\/[A-Za-z0-9_-]+)?)$/.test(h)) return h;
   return "overview";
 }
 
@@ -71,7 +71,7 @@ export function navigate(hash: string): void {
 /** Which side-nav entry is current for a route. */
 export function navCurrent(r: string): string {
   if (r === "overview") return "overview";
-  if (r.startsWith("apps") || r === "new" || r === "onboard" || r.startsWith("app-") || r.startsWith("deploy-")) return "apps";
+  if (r.startsWith("apps") || r === "new" || r.startsWith("onboard") || r.startsWith("app-") || r.startsWith("deploy-")) return "apps";
   if (r.startsWith("migrate")) return "migrate";
   if (r === "security" || r.startsWith("security/")) return "security";
   return r;

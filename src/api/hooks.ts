@@ -26,13 +26,14 @@ import {
   listEnvironments,
   listGitHubRepos,
   listMigrations,
+  listOnboardings,
   networkError,
   validateAppSpec,
   type AgentSessionQuery,
   type SecurityPostureQuery,
   type SecurityQuery,
 } from "./client";
-import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchRun } from "./sse";
+import { isFinalDeploymentStatus, watchAgentSession, watchDeployment, watchOnboarding, watchRun } from "./sse";
 import type {
   AIActivity,
   AppObservation,
@@ -58,6 +59,8 @@ import type {
   ObserveResult,
   ObserveRollbackData,
   ObserveStepData,
+  Onboarding,
+  OnboardingEvent,
   Run,
   RunEvent,
   SecurityControlReport,
@@ -192,6 +195,11 @@ export function useAppSecrets(name: string | null | undefined, pollMs = 0): Reso
 }
 
 /** The repositories the GitHub App can see, by full name. */
+/** Every onboarding, newest first. */
+export function useOnboardings(pollMs = 0): Resource<Onboarding[]> {
+  return usePolled("onboardings", pollMs, async (signal) => (await listOnboardings({ signal })).onboardings);
+}
+
 export function useGitHubRepos(): Resource<GitHubRepo[]> {
   return usePolled("github-repos", 0, async (signal) => (await listGitHubRepos({ signal })).repos);
 }
@@ -656,4 +664,77 @@ export function useDeployment(id: string | null | undefined, refetchMs = 300): D
     };
   }, [id, refetchMs]);
   return s;
+}
+
+export interface OnboardingWatch {
+  /** The latest snapshot, or an action's answer that came after it. */
+  onboarding: Onboarding | undefined;
+  /** Every event so far, each once, in seq order. */
+  events: OnboardingEvent[];
+  /** The last connection problem (cleared when a stream opens), or the error that stopped the watch. */
+  error: ApiError | undefined;
+  /** It answered 404: it never existed, or a deletion finished. */
+  gone: boolean;
+  /** Show an action's answer (approve, resume, ...) until the next snapshot. */
+  replace(o: Onboarding): void;
+}
+
+type OnboardingAction =
+  | { type: "reset" }
+  | { type: "snapshot"; onboarding: Onboarding }
+  | { type: "event"; event: OnboardingEvent }
+  | { type: "connected" }
+  | { type: "error"; error: ApiError };
+
+interface OnboardingWatchState {
+  onboarding: Onboarding | undefined;
+  events: OnboardingEvent[];
+  error: ApiError | undefined;
+  gone: boolean;
+}
+
+const noOnboarding: OnboardingWatchState = { onboarding: undefined, events: [], error: undefined, gone: false };
+
+function onboardingReducer(s: OnboardingWatchState, a: OnboardingAction): OnboardingWatchState {
+  switch (a.type) {
+    case "reset":
+      return noOnboarding;
+    case "snapshot":
+      return { ...s, onboarding: a.onboarding };
+    case "event":
+      return { ...s, events: [...s.events, a.event] };
+    case "connected":
+      return { ...s, error: undefined };
+    case "error":
+      return { ...s, error: a.error, gone: a.error.status === 404 };
+  }
+}
+
+/**
+ * Follows one onboarding over SSE (GET /v1/onboardings/{id}/events): every
+ * change comes as a new snapshot, the steps as events. A falsy `id` watches
+ * nothing.
+ */
+export function useOnboarding(id: string | null | undefined): OnboardingWatch {
+  const [s, dispatch] = useReducer(onboardingReducer, noOnboarding);
+  useEffect(() => {
+    dispatch({ type: "reset" });
+    if (!id) return;
+    const ctrl = new AbortController();
+    watchOnboarding(
+      id,
+      {
+        onSnapshot: (onboarding) => dispatch({ type: "snapshot", onboarding }),
+        onEvent: (event) => dispatch({ type: "event", event }),
+        onConnection: (value) => value && dispatch({ type: "connected" }),
+        onRetry: (error) => dispatch({ type: "error", error }),
+      },
+      { signal: ctrl.signal },
+    ).catch((e: unknown) => {
+      if (!ctrl.signal.aborted) dispatch({ type: "error", error: toApiError(e) });
+    });
+    return () => ctrl.abort();
+  }, [id]);
+  const replace = useCallback((onboarding: Onboarding) => dispatch({ type: "snapshot", onboarding }), []);
+  return { ...s, replace };
 }

@@ -5,10 +5,10 @@
 | 파일 | 내용 |
 |------|------|
 | `schema.d.ts` | openapi.yaml에서 생성한 타입. 손으로 고치지 않는다 |
-| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo`, `AppSecrets`, `AppSecretsUpdate`, `AppSecretValue` 같은 짧은 이름 |
+| `types.ts` | `Session`, `DeviceLogin`, `DeviceLoginApproveRequest`, `Run`, `RunEvent`, `Environment`, `TrafficState`, `PlanRecord`, `Matrix`, `AuditEntry`, `SecurityReport`, `AgentSession`, `AppSpec`, `AppSpecValidation`, `Deployment`, `DeploymentEvent`, `GitHubRepo`, `AppSecrets`, `AppSecretsUpdate`, `AppSecretValue`, `Onboarding`, `OnboardingEvent` 같은 짧은 이름 |
 | `client.ts` | API 함수, `ApiError`, 토큰(메모리), 401 알림(`onUnauthorized`) |
-| `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment` |
-| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useAppSecrets`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`) |
+| `sse.ts` | fetch 기반 SSE 파서와 `watchRun`, `watchAgentSession`, `watchDeployment`, `watchOnboarding` |
+| `hooks.ts` | React 훅 (`useEnvironments`, `useTraffic`, `useRuns`, `useMatrix`, `useAudit`, `useRun`, `useApps`, `useApp`, `useDeployments`, `useDeployment`, `useAppSecrets`, `useGitHubRepos`, `useAppSpecValidation`, `useSecurity`, `useAgentSessions`, `useAgentSession`, `useOnboardings`, `useOnboarding`) |
 | `fakes.ts` | 테스트 전용 가짜 fetch. 앱 코드에서 import하지 않는다 |
 | `gen-schema.mjs` | `npm run gen:api` 스크립트 |
 
@@ -77,6 +77,7 @@ openapi-typescript는 6.7.6을 쓴다. 7.x는 TypeScript 5의 컴파일러 API�
 | 에이전트 활동 | `listAgentSessions({ planRef, runId, limit })`, `getAgentSession`, `listAgentEvents(id, { after, limit })`, `listAllAgentEvents` |
 | GitHub 앱 배포 | `createApp`, `getApp`, `deleteApp`, `validateAppSpec`, `createDeployment(name, { branch, ref, environments, redeploy })`, `listDeployments(name, { branch, limit })`, `createAppInstance(name, { branch, autoDeploy })`, `deleteAppInstance(name, instance)`, `getDeployment`, `listGitHubRepos`, `specInvalid(e)` |
 | 앱 시크릿 | `listAppSecrets(name)`, `updateAppSecrets(name, { instance, set, delete })`, `getAppSecret(name, secret, { instance })` |
+| 기존 앱 가져오기 | `startOnboarding`, `listOnboardings`, `getOnboarding`, `deleteOnboarding`, `approveOnboarding(id, headSha)`, `cutOverOnboarding`, `decommissionOnboarding`, `resumeOnboarding` |
 | 기타 | `getMatrix`, `listAudit({ limit, before })` |
 
 - 실패하면 `ApiError`를 던진다. `status`는 HTTP 상태, `code`와 `message`는 서버의 `{"error":{"code","message"}}` 값이다.

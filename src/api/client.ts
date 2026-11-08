@@ -4,6 +4,9 @@
 // and throws ApiError on failure. Aborting the caller's signal rejects with
 // the fetch AbortError instead, so callers can tell "cancelled" from "failed".
 import type {
+  Onboarding,
+  OnboardingList,
+  OnboardingRequest,
   SourceRetentionResponse,
   AbortRequest,
   AIActivity,
@@ -601,3 +604,21 @@ export const getAppAIServices = (app: string, minutes = 5, o?: RequestOptions) =
     if (!isAIServiceTopology(result) || result.app !== app) throw new ApiError(502, "invalid_ai_service_topology", "앱 AI 관측 응답을 확인하지 못했습니다.");
     return result;
   });
+// --- onboarding an app from outside the platform (ADR 0042) ---
+
+/** 202 with the new onboarding; discovery runs in the background. Role operator. */
+export const startOnboarding = (req: OnboardingRequest, o?: RequestOptions) => request<Onboarding>("POST", "/v1/onboardings", { ...o, body: req });
+/** Every onboarding, newest first, done ones included. */
+export const listOnboardings = (o?: RequestOptions) => request<OnboardingList>("GET", "/v1/onboardings", o);
+export const getOnboarding = (id: string, o?: RequestOptions) => request<Onboarding>("GET", `/v1/onboardings/${seg(id)}`, o);
+/** 202 with `deleting` true; the onboarding is gone when GET answers 404. */
+export const deleteOnboarding = (id: string, o?: RequestOptions) => request<Onboarding>("DELETE", `/v1/onboardings/${seg(id)}`, o);
+/** In awaiting_approval, with the PR head the operator saw; 409 pr_head_mismatch when the PR moved. */
+export const approveOnboarding = (id: string, headSha: string, o?: RequestOptions) =>
+  request<Onboarding>("POST", `/v1/onboardings/${seg(id)}/approve`, { ...o, body: { headSha } });
+/** In ready: starts the cutover run; its id is in `runId`. */
+export const cutOverOnboarding = (id: string, o?: RequestOptions) => request<Onboarding>("POST", `/v1/onboardings/${seg(id)}/cutover`, o);
+/** In decommissioning: stop the source instance. */
+export const decommissionOnboarding = (id: string, o?: RequestOptions) => request<Onboarding>("POST", `/v1/onboardings/${seg(id)}/decommission`, o);
+/** From failed, or while it waits for a person: check again now. */
+export const resumeOnboarding = (id: string, o?: RequestOptions) => request<Onboarding>("POST", `/v1/onboardings/${seg(id)}/resume`, o);
