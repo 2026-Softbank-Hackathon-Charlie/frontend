@@ -209,7 +209,8 @@ export const STATELESS_SKIPS = new Set(["presync", "delta", "fence", "switchover
 
 export function endpoint(k: EnvKey, app: string = SAMPLE.id): PlanEndpoint {
   const e = ENV[k];
-  if (app === STATELESS_SAMPLE.id) return { kind: "none", env: e.id, context: e.id, namespace: STATELESS_SAMPLE.namespace, cluster: "" };
+  // like the platform's plan without a database: no namespace or cluster, the app named in the summary and the run
+  if (app === STATELESS_SAMPLE.id) return { kind: "none", env: e.id, context: e.id, namespace: "", cluster: "" };
   return { env: e.id, context: e.id, namespace: SAMPLE.namespace, cluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + SAMPLE.namespace + "." + e.id + ".ts.net:5432" };
 }
 
@@ -225,7 +226,7 @@ export function draftStateless(m: MigSim): void {
     ref: id(m, "pln"),
     status: "pending_approval",
     revision: 1,
-    summary: { planId: m.app + "-" + ENV[m.src].id + "-to-" + ENV[m.tgt].id, source: endpoint(m.src, m.app), target: endpoint(m.tgt, m.app), files: false, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" },
+    summary: { app: m.app, planId: m.app + "-" + ENV[m.src].id + "-to-" + ENV[m.tgt].id, source: endpoint(m.src, m.app), target: endpoint(m.tgt, m.app), files: false, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" },
     submittedBy: "operator",
     submittedRole: "operator",
     submittedAt: iso(m.now),
@@ -412,6 +413,7 @@ export function start(m: MigSim, opts: { rollbackOf?: string; autoSwitch?: boole
     runId,
     planRef: m.plan?.ref ?? "",
     planId: m.plan?.summary.planId ?? "",
+    ...(isStateless(m) ? { app: m.app } : {}),
     source: endpoint(m.src, m.app),
     target: endpoint(m.tgt, m.app),
     status: "running",
@@ -481,7 +483,7 @@ export function rollback(m: MigSim): void {
     status: "approved",
     revision: 1,
     rollbackOf: r.runId,
-    summary: { ...(m.plan?.summary ?? { planId: r.planId, files: !isStateless(m), gatewayMode: "http", fenceGate: !isStateless(m), maxDowntime: "30s" }), source: endpoint(m.tgt, m.app), target: endpoint(m.src, m.app), planId: r.planId + "-rollback" },
+    summary: { ...(m.plan?.summary ?? { ...(r.app ? { app: r.app } : {}), planId: r.planId, files: !isStateless(m), gatewayMode: "http", fenceGate: !isStateless(m), maxDowntime: "30s" }), source: endpoint(m.tgt, m.app), target: endpoint(m.src, m.app), planId: r.planId + "-rollback" },
     submittedBy: "operator",
     submittedAt: iso(m.now),
   };
@@ -710,8 +712,13 @@ export function targetReadShare(r: Run): number {
   return last ? last.weight : 0;
 }
 
+/** The finished runs of the app on screen: the app without a database names itself in `app`, the sample app's runs do not. */
+export function appHistory(m: Pick<MigSim, "history" | "app">): Run[] {
+  return m.history.filter((r) => (r.app ?? SAMPLE.id) === m.app);
+}
+
 export function matrixRoutes(m: MigSim): MatrixRoute[] {
-  return m.history.map((r) => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status, finishedAt: r.endedAt, result: r.result }));
+  return appHistory(m).map((r) => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status, finishedAt: r.endedAt, result: r.result }));
 }
 
 /** Every AI session so far, newest first. */

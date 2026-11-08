@@ -21,7 +21,7 @@ import {
 import { isAfter, useAgentSession, useAgentSessions, useAIRuns, useApp, useApps, useEnvironments, useRun, useRuns, useTraffic } from "../api/hooks";
 import type { AgentEvent, AgentSession, AIRun, App, AppDBReadiness, AppDBTopology, AppResources, EnginePlan, Environment, PlanRecord, Run, RunEvent, StartMigrationRequest } from "../api/types";
 import { ENV, ENV_ORDER, SAMPLE, STATELESS_SAMPLE, envKeyOf, type EnvKey } from "../sim/data";
-import { CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, iso, migCounters, type CanaryPreset } from "../sim/mig";
+import { appHistory, CANARY_PRESETS, DEFAULT_CANARY, enginePlan, fixDiff, iso, migCounters, type CanaryPreset } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { errorText, usePlans } from "./live";
 import { isDatabaselessApp, migrationEnvironments } from "./migrationMembership";
@@ -227,7 +227,7 @@ export function useSimMigration(): MigrationView {
     selectSession: () => {},
     fix: m.plan?.attachments?.length && !stateless ? fixDiff(m.src, m.tgt) : undefined,
     run: m.run ?? undefined,
-    lastRun: m.history[0],
+    lastRun: appHistory(m)[0],
     now: Date.parse(iso(m.now)),
     events: m.events,
     counters: migCounters(m),
@@ -601,7 +601,7 @@ export function useLiveMigration(): MigrationView {
     }
     const pending = newestPending(app);
     if (pending) setPlanRef(pending.ref);
-  }, [enabled, runs.data, plans.data, runId, planRef, dismissed, ns]);
+  }, [enabled, runs.data, plans.data, runId, planRef, dismissed, ns, app?.name]);
 
   const plan = plans.data?.find((p) => p.ref === planRef) ?? (acceptedPlan?.ref === planRef ? acceptedPlan : undefined);
   const startOptions = picked.planRef === planRef ? picked.options : DEFAULT_START;
@@ -652,7 +652,7 @@ export function useLiveMigration(): MigrationView {
       setSelected(null);
       setPlanRef(submitted.ref);
     }
-  }, [currentAI, plans.data, ns]);
+  }, [currentAI, plans.data, ns, app?.name]);
   useEffect(() => {
     if (!planning || !ns) return;
     // only this app's Plan: another app's Plan submitted meanwhile (another operator's migration) is not this session's
@@ -663,7 +663,7 @@ export function useLiveMigration(): MigrationView {
     setTracked(undefined);
     setSelected(null);
     setPlanRef(submitted.ref);
-  }, [planning, plans.data, ns]);
+  }, [planning, plans.data, ns, app?.name]);
   const ofPlan = useMemo(() => (enabled && planRef && !planning && !currentAI ? (sessions.data ?? []) : []), [enabled, planRef, planning, currentAI, sessions.data]);
   const linked = useLinkedPlanSession(ofPlan);
   const sessionList = useMemo(() => {

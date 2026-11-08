@@ -19,6 +19,7 @@ import { canaryStepVerdict, canaryVerdict } from "../data/canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
 import { hiddenSteps } from "../data/migrationMap";
+import { SAMPLE } from "../sim/data";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
 
@@ -73,10 +74,11 @@ function MigrateListView({ v }: { v: MigrationView }) {
         <div className="box">
           <Table
             head={["앱", "현재 위치", "상태", ""]}
-            rows={(live ? (v.apps ?? []) : [{ value: v.app, label: v.app }]).map((app) => {
+            rows={(v.apps ?? [{ value: v.app, label: v.app }]).map((app) => {
               const selected = app.value === v.app;
               return [
-                td(live ? <b>{app.label}</b> : <a href={"#app-" + app.value}>{app.label}</a>),
+                // the demo has an app page only for the sample app
+                td(live || app.value !== SAMPLE.id ? <b>{app.label}</b> : <a href={"#app-" + app.value}>{app.label}</a>),
                 td(selected ? <EnvLabel env={v.src} label={v.srcLabel} /> : <span className="hint">미확인</span>),
                 td(
                   !selected ? (
@@ -1515,7 +1517,7 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
         <Num label="실패 요청" value={invalidCounts ? "집계 이상" : n(x.failedRequests, "건")} note={invalidCounts ? "요청 집계를 확인하세요" : x.requests === undefined ? "전체 요청 미측정" : "요청 " + fmt(x.requests) + "건 중"} ok={invalidCounts || x.requests === undefined ? undefined : zero(x.failedRequests)} />
         {!res.postgres ? none("누락 행", "DB 없음") : <Num label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" ok={zero(x.missingRows)} />}
         {!res.postgres ? none("누락 쓰기", "DB 없음") : <Num label="누락 쓰기" value={n(missingWrites, "건")} note={verification?.scope === "application_commits" ? "앱 DB 커밋 기록과 대조" : verification?.scope === "client_acknowledged" ? "성공 응답을 확인한 기록과 대조" : "보고된 쓰기 기록과 대조"} ok={zero(missingWrites)} />}
-        {!res.s3 ? none("누락 파일", "파일 없음") : <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />}
+        {!res.s3 || v.plan?.summary.files === false ? none("누락 파일", !res.s3 ? "파일 없음" : "파일 이전 없음") : <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />}
       </div>
       {res.postgres && <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>}
       {!x.verified && <div className="bb hint">검증이 끝나지 않았거나 문제가 있습니다.</div>}

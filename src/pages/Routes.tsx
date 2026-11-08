@@ -10,6 +10,7 @@ import { Chip, LoadError, PageHead, Skeleton } from "../components/ui";
 import { errorText, useLive } from "../data/live";
 import { envKeyOf } from "../sim/data";
 import { dur, fmt } from "../sim/format";
+import { appHistory } from "../sim/mig";
 import { useSim } from "../sim/store";
 import { securityComparisonRun } from "../sim/securityComparison";
 import { measuredWriteMissing, WriteVerification, writeVerificationOf } from "../components/WriteVerification";
@@ -41,7 +42,7 @@ function SimResults() {
       {showExample && <Chip>시연 데이터</Chip>}
     </div>
     {showExample ? <ol className="result-list"><ResultSummary r={securityComparisonRun} example /></ol>
-      : <MigrationResults runs={m.run ? [m.run, ...m.history.filter((r) => r.runId !== m.run!.runId)] : m.history} />}
+      : <MigrationResults runs={m.run ? [m.run, ...appHistory(m).filter((r) => r.runId !== m.run!.runId)] : appHistory(m)} />}
   </>;
 }
 

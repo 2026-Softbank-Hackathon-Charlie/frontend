@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth } from "../data/live";
-import { AI_END, iso, SWITCH_AT } from "../sim/mig";
+import { AI_END, iso, matrixRoutes, SWITCH_AT } from "../sim/mig";
 import { buildMapSnapshot } from "../data/mapSnapshot";
 import { useSimMigration } from "../data/migration";
 import { createSim, SimProvider } from "../sim/store";
@@ -177,6 +177,24 @@ describe("migration demo: an app without a database (docker-doom)", () => {
     expect(sim.state.statelessLoc).toBe(sim.state.mig.tgt);
     expect(screen.getAllByText("DB 없음").length).toBeGreaterThanOrEqual(3); // 쓰기 보류, 누락 행, 누락 쓰기
     expect(screen.getByText("파일 없음")).toBeInTheDocument();
+    // live shapes: the plan and the run name the app, the endpoints carry no namespace
+    expect(r.app).toBe("docker-doom");
+    expect(sim.state.mig.plan?.summary.app).toBe("docker-doom");
+    expect(r.source.namespace).toBe("");
+
+    // the map draws no database for it
+    let view: ReturnType<typeof useSimMigration> | undefined;
+    function Probe() { view = useSimMigration(); return null; }
+    render(<SimProvider sim={sim} intervalMs={0}><Probe /></SimProvider>);
+    const snapshot = buildMapSnapshot(view!, { now: Date.now() });
+    expect(Object.keys(snapshot.nodes).filter((k) => k.endsWith(".db"))).toEqual([]);
+
+    // its run stays its own: moimroom shows no docker-doom history
+    act(() => { sim.dispatch({ type: "mig-new" }); sim.dispatch({ type: "mig-app", app: "moimroom" }); });
+    expect(sim.state.mig.history).toHaveLength(1);
+    render(<SimProvider sim={sim} intervalMs={0}><Probe /></SimProvider>);
+    expect(view!.lastRun).toBeUndefined();
+    expect(matrixRoutes(sim.state.mig)).toEqual([]);
   });
 
   it("keeps moimroom's AI flow when switching back", async () => {
