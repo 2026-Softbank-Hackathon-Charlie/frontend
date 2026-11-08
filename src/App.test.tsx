@@ -684,6 +684,12 @@ describe("HopCharlie console (platform API)", () => {
     expect(await screen.findByText("AI 세션 2개, 막힌 명령 1건")).toBeInTheDocument();
     expect(screen.getByText(/막힌 명령 1건, 모두 차단됨/)).toBeInTheDocument();
     expect(screen.queryByText(/세션 기록만 셉니다/)).toBeNull();
+    // the card is a fold like Plan 상세, closed at first, and its row says what is inside
+    const fold = screen.getByText("확인한 내용").closest("details");
+    expect(fold).not.toBeNull();
+    expect(fold).not.toHaveAttribute("open");
+    expect(fold!.querySelector("summary")).toHaveTextContent("AI 세션 2개, 막힌 명령 1건");
+    expect(screen.queryByText("확인한 것")).toBeNull();
   });
 
   it("makes no API calls in simulation mode", () => {
