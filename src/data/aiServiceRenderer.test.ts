@@ -65,4 +65,17 @@ describe("actual SVG AI service renderer (DOM unit verification)", () => {
     expect(document.querySelector('[data-ai-service="group:onprem"]')).not.toBeNull();
     expect(document.querySelector('#appAIList')!.children).toHaveLength(11);
   });
+  it("widens the map only when a card needs the extra width", () => {
+    const r = renderer(); const data = topology();
+    const map = document.getElementById("map")!;
+    const width = () => [map.getAttribute("viewBox")!.split(" ")[2], map.style.minWidth, document.querySelector(".lane-box")!.getAttribute("width")];
+    const unplaced = (n: number) => Array.from({ length: n }, (_, i) => ({ ...data.services[0], id: "u" + i, serviceId: "u" + i, location: { accelerator: "unknown" as const } }));
+    r.send({ ...data, services: unplaced(1) });
+    expect(document.querySelector('[data-ai-service="u0"]')).not.toBeNull();
+    expect(width()).toEqual(["1020", "760px", "720"]);
+    r.send({ ...data, services: unplaced(3) });
+    expect(width()).toEqual(["1420", "1060px", "1110"]);
+    r.send(data);
+    expect(width()).toEqual(["1420", "1060px", "1110"]);
+  });
 });
