@@ -32,6 +32,13 @@ test("joined lists go item by item, and runtime-built text falls back to known w
   expect(t("Postgres · CNPG · 생성 전")).toBe("Postgres · CNPG · 作成前");
 });
 
+test("items joined with a middle dot go item by item, each one split into sentences", () => {
+  const t = makeTranslator({ "앱 확인": "アプリ確認", "저장합니다.": "保存します。", "다시 봅니다.": "再確認します。", "단가 {0}원": "単価 {0} 円" });
+  expect(t("저장합니다. · 단가 30원")).toBe("保存します。 · 単価 30 円");
+  expect(t("앱 확인 · 저장합니다. 다시 봅니다. · v1")).toBe("アプリ確認 · 保存します。 再確認します。 · v1");
+  expect(t("앱 확인 · 모르는 말")).toBeNull();
+});
+
 test("a pattern with little Korean of its own does not cut into a word", () => {
   const t = makeTranslator({ "{0}분": "{0}分", "{0}회{1}": "{0}回{1}" });
   expect(t("5분")).toBe("5分");

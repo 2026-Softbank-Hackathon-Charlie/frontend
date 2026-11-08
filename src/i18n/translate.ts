@@ -65,6 +65,11 @@ export function makeTranslator(dict: Dict): Translator {
     }
     const viaPattern = matchPattern(core, depth);
     if (viaPattern !== null) return viaPattern;
+    // items joined at runtime with " · " (the reasons of a recommendation): each item on its own
+    if (depth === 0 && core.includes(" · ")) {
+      const joined = core.split(" · ").map((x) => lookup(x, 0) ?? x).join(" · ");
+      if (!HANGUL.test(joined)) return joined;
+    }
     // half-translated text reads worse than the Korean, so a phrase swap counts only when nothing Korean is left
     if (!words) return null;
     const replaced = core.replace(words, (w) => exact.get(w)!);
