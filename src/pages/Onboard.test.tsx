@@ -141,7 +141,7 @@ describe("live: list and start", () => {
       return hang(call);
     });
     show();
-    expect(await screen.findByText(/아직 구현하는 중입니다 \(501\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/실행기가 설정되어 있지 않습니다 \(501\)/)).toBeInTheDocument();
   });
 });
 

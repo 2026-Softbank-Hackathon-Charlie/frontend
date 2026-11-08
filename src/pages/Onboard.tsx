@@ -136,7 +136,7 @@ export function onbErrorText(e: unknown): string {
   if (e instanceof ApiError) {
     switch (e.code) {
       case "not_implemented":
-        return "서버에서 기존 앱 가져오기를 아직 구현하는 중입니다 (501). 데모 모드에서 흐름을 볼 수 있습니다";
+        return "이 서버에는 기존 앱 가져오기 실행기가 설정되어 있지 않습니다 (501). 데모 모드에서 흐름을 볼 수 있습니다";
       case "app_exists":
         return "그 이름의 앱이 이미 등록되어 있습니다";
       case "onboarding_exists":
@@ -564,7 +564,7 @@ function Detail({ o, events, acts, busy, notice, run, demo }: { o: Onboarding; e
           <b>기록</b>
         </div>
         <div className="bb">
-          <LogBox lines={events.map((e): LogLine => [hms(e.time), "[" + ONB_STATE_LABEL[e.state] + "] " + (e.kind === "error" ? "오류: " : "") + (e.message ?? e.kind)])} empty="첫 기록을 기다리는 중입니다." />
+          <LogBox lines={events.filter((e) => !isMetric(e)).map((e): LogLine => [hms(e.time), "[" + ONB_STATE_LABEL[e.state] + "] " + (e.kind === "error" ? "오류: " : "") + (e.message ?? e.kind)])} empty="첫 기록을 기다리는 중입니다." />
         </div>
       </section>
       {deletable(o) && <Delete o={o} busy={busy} onConfirm={acts.remove} />}
@@ -815,9 +815,13 @@ const METRIC_LABEL: Record<string, [string, (v: unknown) => string]> = {
   filesCopied: ["복사한 파일", (v) => (typeof v === "number" ? v.toLocaleString("ko-KR") + "개" : String(v))],
   filesPending: ["남은 파일", (v) => (typeof v === "number" ? v.toLocaleString("ko-KR") + "개" : String(v))],
   dnsToGateway: ["DNS", (v) => (v ? "게이트웨이를 가리킴" : "아직 VM을 가리킴")],
+  streaming: ["DB 복제", (v) => (v ? "streaming" : "연결 전")],
 };
 
-/** The newest step of syncing that carries numbers. MOCK-ish: the contract leaves OnboardingEvent.data open. */
+/** A syncing check with its numbers (sent on every poll): shown as metrics, not as log lines. */
+const isMetric = (e: OnboardingEvent) => e.state === "syncing" && e.kind === "step" && !!e.data && "lagSeconds" in e.data;
+
+/** The newest step of syncing that carries numbers. The keys are what the platform's syncing step sends (internal/onboard/job, lagSeconds, filesCopied, filesPending, dnsToGateway, streaming). */
 function Syncing({ events, ready }: { events: OnboardingEvent[]; ready: boolean }) {
   const last = [...events].reverse().find((e) => e.state === "syncing" && e.data && Object.keys(e.data).length > 0);
   return (
