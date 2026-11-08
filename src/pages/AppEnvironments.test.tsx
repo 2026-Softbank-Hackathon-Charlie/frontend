@@ -608,6 +608,8 @@ describe("Japanese", () => {
       "db_topology_unready",
       "db_topology_unknown",
       "db_topology_unreachable",
+      "db_topology_changed",
+      "db_topology_denied",
     ];
     const reasons = [
       "replica_missing",
