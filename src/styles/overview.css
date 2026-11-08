@@ -39,7 +39,8 @@
 .figs div:first-child dd { font-size: 18px; line-height: 1.35; }
 
 /* routes and recent activity: side by side when both fit */
-.ov-two { display: flex; flex-wrap: wrap; gap: var(--sp-md); align-items: flex-start; }
+/* This flex row is also a grid item: long audit paths must not set the page's minimum column width. */
+.ov-two { display: flex; flex-wrap: wrap; gap: var(--sp-md); align-items: flex-start; min-width: 0; }
 .ov-two > .box { flex: 1 1 380px; }
 .ov-two > .ov-routes { flex-basis: 460px; }
 .ov-act { padding: var(--sp-xs) 0; }
