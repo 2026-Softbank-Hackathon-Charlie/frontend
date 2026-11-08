@@ -41,7 +41,9 @@
 
 /* "확인한 것": one row per check with a round state mark */
 /* a plan attachment as uploaded (live) */
-.mg-attach { margin: var(--sp-sm) 0 0; border: 1px solid var(--hairline); border-radius: var(--r-control); }
+/* min-width 0: the card body is a grid, and a grid item is as wide as its longest line unless it may shrink; the
+   long lines of the attachment scroll inside its own box instead of running out of the card */
+.mg-attach { margin: var(--sp-sm) 0 0; border: 1px solid var(--hairline); border-radius: var(--r-control); min-width: 0; max-width: 100%; }
 .mg-attach figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-xs) var(--sp-sm); padding: var(--sp-xs) var(--sp-sm); background: var(--fill); font-size: 13px; }
 .mg-attach figcaption b { font-family: var(--font-mono); font-weight: 500; }
 .mg-attach > p { padding: var(--sp-xs) var(--sp-sm); }

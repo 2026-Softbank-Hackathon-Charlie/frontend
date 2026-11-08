@@ -972,11 +972,11 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
   const tools = (s: AgentSession) => " 도구 호출 " + fmt(s.totals.toolCalls) + "회, 토큰 " + fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens) + ".";
   if (!resOf(v).postgres) return <CheckedNoDB v={v} />;
   return (
-    <div className="box">
-      <div className="bh">
-        <b>확인한 것</b>
+    <details className="box fold mg-fold">
+      <summary className="bh">
+        <b>확인한 내용</b>
         <span className="hint">{"AI 세션 " + v.sessions.length + "개, 막힌 명령 " + blocked.length + "건" + (v.sessionsPartial ? " 이상" : "")}</span>
-      </div>
+      </summary>
       <ul className="mg-checks">
         <li>
           <Mark round st={sessionMark(plan)} />
@@ -1040,7 +1040,7 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
           </div>
         </li>
       </ul>
-    </div>
+    </details>
   );
 }
 
@@ -1048,11 +1048,11 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
 function CheckedNoDB({ v }: { v: MigrationView }) {
   const pf = v.preflight;
   return (
-    <div className="box">
-      <div className="bh">
-        <b>확인한 것</b>
+    <details className="box fold mg-fold">
+      <summary className="bh">
+        <b>확인한 내용</b>
         <span className="hint">DB 없음, AI 계획·리허설 없음</span>
-      </div>
+      </summary>
       <ul className="mg-checks">
         <li>
           <Mark round st="ok" />
@@ -1069,7 +1069,7 @@ function CheckedNoDB({ v }: { v: MigrationView }) {
           </div>
         </li>
       </ul>
-    </div>
+    </details>
   );
 }
 
