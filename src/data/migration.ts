@@ -743,7 +743,9 @@ export function useLiveMigration(): MigrationView {
   // operator sees why and can start again, instead of falling back to the setup form.
   // A plan session hopai is writing for this app shows as the AI step until its Plan arrives, ahead of
   // an older Plan the page may have picked up.
-  const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" ? "review" : "setup";
+  // A started run whose first snapshot has not arrived yet keeps its Plan on screen (its status is
+  // already starting/started), so the page does not drop back to the setup form until the run shows.
+  const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" || (runId && plan) ? "review" : "setup";
 
   // The Plan from the platform's draft, without the AI: the "Plan 작성" path, and an AI start answered no_database.
   const draftAndSubmit = async (name: string, source: string) => {
