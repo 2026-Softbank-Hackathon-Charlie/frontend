@@ -174,7 +174,7 @@ describe("environment mode parity", () => {
   describe("live traffic gateway of the registered apps", () => {
     // an app of the apps file has a gateway of its own; a registered one with no database pair has none
     const app = (name: string, gateway = true) =>
-      ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: gateway ? [{ env: "eks", cnpgCluster: name + "-db", dbHost: "h" }] : [] }) as App;
+      ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true }, environments: gateway ? [{ env: "eks", cnpgCluster: name + "-db", dbHost: "h" }] : [] }) as App;
     const live = () => {
       state.live = true;
       state.envs = { ...state.envs, data: [environment], loading: false };

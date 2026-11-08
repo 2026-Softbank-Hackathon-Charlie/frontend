@@ -20,7 +20,7 @@ import type {
   RunStatus,
   StepRecord,
 } from "../api/types";
-import { ENV, SAMPLE, sampleBucket, type EnvKey } from "./data";
+import { ENV, SAMPLE, STATELESS_SAMPLE, sampleBucket, type EnvKey } from "./data";
 
 /* ---------- engine timeline ---------- */
 
@@ -50,6 +50,7 @@ export const ENGINE_STEPS: EngineStep[] = [
 ];
 
 const SYNC_END = 65;
+const PREPARE_END = 20;
 // Read share moves to the target in steps; each step is gated (platform ADR
 // 0005). Small steps of a quiet app may be inconclusive; the last step decides.
 export interface CanaryPresetSpec {
@@ -132,6 +133,8 @@ const SESSION_SPAN: Record<Ev["s"], [number, number, AgentSessionKind, string]> 
 /* ---------- state ---------- */
 
 export interface MigSim {
+  /** the app on the page: the sample app, or the one without a database (STATELESS_SAMPLE) */
+  app: string;
   src: EnvKey;
   tgt: EnvKey;
   /** setup → ai (plan + rehearsal) → review (plan waits for approval) → run → (back to setup) */
@@ -167,8 +170,9 @@ export interface MigSim {
 const BASE = Date.parse("2026-11-06T01:00:00Z");
 export const iso = (sec: number) => new Date(BASE + Math.round(sec * 1000)).toISOString();
 
-export function freshMig(src: EnvKey, keep?: MigSim): MigSim {
+export function freshMig(src: EnvKey, keep?: MigSim, app?: string): MigSim {
   return {
+    app: app ?? keep?.app ?? SAMPLE.id,
     src,
     tgt: (["aws", "gcp", "onprem"] as EnvKey[]).find((k) => k !== src)!,
     stage: "setup",
@@ -197,9 +201,38 @@ export function freshMig(src: EnvKey, keep?: MigSim): MigSim {
 
 const id = (m: MigSim, p: string) => p + "_" + (0x7c2e90 + m.nextId++).toString(16);
 
-export function endpoint(k: EnvKey): PlanEndpoint {
+/** The app without a database: no AI plan, rehearsal, database pair or files (platform ADR 0018). */
+export const isStateless = (m: Pick<MigSim, "app">) => m.app === STATELESS_SAMPLE.id;
+
+/** Engine steps a run of the app without a database skips: there is nothing to copy, replicate, fence or promote. */
+export const STATELESS_SKIPS = new Set(["presync", "delta", "fence", "switchover"]);
+
+export function endpoint(k: EnvKey, app: string = SAMPLE.id): PlanEndpoint {
   const e = ENV[k];
+  // like the platform's plan without a database: no namespace or cluster, the app named in the summary and the run
+  if (app === STATELESS_SAMPLE.id) return { kind: "none", env: e.id, context: e.id, namespace: "", cluster: "" };
   return { env: e.id, context: e.id, namespace: SAMPLE.namespace, cluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + SAMPLE.namespace + "." + e.id + ".ts.net:5432" };
+}
+
+/**
+ * The Plan without AI for the app without a database (POST /v1/plans/draft, then submit): straight to the approval.
+ * The sample app has no such path in the demo; its plan comes from the AI scenario.
+ */
+export function draftStateless(m: MigSim): void {
+  if (!isStateless(m) || m.stage !== "setup") return;
+  m.sessions = [];
+  m.sessionEvents = {};
+  m.plan = {
+    ref: id(m, "pln"),
+    status: "pending_approval",
+    revision: 1,
+    summary: { app: m.app, planId: m.app + "-" + ENV[m.src].id + "-to-" + ENV[m.tgt].id, source: endpoint(m.src, m.app), target: endpoint(m.tgt, m.app), files: false, gatewayMode: "http", fenceGate: false, maxDowntime: "30s" },
+    submittedBy: "operator",
+    submittedRole: "operator",
+    submittedAt: iso(m.now),
+    attachments: [],
+  };
+  m.stage = "review";
 }
 
 /* ---------- AI ---------- */
@@ -294,9 +327,13 @@ function aiTick(m: MigSim): void {
 }
 
 /** The engine plan behind the simulated PlanRecord (EnginePlan). DSNs are `${VAR}` references the server expands. */
-export function enginePlan(src: EnvKey, tgt: EnvKey): EnginePlan {
+export function enginePlan(src: EnvKey, tgt: EnvKey, app: string = SAMPLE.id): EnginePlan {
   const s = ENV[src];
   const t = ENV[tgt];
+  if (app === STATELESS_SAMPLE.id) {
+    const none = (e: typeof s) => ({ kind: "none" as const, env: e.id, context: e.id, namespace: STATELESS_SAMPLE.namespace, cluster: "", dsn: "" });
+    return { id: app + "-" + s.id + "-to-" + t.id, source: none(s), target: none(t), gateway: { mode: "http", sourceBackend: s.id, targetBackend: t.id } };
+  }
   const ep = (e: typeof s) => ({ env: e.id, context: e.id, namespace: SAMPLE.namespace, cluster: SAMPLE.db + "-" + e.id, dsn: "${" + SAMPLE.id.toUpperCase() + "_DSN_" + e.id.toUpperCase() + "}" });
   return {
     id: SAMPLE.id + "-" + s.id + "-to-" + t.id,
@@ -376,8 +413,9 @@ export function start(m: MigSim, opts: { rollbackOf?: string; autoSwitch?: boole
     runId,
     planRef: m.plan?.ref ?? "",
     planId: m.plan?.summary.planId ?? "",
-    source: endpoint(m.src),
-    target: endpoint(m.tgt),
+    ...(isStateless(m) ? { app: m.app } : {}),
+    source: endpoint(m.src, m.app),
+    target: endpoint(m.tgt, m.app),
     status: "running",
     phase: "sync",
     autoSwitch: !!opts.autoSwitch,
@@ -445,7 +483,7 @@ export function rollback(m: MigSim): void {
     status: "approved",
     revision: 1,
     rollbackOf: r.runId,
-    summary: { ...(m.plan?.summary ?? { planId: r.planId, files: true, gatewayMode: "http", fenceGate: true, maxDowntime: "30s" }), source: endpoint(m.tgt), target: endpoint(m.src), planId: r.planId + "-rollback" },
+    summary: { ...(m.plan?.summary ?? { ...(r.app ? { app: r.app } : {}), planId: r.planId, files: !isStateless(m), gatewayMode: "http", fenceGate: !isStateless(m), maxDowntime: "30s" }), source: endpoint(m.tgt, m.app), target: endpoint(m.src, m.app), planId: r.planId + "-rollback" },
     submittedBy: "operator",
     submittedAt: iso(m.now),
   };
@@ -471,11 +509,14 @@ function runTick(m: MigSim): boolean {
   const dt = m.switched ? 0.2 : 1;
   const prevT = m.t;
   const prevU = m.u;
+  const stateless = isStateless(m);
   if (m.switched) m.u = Math.round((m.u + dt) * 10) / 10;
   else m.t += dt;
+  // without a database there is nothing to copy: the canary follows the target's preparation
+  if (stateless && m.t > PREPARE_END && m.t < SYNC_END) m.t = SYNC_END;
 
-  // k6 writes: held at the gateway during the fence, otherwise served
-  const holding = m.switched && m.u > HOLD_START && m.u <= HOLD_END;
+  // k6 writes: held at the gateway during the fence, otherwise served; an app without a database is not fenced
+  const holding = !stateless && m.switched && m.u > HOLD_START && m.u <= HOLD_END;
   if (holding) m.held += RATE * dt;
   else m.ok += RATE * dt;
 
@@ -483,6 +524,15 @@ function runTick(m: MigSim): boolean {
   for (const s of ENGINE_STEPS) {
     const rec = r.engine.steps[s.id];
     const st = stepAt(m, s);
+    if (stateless && STATELESS_SKIPS.has(s.id)) {
+      if (st !== "pending" && rec.status === "pending") {
+        // the record has no skipped state: the step passes, and its step_skipped event says it did nothing
+        rec.status = "succeeded";
+        rec.startedAt = rec.endedAt = iso(m.now);
+        emit(m, "step_skipped", s.label + " 건너뜀 (DB 없음)", { step: s.id });
+      }
+      continue;
+    }
     if (st !== "pending" && rec.status === "pending") {
       rec.status = "running";
       rec.startedAt = iso(m.now);
@@ -497,7 +547,7 @@ function runTick(m: MigSim): boolean {
   }
 
   if (!m.switched) {
-    if (m.t > 55 && m.t <= SYNC_END && (m.t % 2 === 0 || m.t === SYNC_END)) {
+    if (!stateless && m.t > 55 && m.t <= SYNC_END && (m.t % 2 === 0 || m.t === SYNC_END)) {
       const lag = Math.max(0, Math.round((48000 * (SYNC_END - m.t)) / 10));
       emit(m, "metric", "복제 지연 " + lag.toLocaleString("ko-KR") + " B", { step: "delta", data: { lagBytes: lag } });
     }
@@ -533,16 +583,19 @@ function runTick(m: MigSim): boolean {
     }
   } else {
     const e = r.engine;
-    if (prevU <= HOLD_START && m.u > HOLD_START) {
+    if (stateless) {
+      // no fence and no promotion: the gateway moves the writes at the cutover
+      if (prevU < HOLD_END && m.u >= HOLD_END) e.trafficOnTarget = true;
+    } else if (prevU <= HOLD_START && m.u > HOLD_START) {
       e.writesHeld = true;
       e.writesHeldAt = iso(m.now);
     }
-    if (prevU < PROMOTE_AT && m.u >= PROMOTE_AT) {
+    if (!stateless && prevU < PROMOTE_AT && m.u >= PROMOTE_AT) {
       e.sourceDemoted = true;
       e.promoteRequested = true;
       e.fenceLsn = "0/3A2F1C8";
     }
-    if (prevU < HOLD_END && m.u >= HOLD_END) {
+    if (!stateless && prevU < HOLD_END && m.u >= HOLD_END) {
       e.writesHeld = false;
       e.trafficOnTarget = true;
       e.downtimeMillis = Math.round((HOLD_END - HOLD_START) * 1000);
@@ -562,7 +615,8 @@ function runTick(m: MigSim): boolean {
   if (m.switched && m.u >= POST_END - 1e-9) {
     r.endedAt = iso(m.now);
     r.engine.outcome = "succeeded";
-    r.result = { ...r.result, failedRequests: 0, missingRows: 0, missingWrites: 0, missingFiles: 0, verified: true };
+    // an app without a database or files has no rows, writes or files to compare
+    r.result = { ...r.result, failedRequests: 0, ...(stateless ? {} : { missingRows: 0, missingWrites: 0, missingFiles: 0 }), verified: true };
     emit(m, "done", "이전 완료", { data: { downtimeMillis: r.result.downtimeMillis } });
     setStatus(m, "succeeded", "done", "트래픽과 데이터가 대상에 있고 검증됨");
     return true;
@@ -658,8 +712,13 @@ export function targetReadShare(r: Run): number {
   return last ? last.weight : 0;
 }
 
+/** The finished runs of the app on screen: the app without a database names itself in `app`, the sample app's runs do not. */
+export function appHistory(m: Pick<MigSim, "history" | "app">): Run[] {
+  return m.history.filter((r) => (r.app ?? SAMPLE.id) === m.app);
+}
+
 export function matrixRoutes(m: MigSim): MatrixRoute[] {
-  return m.history.map((r) => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status, finishedAt: r.endedAt, result: r.result }));
+  return appHistory(m).map((r) => ({ source: r.source.env, target: r.target.env, runId: r.runId, status: r.status, finishedAt: r.endedAt, result: r.result }));
 }
 
 /** Every AI session so far, newest first. */

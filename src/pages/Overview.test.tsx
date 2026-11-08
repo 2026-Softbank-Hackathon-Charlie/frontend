@@ -22,13 +22,13 @@ const apps: ApiApp[] = [
   {
     name: "moimroom",
     namespace: "moimroom",
-    database: { name: "app", user: "app", schemas: [] },
+    database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: ["gke", "eks", "onprem"].map((env) => ({ env, cnpgCluster: "moimroom-db-" + env, dbHost: "h" })),
   },
   {
     name: "board",
     namespace: "board",
-    database: { name: "app", user: "app", schemas: [] },
+    database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: [],
     deploy: {
       repo: "team-charlie/board",
@@ -102,7 +102,7 @@ describe("overview cluster cards: who takes the writes", () => {
   });
   // an app of the apps file has a gateway of its own; a registered one has none (GET /v1/traffic?app= answers 400) unless it has a database pair
   const registered = (name: string, gateway = true): ApiApp => ({
-    name, namespace: name, database: { name: "app", user: "app", schemas: [] },
+    name, namespace: name, database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: gateway ? [{ env: "eks", cnpgCluster: name + "-db", dbHost: "h" }] : [],
   });
   const gateway = (writeBackend: string) =>

@@ -54,7 +54,7 @@ function appIn(envs: string[], dbTopology?: AppDBTopology): ApiApp {
   return {
     name: "moimroom",
     namespace: "moimroom",
-    database: { name: "app", user: "app", schemas: [] },
+    database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true },
     environments: envs.map((env) => ({ env, cnpgCluster: "moimroom-db-" + env, dbHost: "moimroom-db-" + env + "-rw.moimroom:5432" })),
     deploy: { repo: "org/moimroom", branch: "main", environments: envs, autoDeploy: true, spec, specCommit: commit, createdAt: at(0), createdBy: "operator", status, instances: [main], ...(dbTopology ? { dbTopology } : {}) },
   };

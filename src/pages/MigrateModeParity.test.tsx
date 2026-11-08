@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseMode, initAuth } from "../data/live";
-import { AI_END, iso, SWITCH_AT } from "../sim/mig";
+import { AI_END, iso, matrixRoutes, SWITCH_AT } from "../sim/mig";
 import { buildMapSnapshot } from "../data/mapSnapshot";
 import { useSimMigration } from "../data/migration";
 import { createSim, SimProvider } from "../sim/store";
@@ -143,5 +143,65 @@ describe("migration list", () => {
   it("shows before migration only without any run", () => {
     list(() => []);
     expect(screen.getByText("이전 전")).toBeInTheDocument();
+  });
+});
+
+describe("migration demo: an app without a database (docker-doom)", () => {
+  it("offers no AI step, drafts the Plan without AI and runs without database steps or evidence", async () => {
+    const { sim, user } = setup();
+    await user.selectOptions(screen.getByLabelText("이전할 앱"), "docker-doom");
+    expect(sim.state.mig.app).toBe("docker-doom");
+    expect(screen.queryByRole("button", { name: "AI 계획·리허설 실행" })).toBeNull();
+    expect(screen.queryByLabelText("앱 쓰기 기록 수집")).toBeNull();
+    const draft = screen.getByRole("button", { name: "Plan 작성" });
+    expect(draft).toHaveAccessibleDescription(/DB가 없는 앱이라 AI 계획·리허설 없이/);
+    await user.click(draft);
+    expect(sim.state.mig.stage).toBe("review");
+    expect(sim.state.mig.sessions).toEqual([]);
+    expect(screen.getAllByText("Plan 작성").length).toBeGreaterThan(0);
+    expect(screen.queryByText("AI 계획")).toBeNull();
+    expect(screen.queryByText("AI가 바꾼 것")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "승인하고 시작" }));
+    act(() => { for (let i = 0; i < 200 && sim.state.mig.run?.status === "running"; i++) sim.tick(); });
+    const r = sim.state.mig.run!;
+    expect(r.status).toBe("awaiting_switch");
+    expect(r.source.kind).toBe("none");
+    expect(sim.state.mig.events.some((e) => e.kind === "metric" && typeof e.data?.lagBytes === "number")).toBe(false);
+
+    act(() => { sim.dispatch({ type: "mig-switch" }); for (let i = 0; i < 200 && sim.state.mig.run?.status === "running"; i++) sim.tick(); });
+    expect(sim.state.mig.run!.status).toBe("succeeded");
+    expect(["presync", "delta", "fence", "switchover"].every((s) => sim.state.mig.events.some((e) => e.kind === "step_skipped" && e.step === s))).toBe(true);
+    expect(sim.state.mig.run!.engine.fenceLsn).toBeUndefined();
+    expect(sim.state.mig.run!.result.downtimeMillis).toBeUndefined();
+    expect(sim.state.statelessLoc).toBe(sim.state.mig.tgt);
+    expect(screen.getAllByText("DB 없음").length).toBeGreaterThanOrEqual(3); // 쓰기 보류, 누락 행, 누락 쓰기
+    expect(screen.getByText("파일 없음")).toBeInTheDocument();
+    // live shapes: the plan and the run name the app, the endpoints carry no namespace
+    expect(r.app).toBe("docker-doom");
+    expect(sim.state.mig.plan?.summary.app).toBe("docker-doom");
+    expect(r.source.namespace).toBe("");
+
+    // the map draws no database for it
+    let view: ReturnType<typeof useSimMigration> | undefined;
+    function Probe() { view = useSimMigration(); return null; }
+    render(<SimProvider sim={sim} intervalMs={0}><Probe /></SimProvider>);
+    const snapshot = buildMapSnapshot(view!, { now: Date.now() });
+    expect(Object.keys(snapshot.nodes).filter((k) => k.endsWith(".db"))).toEqual([]);
+
+    // its run stays its own: moimroom shows no docker-doom history
+    act(() => { sim.dispatch({ type: "mig-new" }); sim.dispatch({ type: "mig-app", app: "moimroom" }); });
+    expect(sim.state.mig.history).toHaveLength(1);
+    render(<SimProvider sim={sim} intervalMs={0}><Probe /></SimProvider>);
+    expect(view!.lastRun).toBeUndefined();
+    expect(matrixRoutes(sim.state.mig)).toEqual([]);
+  });
+
+  it("keeps moimroom's AI flow when switching back", async () => {
+    const { sim, user } = setup();
+    await user.selectOptions(screen.getByLabelText("이전할 앱"), "docker-doom");
+    await user.selectOptions(screen.getByLabelText("이전할 앱"), "moimroom");
+    expect(sim.state.mig.app).toBe("moimroom");
+    expect(screen.getByRole("button", { name: "AI 계획·리허설 실행" })).toBeEnabled();
   });
 });

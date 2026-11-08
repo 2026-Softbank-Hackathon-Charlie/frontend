@@ -1,5 +1,5 @@
 import { CANARY_PRESETS } from "../sim/mig";
-import { approvalBlock, currentPrimary, dbRoles, DEFAULT_START, migratableApps, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest, touches } from "./migration";
+import { approvalBlock, resourcesOf, currentPrimary, dbRoles, DEFAULT_START, migratableApps, OBSERVE_DURATIONS, OBSERVE_STEP, linkedPlanSessionId, planningSession, startRequest, touches, ofApp } from "./migration";
 import type { App } from "../api/types";
 import { fakeAgentSession } from "../api/fakes";
 import type { AgentEvent, PlanRecord } from "../api/types";
@@ -135,9 +135,30 @@ describe("which app and environment a migration starts from", () => {
   });
 
   it("keeps apps needing another environment selectable and matches runs by either namespace", () => {
-    const app = (name: string, n: number) => ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, environments: ["eks", "gke"].slice(0, n).map((env) => ({ env, cnpgCluster: name, dbHost: "h" })) }) as App;
+    const app = (name: string, n: number) => ({ name, namespace: name, database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true }, environments: ["eks", "gke"].slice(0, n).map((env) => ({ env, cnpgCluster: name, dbHost: "h" })) }) as App;
     expect(migratableApps([app("a", 2), app("b", 0), app("c", 1)]).map((a) => a.name)).toEqual(["a", "c"]);
     expect(touches("moimroom", { source: { namespace: "charlie-apps" }, target: { namespace: "moimroom" } })).toBe(true);
     expect(touches("shop", { source: { namespace: "moim" }, target: { namespace: "moim" } })).toBe(false);
+  });
+
+  it("tells an app's run by its app name when it has no database, else by namespace", () => {
+    const shop = { name: "shop", namespace: "shop" };
+    expect(ofApp(shop, { app: "shop", source: { namespace: "" }, target: { namespace: "" } })).toBe(true);
+    expect(ofApp(shop, { app: "doom", source: { namespace: "shop" }, target: { namespace: "shop" } })).toBe(false);
+    expect(ofApp(shop, { source: { namespace: "charlie-apps" }, target: { namespace: "shop" } })).toBe(true);
+    expect(ofApp(shop, { source: { namespace: "" }, target: { namespace: "" } })).toBe(false);
+  });
+});
+
+describe("what the app keeps state in", () => {
+  it("takes the app's resources, and both when an older server sends none", () => {
+    expect(resourcesOf({ resources: { postgres: false, s3: true } })).toEqual({ postgres: false, s3: true });
+    expect(resourcesOf({})).toEqual({ postgres: true, s3: true });
+    expect(resourcesOf(undefined)).toEqual({ postgres: true, s3: true });
+  });
+
+  it("has no database once the plan or run on screen says so (endpoint kind none)", () => {
+    expect(resourcesOf({}, { kind: "none" })).toEqual({ postgres: false, s3: true });
+    expect(resourcesOf({}, { kind: "cnpg" })).toEqual({ postgres: true, s3: true });
   });
 });

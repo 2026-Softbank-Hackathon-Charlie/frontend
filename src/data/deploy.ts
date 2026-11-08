@@ -251,6 +251,7 @@ export function simApps(S: SimState): App[] {
       name: id,
       namespace: id,
       database: { name: "app", user: "app", schemas: [] },
+      resources: { postgres: true, s3: true },
       environments: [{ env: e.id, cnpgCluster: SAMPLE.db + "-" + e.id, dbHost: SAMPLE.db + "-" + e.id + "-rw." + id + ":5432", bucket: sampleBucket(loc) }],
     };
   });

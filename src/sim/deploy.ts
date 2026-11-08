@@ -433,6 +433,7 @@ function register(d: DeploySim, repo: string, branch: string, environments: stri
     name: spec.name,
     namespace: spec.name,
     database: { name: "app", user: "app", schemas: [] },
+    resources: { postgres: (spec.resources ?? []).some((r) => r.type === "postgres"), s3: (spec.resources ?? []).some((r) => r.type === "s3") },
     environments: [],
     // The top-level fields describe the default instance; `status` is its array, so the deployer updates both.
     deploy: {

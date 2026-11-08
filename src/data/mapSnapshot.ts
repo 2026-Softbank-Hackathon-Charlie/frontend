@@ -563,7 +563,7 @@ export function buildMapSnapshot(v: MigrationView, ctx: SnapshotContext): MapSna
   const backends = { src: envOf(srcName)?.gatewayBackend ?? srcName, tgt: envOf(tgtName)?.gatewayBackend ?? tgtName };
   const declaredFiles = ctx.app?.environments?.some(env => !!env.bucket) ? true : ctx.app?.deploy?.spec ? !!ctx.app.deploy.spec.resources?.some(resource => resource.type === "s3") : undefined;
   const files = v.plan?.summary.files ?? (v.engine ? !!v.engine.files : declaredFiles);
-  const database = v.live ? databasePresence(ctx.app, r?.source ?? v.plan?.summary.source ?? v.engine?.source, r?.target ?? v.plan?.summary.target ?? v.engine?.target) : "present";
+  const database = v.live ? databasePresence(ctx.app, r?.source ?? v.plan?.summary.source ?? v.engine?.source, r?.target ?? v.plan?.summary.target ?? v.engine?.target) : v.resources?.postgres === false ? "none" : "present";
 
   // traffic: the run's record and the gateway during a run; before it, the gateway (live) or all on the source
   const f = r ? mapFacts(r, events, ctx.traffic, backends) : undefined;

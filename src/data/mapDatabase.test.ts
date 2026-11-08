@@ -1,7 +1,7 @@
 import type { App } from "../api/types";
 import { databasePresence } from "./mapDatabase";
 
-const noDb: App = { name: "docker-doom", namespace: "docker-doom", database: { name: "", user: "", schemas: [] }, environments: [],
+const noDb: App = { name: "docker-doom", namespace: "docker-doom", database: { name: "", user: "", schemas: [] }, resources: { postgres: false, s3: false }, environments: [],
   deploy: { repo: "org/docker-doom", branch: "main", environments: ["gke", "onprem"], autoDeploy: false, spec: { name: "docker-doom", services: [], resources: [] }, specCommit: "a", createdAt: "2026-11-08T00:00:00Z", createdBy: "test", status: [], instances: [] } };
 
 it("uses explicit registered DB dependencies and never equates unavailable app metadata with no DB", () => {

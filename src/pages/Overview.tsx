@@ -187,8 +187,8 @@ function deployItems(apps: App[], now: number): NowItem[] {
 
 const isActive = (r: Run) => r.status === "running" || r.status === "awaiting_switch";
 const routeOf = (source: string, target: string) => <><EnvLabel env={source} label={envName(source) + "에서"} /> <EnvLabel env={target} label={envName(target) + "로"} /></>;
-// the namespace is the app's name
-const whatOf = (r: Run) => r.source.namespace + (r.rollbackOf ? " 롤백" : " 이전");
+// a run without a database names its app; otherwise the namespace is the app's name
+const whatOf = (r: Run) => (r.app ?? r.source.namespace) + (r.rollbackOf ? " 롤백" : " 이전");
 
 /**
  * Runs in progress, and the newest finished one if it ended within a day of

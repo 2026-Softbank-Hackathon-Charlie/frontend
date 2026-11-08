@@ -1,6 +1,6 @@
 import "../styles/migrate.css";
 import { Fragment, useState, type ReactNode } from "react";
-import type { AgentEvent, AgentSession, AIRun, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
+import type { AgentEvent, AgentSession, AIRun, AppResources, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
@@ -13,11 +13,13 @@ import { ago } from "../components/deploy";
 import { Icon } from "../components/Icon";
 import { HyperDXLink } from "../components/HyperDXLink";
 import { Chip, Ind, LogBox, PageHead, Table, tabId, tabPanelId, Tabs, td, type ChipKind, type TabItem } from "../components/ui";
-import { approvalBlock, rehearsing, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
+import { approvalBlock, rehearsing, resOf, DEFAULT_START, OBSERVE_DURATIONS, OBSERVE_STEP, PLATFORM_GATE, useLiveMigration, useSimMigration, type MigrationView, type ObserveDuration, type StartOptions } from "../data/migration";
 import { useLive } from "../data/live";
 import { canaryStepVerdict, canaryVerdict } from "../data/canaryVerdict";
 import { filesClean, verifiedReportOf, verifyVerdict } from "../data/verifyReport";
 import type { CheckStatus, PreflightView } from "../data/preflight";
+import { hiddenSteps } from "../data/migrationMap";
+import { SAMPLE } from "../sim/data";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
 import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
 
@@ -72,10 +74,11 @@ function MigrateListView({ v }: { v: MigrationView }) {
         <div className="box">
           <Table
             head={["앱", "현재 위치", "상태", ""]}
-            rows={(live ? (v.apps ?? []) : [{ value: v.app, label: v.app }]).map((app) => {
+            rows={(v.apps ?? [{ value: v.app, label: v.app }]).map((app) => {
               const selected = app.value === v.app;
               return [
-                td(live ? <b>{app.label}</b> : <a href={"#app-" + app.value}>{app.label}</a>),
+                // the demo has an app page only for the sample app
+                td(live || app.value !== SAMPLE.id ? <b>{app.label}</b> : <a href={"#app-" + app.value}>{app.label}</a>),
                 td(selected ? <EnvLabel env={v.src} label={v.srcLabel} /> : <span className="hint">미확인</span>),
                 td(
                   !selected ? (
@@ -110,7 +113,7 @@ function MigrateListView({ v }: { v: MigrationView }) {
           />
         </div>
       )}
-      {!live && <p className="hint">이 시연에서는 {v.app}만 이전할 수 있습니다. 한 번 옮긴 뒤 다른 경로로 다시 옮기거나 롤백할 수 있습니다.</p>}
+      {!live && <p className="hint">이 시연에서는 moimroom과 DB가 없는 docker-doom을 이전할 수 있습니다. 이전 화면 위쪽에서 앱을 고르고, 한 번 옮긴 뒤 다른 경로로 다시 옮기거나 롤백할 수 있습니다.</p>}
     </div>
   );
 }
@@ -219,6 +222,7 @@ function SimMigrate() {
 
 function MigrateView({ v }: { v: MigrationView }) {
   const live = v.live;
+  const res = resOf(v);
   const { gkeDemoApp, setApp } = v;
   const title = (v.app || "앱") + " 이전";
   if (!v.ready) {
@@ -299,7 +303,8 @@ function MigrateView({ v }: { v: MigrationView }) {
             </div>
           </div>
         </div>
-        {v.live && v.app && <LiveWriteCollection key={v.app} app={v.app} />}
+        {/* the write records verify the database; an app without one has none to collect */}
+        {v.live && v.app && res.postgres && <LiveWriteCollection key={v.app} app={v.app} />}
         {pc && (
           <div className="box fillbox" role="status" id="mig-blocked">
             <div className="bb">
@@ -312,7 +317,21 @@ function MigrateView({ v }: { v: MigrationView }) {
             </div>
           </div>
         )}
-        {!live || v.aiRun?.available ? (
+        {!res.postgres ? (
+          // no AI for an app without a database: the platform answers 409 no_database to an AI run
+          <div className="actrow">
+            <button type="button" className="btn primary" disabled={v.busy || !v.tgt || stopManual} onClick={v.makePlan} aria-describedby="mig-nodb-why">
+              <Icon name="clipboard-check" size={16} />
+              Plan 작성
+            </button>
+            <span className="hint" id="mig-nodb-why">
+              {"DB가 없는 앱이라 AI 계획·리허설 없이 플랫폼이 설정에서 Plan 초안을 만들고 승인 대기로 올립니다. DB 짝 준비 확인, 복제, 승격 없이 " +
+                (res.s3 ? "파일을 복사하고 " : "") +
+                "트래픽만 옮깁니다." +
+                (live ? "" : " 데모는 실제 클라우드를 호출하지 않습니다.")}
+            </span>
+          </div>
+        ) : !live || v.aiRun?.available ? (
           <div className="actrow">
             <button
               type="button"
@@ -404,11 +423,13 @@ function PlanBox({ v }: { v: MigrationView }) {
   );
 }
 
+/** One end of a plan: env / namespace / CNPG cluster (DB host), or only env / namespace for an app without a database. */
 /** The Plan record on screen: endpoints, files, gateway, attachments and the engine plan itself. */
 function PlanFacts({ v }: { v: MigrationView }) {
   const p = v.plan;
   if (!p) return <p className="hint">이 run의 Plan을 찾지 못했습니다.</p>;
   const s = p.summary;
+  const noDB = !resOf(v).postgres;
   return (
     <>
       <dl className="kv">
@@ -420,20 +441,26 @@ function PlanFacts({ v }: { v: MigrationView }) {
         <dd className="m">{p.revision}</dd>
         <dt>원본</dt>
         <dd className="m">
-          <EnvLabel env={s.source.env} label={s.source.env} /> / {s.source.namespace} / {s.source.cluster}
-          {s.source.dbHost ? " (" + s.source.dbHost + ")" : ""}
+          <EnvLabel env={s.source.env} label={s.source.env} /> / {s.source.namespace}
+          {noDB ? " (DB 없음)" : " / " + s.source.cluster + (s.source.dbHost ? " (" + s.source.dbHost + ")" : "")}
         </dd>
         <dt>대상</dt>
         <dd className="m">
-          <EnvLabel env={s.target.env} label={s.target.env} /> / {s.target.namespace} / {s.target.cluster}
-          {s.target.dbHost ? " (" + s.target.dbHost + ")" : ""}
+          <EnvLabel env={s.target.env} label={s.target.env} /> / {s.target.namespace}
+          {noDB ? " (DB 없음)" : " / " + s.target.cluster + (s.target.dbHost ? " (" + s.target.dbHost + ")" : "")}
         </dd>
         <dt>파일 이전</dt>
         <dd>{s.files ? "함께 옮김 (rclone)" : "옮기지 않음"}</dd>
         <dt>게이트웨이</dt>
         <dd className="m">{s.gatewayMode}</dd>
-        <dt>쓰기 보류 상한</dt>
-        <dd className="m">{s.maxDowntime}</dd>
+        <dt>DB</dt>
+        <dd>{noDB ? "DB 없음 (복제, 쓰기 보류, 승격 없이 트래픽만 옮김)" : "CNPG 복제 후 대상 승격"}</dd>
+        {!noDB && (
+          <>
+            <dt>쓰기 보류 상한</dt>
+            <dd className="m">{s.maxDowntime}</dd>
+          </>
+        )}
         <dt>첨부</dt>
         <dd>{p.attachments?.length ? p.attachments.map((a) => a.name + " (" + fmt(a.size) + "B)").join(", ") : "없음"}</dd>
         <dt>제출</dt>
@@ -543,7 +570,11 @@ function ApproveBox({ v }: { v: MigrationView }) {
               : "플랫폼 게이트웨이(http)를 거치지 않는 Plan이라 카나리 없이 동기화 뒤 바로 전환 승인을 기다립니다."}
           </dd>
           <dt>전환</dt>
-          <dd>데이터가 맞으면 전환 승인을 기다립니다. 전환 버튼을 누르면 쓰기를 잠시 붙잡고 대상을 승격합니다 (상한 {s.maxDowntime}).</dd>
+          <dd>
+            {resOf(v).postgres
+              ? "데이터가 맞으면 전환 승인을 기다립니다. 전환 버튼을 누르면 쓰기를 잠시 붙잡고 대상을 승격합니다 (상한 " + s.maxDowntime + ")."
+              : "DB가 없는 앱이라 복제와 승격이 없습니다. 카나리가 끝나면 전환 승인을 기다리고, 전환 버튼을 누르면 쓰기 트래픽을 대상으로 옮깁니다."}
+          </dd>
           <dt>원복</dt>
           <dd>
             대상 승격을 요청하기 전까지는 실패하면 원본으로 자동 원복합니다. 그 뒤에는 원복하지 않고 멈추고(halted) 운영자가 판단합니다.
@@ -810,7 +841,7 @@ function AiView({ v }: { v: MigrationView }) {
         <PreflightBox p={v.preflight} />
         {/* the AI at work: its log first */}
         {!review && feed}
-        <FixBox v={v} />
+        {resOf(v).postgres && <FixBox v={v} />}
         <Checked v={v} events={all} />
       </div>
       <aside className="mg-side">
@@ -840,7 +871,7 @@ function AiView({ v }: { v: MigrationView }) {
             <PlanFacts v={v} />
           </div>
         </details>
-        {v.sessions.length > 0 && (
+        {v.sessions.length > 0 && resOf(v).postgres && (
           <details className="box fold mg-fold">
             <summary className="bh">
               <b>AI 세션 기록</b>
@@ -939,6 +970,7 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
   const pf = v.preflight;
   const scope = !v.live ? "" : !v.sessions.length ? "AI 세션 기록이 없습니다." : v.sessionsPartial ? "일부 세션 기록을 아직 받지 못해 세는 중이거나 불러오지 못했습니다. 숫자가 실제보다 적을 수 있습니다." : "";
   const tools = (s: AgentSession) => " 도구 호출 " + fmt(s.totals.toolCalls) + "회, 토큰 " + fmt(s.totals.inputTokens) + " / " + fmt(s.totals.outputTokens) + ".";
+  if (!resOf(v).postgres) return <CheckedNoDB v={v} />;
   return (
     <div className="box">
       <div className="bh">
@@ -1005,6 +1037,35 @@ function Checked({ v, events }: { v: MigrationView; events: AgentEvent[] }) {
                   : "검사 결과는 시작 전 검사 표에 있습니다."
                 : "시작 직전에 데이터 레지던시, 대상 접속 한도, 대기 서버 설정, 복제 따라잡기를 확인합니다. 명백히 실패할 이전은 시작하지 않습니다. 플랫폼에서 켜 둔 검사만 실행합니다."}
             </small>
+          </div>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+// What was checked for an app without a database: no AI, so only the Plan and the pre-start checks.
+function CheckedNoDB({ v }: { v: MigrationView }) {
+  const pf = v.preflight;
+  return (
+    <div className="box">
+      <div className="bh">
+        <b>확인한 것</b>
+        <span className="hint">DB 없음, AI 계획·리허설 없음</span>
+      </div>
+      <ul className="mg-checks">
+        <li>
+          <Mark round st="ok" />
+          <div>
+            <b>Plan 작성</b>
+            <small>{"DB가 없는 앱이라 AI 계획과 리허설 없이 플랫폼이 설정에서 Plan 초안을 만들었습니다. Plan은 " + v.plan?.submittedBy + "가 제출했습니다."}</small>
+          </div>
+        </li>
+        <li>
+          <Mark round st={pf ? (pf.blocked ? "bad" : "ok") : "wait"} />
+          <div>
+            <b>시작 전 검사: {pf ? (pf.blocked ? "시작 막힘" : "통과") : "승인한 뒤 실행"}</b>
+            <small>{pf ? (pf.blocked ? "검사 결과의 이유를 해결한 뒤 다시 시작하세요." : "검사 결과는 시작 전 검사 표에 있습니다.") : "시작 직전에 데이터 레지던시와 대상 용량을 확인합니다. DB가 없어 접속 한도, 대기 서버 설정, 복제 따라잡기는 재지 않습니다."}</small>
           </div>
         </li>
       </ul>
@@ -1104,15 +1165,17 @@ function stopPhase(r: Run, events: RunEvent[], steps: Record<string, StepState>)
 }
 
 /** The run's four groups with their state, time range and items (exported for tests). */
-export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, events)): Group[] {
+export function groupsOf(r: Run, events: RunEvent[], m: Marks = marksOf(r, events), res?: AppResources): Group[] {
   const active = r.status === "running" || r.status === "awaiting_switch";
   const steps = stepStates(r, events, active);
+  // an app without a database has no replication or promotion (and without files no copy) to list
+  const hidden = res ? hiddenSteps(res, r, events) : new Set<string>();
   const o = r.observe;
   // A succeeded run whose observation broke the gate stopped being good in the verify group.
   const cur = r.status === "succeeded" ? (o?.passed === false ? GROUP_OF.observe : 4) : GROUP_OF[stopPhase(r, events, steps)];
   const st = (i: number): GroupSt => (i < cur ? "done" : i > cur ? "todo" : r.status === "awaiting_switch" ? "wait" : active ? "run" : "bad");
   const engine = (phase: RunPhase) =>
-    ENGINE_STEPS.filter((s) => s.phase === phase).map((s): Group["items"][number] =>
+    ENGINE_STEPS.filter((s) => s.phase === phase && !hidden.has(s.id)).map((s): Group["items"][number] =>
       noStartTarget(r, s.id)
         ? { label: s.label + " (기록 없음)", st: "neu", detail: "이 단계가 생기기 전의 실행입니다." }
         : { label: s.label, st: steps[s.id], detail: s.detail, now: steps[s.id] === "run" ? "진행 중" : undefined },
@@ -1178,27 +1241,38 @@ function RunView({ v, r }: { v: MigrationView; r: Run }) {
 }
 
 /** The run's headline for its status and phase. Only the cutover and verify say the target was asked to promote. */
-export function heroText(v: Pick<MigrationView, "srcLabel" | "tgtLabel" | "plan">, r: Run, el: number): [string, string] {
+export function heroText(v: Pick<MigrationView, "srcLabel" | "tgtLabel" | "plan" | "resources">, r: Run, el: number): [string, string] {
   const back = "실패하면 " + v.srcLabel + "로 자동 원복합니다(rolled_back).";
   const promoted = r.engine.promoteRequested ? v.tgtLabel + " 승격을 요청했습니다. 지금부터 실패하면 원복하지 않고 멈춥니다(halted)." : "대상 승격 전입니다. " + back;
   const noun = r.rollbackOf ? "롤백" : "이전";
+  const res = resOf(v);
+  const noDB = !res.postgres;
+  const files = res.s3 && v.plan?.summary.files !== false;
   const why = r.statusReason ? " 이유: " + r.statusReason : "";
   const canary = canaryVerdict(r);
   const failedCanary = canary?.state === "fail" ? "읽기 카나리 " + canary.label + (canary.reason ? ": " + canary.reason : "") + ". " : "";
   const failureWhy = canary?.state === "fail" && canary.reason === r.statusReason ? "" : why;
   switch (r.status) {
     case "running":
+      if (r.phase === "sync" && noDB)
+        return ["대상을 준비하고 있습니다", "DB가 없는 앱이라 " + (files ? v.srcLabel + "의 파일만 " + v.tgtLabel + "로 복사합니다. " : "복사할 데이터가 없습니다. ") + back];
       if (r.phase === "sync") return ["데이터를 맞추고 있습니다", v.srcLabel + (v.plan?.summary.files === false ? "의 데이터를 " : "의 데이터와 파일을 ") + v.tgtLabel + "로 복사하고 변경분을 따라잡습니다. " + back];
       if (r.phase === "canary")
         return ["읽기 일부를 대상으로 보내 확인하고 있습니다", "읽기 " + targetReadShare(r) + "%를 " + v.tgtLabel + "로 보내며 단계마다 게이트(오류율, p95 지연)를 확인합니다. 게이트가 실패하면 읽기를 원본으로 되돌리고 원복합니다."];
+      if (r.phase === "cutover" && noDB) return ["쓰기 트래픽을 대상으로 옮기고 있습니다", "DB가 없는 앱이라 승격 없이 게이트웨이의 쓰기 대상을 " + v.tgtLabel + "로 바꿉니다. " + back];
       if (r.phase === "cutover") return ["쓰기를 붙잡고 대상을 승격하고 있습니다", promoted];
-      if (r.phase === "verify") return ["대상에서 데이터를 검증하고 있습니다", promoted];
+      if (r.phase === "verify") return [noDB ? "대상을 검증하고 있습니다" : "대상에서 데이터를 검증하고 있습니다", promoted];
       if (r.phase === "observe") {
         const o = r.observe?.options;
         return ["전환을 마쳤고 관찰 중입니다", v.tgtLabel + "로 트래픽을 옮겼습니다. " + (o?.duration ?? "2m") + " 동안 게이트로 판정하고" + (o?.autoRollback ? ", 어기면 플랫폼이 롤백 run을 시작합니다." : ", 어기면 위반을 기록합니다.")];
       }
       return [statusText(r.status, r.phase), promoted];
     case "awaiting_switch":
+      if (noDB)
+        return [
+          "전환할 수 있습니다.",
+          (r.canary?.passed ? "읽기 카나리 게이트를 모두 통과했습니다. " : "") + "DB가 없는 앱이라 전환하면 승격 없이 쓰기 트래픽을 " + v.tgtLabel + "로 옮깁니다.",
+        ];
       return [
         "데이터가 맞춰졌습니다. 전환할 수 있습니다.",
         (canary ? "읽기 카나리 " + canary.label + ". " : "") + "전환하면 쓰기를 잠시 붙잡고(상한 " + (v.plan?.summary.maxDowntime ?? "30s") + ") " + v.tgtLabel + "를 승격한 뒤 쓰기 트래픽을 옮깁니다.",
@@ -1214,6 +1288,13 @@ export function heroText(v: Pick<MigrationView, "srcLabel" | "tgtLabel" | "plan"
               : (o.rollbackError ? "자동 롤백을 시작하지 못했습니다: " + o.rollbackError + ". " : "") + "롤백할지 정하세요."),
         ];
       const x = r.result;
+      if (noDB) {
+        const tookNoDB = dur(el) + " 만에 " + (r.rollbackOf ? "되돌렸" : "옮겼");
+        return [
+          x.failedRequests === 0 ? tookNoDB + "고, 실패 요청은 없습니다." : tookNoDB + "습니다. 리포트에서 실패 요청을 확인하세요.",
+          "트래픽이 " + v.tgtLabel + "에 있습니다. DB가 없는 앱이라 행과 쓰기는 대조하지 않았습니다. 원본 " + v.srcLabel + "는 남아 있어서 같은 방법으로 되돌릴 수 있습니다.",
+        ];
+      }
       const clean = x.verified === true && [x.failedRequests, x.missingRows, measuredWriteMissing(writeVerificationOf(x), x.missingWrites), x.missingFiles].every((n) => n === 0);
       const took = dur(el) + " 만에 " + (r.rollbackOf ? "되돌렸" : "옮겼");
       return [
@@ -1417,6 +1498,8 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
   const max = goSec(v.plan?.summary.maxDowntime ?? "");
   const down = x.downtimeMillis;
   const invalidCounts = invalidRequestCounts(x);
+  const res = resOf(v);
+  const none = (label: string, why: string) => <Num label={label} value={why} note="해당 없음" />;
   return (
     <div className="box">
       <div className="bh">
@@ -1425,18 +1508,18 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
       </div>
       <div className="mg-report">
         <Num label="전체 시간" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note={"목표 " + TARGET_TEXT + " 이내"} ok={x.durationMillis === undefined || r.status !== "succeeded" ? undefined : x.durationMillis <= TARGET_SEC * 1000} />
-        <Num
+        {!res.postgres ? none("쓰기 보류", "DB 없음") : <Num
           label="쓰기 보류"
           value={down !== undefined ? (down / 1000).toFixed(1) + "초" : "-"}
           note={(max !== undefined ? "상한 " + dur(max) : "게이트웨이가 쓰기를 붙잡은 시간") + (v.counters?.heldDone ? ", 보류한 쓰기 " + fmt(v.counters.heldDone) + "건 전달" : "")}
           ok={down === undefined || max === undefined ? undefined : down <= max * 1000}
-        />
+        />}
         <Num label="실패 요청" value={invalidCounts ? "집계 이상" : n(x.failedRequests, "건")} note={invalidCounts ? "요청 집계를 확인하세요" : x.requests === undefined ? "전체 요청 미측정" : "요청 " + fmt(x.requests) + "건 중"} ok={invalidCounts || x.requests === undefined ? undefined : zero(x.failedRequests)} />
-        <Num label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" ok={zero(x.missingRows)} />
-        <Num label="누락 쓰기" value={n(missingWrites, "건")} note={verification?.scope === "application_commits" ? "앱 DB 커밋 기록과 대조" : verification?.scope === "client_acknowledged" ? "성공 응답을 확인한 기록과 대조" : "보고된 쓰기 기록과 대조"} ok={zero(missingWrites)} />
-        <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />
+        {!res.postgres ? none("누락 행", "DB 없음") : <Num label="누락 행" value={n(x.missingRows, "건")} note="원본에 있고 대상에 없는 행" ok={zero(x.missingRows)} />}
+        {!res.postgres ? none("누락 쓰기", "DB 없음") : <Num label="누락 쓰기" value={n(missingWrites, "건")} note={verification?.scope === "application_commits" ? "앱 DB 커밋 기록과 대조" : verification?.scope === "client_acknowledged" ? "성공 응답을 확인한 기록과 대조" : "보고된 쓰기 기록과 대조"} ok={zero(missingWrites)} />}
+        {!res.s3 || v.plan?.summary.files === false ? none("누락 파일", !res.s3 ? "파일 없음" : "파일 이전 없음") : <Num label="누락 파일" value={n(x.missingFiles, "개")} note="크기와 해시 비교" ok={zero(x.missingFiles)} />}
       </div>
-      <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>
+      {res.postgres && <div className="bb"><WriteVerification verification={verification} legacyMissing={x.missingWrites} /></div>}
       {!x.verified && <div className="bb hint">검증이 끝나지 않았거나 문제가 있습니다.</div>}
     </div>
   );

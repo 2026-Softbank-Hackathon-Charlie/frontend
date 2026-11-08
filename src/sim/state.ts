@@ -1,7 +1,7 @@
 // Demo simulation state machine. Time advances in tick() (called every 100ms);
 // deploy, onboarding, AI plan and rehearsal advance 1 simulated second per tick.
 // The migration lives in mig.ts and the GitHub deploys in deploy.ts; both produce the same shapes as the platform API.
-import { ENV, ONB_END, ONB_LOG, SAMPLE, onbFinishLog, sampleBucketName, type EnvKey, type LogEntry, type OnbStep } from "./data";
+import { ENV, ONB_END, ONB_LOG, SAMPLE, STATELESS_SAMPLE, onbFinishLog, sampleBucketName, type EnvKey, type LogEntry, type OnbStep } from "./data";
 import * as dep from "./deploy";
 import { dur, fmt, mmss } from "./format";
 import * as mig from "./mig";
@@ -49,6 +49,8 @@ export interface SimState {
   deploy: dep.DeploySim;
   onb: OnbState;
   mig: mig.MigSim;
+  /** where the demo's app without a database (STATELESS_SAMPLE) runs now */
+  statelessLoc: EnvKey;
   /** last message for the migration page (e.g. a stale approval) */
   migNotice: string;
 }
@@ -65,6 +67,7 @@ export function fresh(): SimState {
     deploy: dep.freshDeploy(),
     onb: { step: 1, run: false, t: 0, log: [], li: 0, env: "aws", done: { 2: false, 3: false, 4: false }, approved: false },
     mig: mig.freshMig("aws"),
+    statelessLoc: "aws",
     migNotice: "",
   };
 }
@@ -143,6 +146,12 @@ export function routeLabel(s: EnvKey, t: EnvKey): string {
 
 function finishMigration(S: SimState, r: Run): void {
   const m = S.mig;
+  if (mig.isStateless(m)) {
+    const total = (r.result.durationMillis ?? 0) / 1000;
+    S.statelessLoc = m.tgt;
+    S.act.unshift(["방금", m.app + " " + (r.rollbackOf ? "롤백" : "이전") + " 완료 (" + routeLabel(m.src, m.tgt) + ", " + dur(total) + ", DB 없음, 실패 0건)"]);
+    return;
+  }
   const app = S.apps[SAMPLE.id];
   if (!app) return;
   const tg = ENV[m.tgt];
@@ -175,7 +184,7 @@ export function running(S: SimState): [string, string][] {
   for (const d of dep.activeDeployments(S.deploy)) l.push([d.instance + " 배포 중", "#deploy-" + d.id]);
   if (S.onb.run) l.push(["기존 앱 가져오기: " + ["", "", "AI 점검 중", "샌드박스 테스트 중", "머지와 배포 중"][S.onb.step], "#onboard"]);
   else if (S.onb.step === 4 && !S.onb.approved) l.push(["기존 앱 가져오기: PR 승인 대기", "#onboard"]);
-  if (migActive(S)) l.push([SAMPLE.id + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-app"]);
+  if (migActive(S)) l.push([S.mig.app + " 이전 (" + routeLabel(S.mig.src, S.mig.tgt) + "): " + migLabel(S), "#migrate-app"]);
   return l;
 }
 
@@ -216,6 +225,7 @@ export type Action =
   | { type: "onb-approve" }
   | { type: "onb-skip" }
   | { type: "onb-env"; env: EnvKey }
+  | { type: "mig-app"; app: string }
   | { type: "mig-target"; env: EnvKey }
   | { type: "mig-plan" }
   | { type: "mig-approve"; revision: number }
@@ -225,6 +235,11 @@ export type Action =
   | { type: "mig-resume" }
   | { type: "mig-rollback" }
   | { type: "mig-new" };
+
+/** Where a demo app runs now: the next migration starts there. */
+function locOf(S: SimState, app: string): EnvKey {
+  return app === STATELESS_SAMPLE.id ? S.statelessLoc : (S.apps[SAMPLE.id]?.loc ?? "aws");
+}
 
 export function apply(S: SimState, a: Action): void {
   const m = S.mig;
@@ -282,11 +297,23 @@ export function apply(S: SimState, a: Action): void {
     case "onb-env":
       S.onb.env = a.env;
       break;
+    case "mig-app":
+      // another app only while nothing is at work, from where that app runs now
+      if (a.app === m.app || migActive(S) || ![SAMPLE.id, STATELESS_SAMPLE.id].includes(a.app)) break;
+      S.mig = mig.freshMig(locOf(S, a.app), m, a.app);
+      S.migNotice = "";
+      break;
     case "mig-target":
       if (a.env !== m.src && m.stage === "setup") m.tgt = a.env;
       break;
     case "mig-plan":
-      if (!S.apps[SAMPLE.id] || m.stage !== "setup") break;
+      if (m.stage !== "setup") break;
+      if (mig.isStateless(m)) {
+        S.migNotice = "";
+        mig.draftStateless(m);
+        break;
+      }
+      if (!S.apps[SAMPLE.id]) break;
       S.migNotice = "";
       mig.startAi(m);
       break;
@@ -320,10 +347,10 @@ export function apply(S: SimState, a: Action): void {
       break;
     case "mig-rollback":
       mig.rollback(m);
-      S.act.unshift(["방금", SAMPLE.id + " 롤백 시작 (" + routeLabel(m.src, m.tgt) + ")"]);
+      S.act.unshift(["방금", m.app + " 롤백 시작 (" + routeLabel(m.src, m.tgt) + ")"]);
       break;
     case "mig-new":
-      S.mig = mig.freshMig(S.apps[SAMPLE.id]?.loc ?? "aws", m);
+      S.mig = mig.freshMig(locOf(S, m.app), m);
       S.migNotice = "";
       break;
   }

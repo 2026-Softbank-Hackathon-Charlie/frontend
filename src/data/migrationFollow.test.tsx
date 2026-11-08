@@ -1,3 +1,4 @@
+import { ApiError } from "../api/client";
 import { act, renderHook } from "@testing-library/react";
 import { fakeAgentSession, fakeRun } from "../api/fakes";
 import type { AgentSession, App, PlanRecord, Run } from "../api/types";
@@ -6,8 +7,9 @@ import type { AgentSession, App, PlanRecord, Run } from "../api/types";
 const lists: { runs: Run[]; plans: PlanRecord[]; sessions: AgentSession[] } = { runs: [], plans: [], sessions: [] };
 const watched: (string | null)[] = [];
 const startAI = vi.hoisted(() => vi.fn());
+const draft = vi.hoisted(() => ({ draftPlan: vi.fn(), submitPlan: vi.fn() }));
 const res = <T,>(data: T | undefined) => ({ data, error: undefined, loading: false, reload: () => {} });
-const app = { name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, environments: ["gke", "eks"].map((env) => ({ env, cnpgCluster: "shop-db", dbHost: "h" })) } as App;
+const app = { name: "shop", namespace: "shop", database: { name: "app", user: "app", schemas: [] }, resources: { postgres: true, s3: true }, environments: ["gke", "eks"].map((env) => ({ env, cnpgCluster: "shop-db", dbHost: "h" })) } as App;
 
 vi.mock("../api/hooks", async (orig) => ({
   ...(await orig<typeof import("../api/hooks")>()),
@@ -25,7 +27,7 @@ vi.mock("../api/hooks", async (orig) => ({
   useTraffic: () => res(undefined),
 }));
 vi.mock("./live", async (orig) => ({ ...(await orig<typeof import("./live")>()), usePlans: () => res(lists.plans) }));
-vi.mock("../api/client", async (orig) => ({ ...(await orig<typeof import("../api/client")>()), startAIRun: startAI, listAudit: () => Promise.resolve({ entries: [] }) }));
+vi.mock("../api/client", async (orig) => ({ ...(await orig<typeof import("../api/client")>()), startAIRun: startAI, draftPlan: draft.draftPlan, submitPlan: draft.submitPlan, listAudit: () => Promise.resolve({ entries: [] }) }));
 
 const { useLiveMigration } = await import("./migration");
 
@@ -34,7 +36,7 @@ const plan = (p: Partial<PlanRecord> = {}): PlanRecord =>
     ref: "pln_1",
     status: "pending_approval",
     revision: 1,
-    summary: { app: "shop", source: { env: "gke", namespace: "shop", cluster: "shop-db" }, target: { env: "eks", namespace: "shop", cluster: "shop-db" } },
+    summary: { source: { env: "gke", namespace: "shop", cluster: "shop-db" }, target: { env: "eks", namespace: "shop", cluster: "shop-db" } },
     submittedBy: "operator",
     submittedAt: "2026-11-07T00:00:00Z",
     ...p,
@@ -75,9 +77,29 @@ describe("the live migration page follows a run started elsewhere", () => {
     expect(result.current.run).toBeUndefined();
     expect(result.current.stage).toBe("setup");
   });
+
+  it("takes up the app's halted run without a database by its app name after a reload", () => {
+    const none = { kind: "none" as const, env: "gke", namespace: "", cluster: "" };
+    lists.runs = [
+      fakeRun({ runId: "run_other", planRef: "pln_o", status: "halted", phase: "done", app: "doom", source: none, target: { ...none, env: "eks" } }),
+      fakeRun({ runId: "run_s", planRef: "pln_s", status: "halted", phase: "done", app: "shop", source: none, target: { ...none, env: "eks" } }),
+    ].reverse();
+    const { result } = renderHook(() => useLiveMigration());
+    expect(result.current.run?.runId).toBe("run_s");
+  });
 });
 
 describe("the Plan an AI planning session submits", () => {
+  it("drafts the Plan without the AI when the platform answers 409 no_database", async () => {
+    startAI.mockRejectedValue(new ApiError(409, "no_database", "app shop has no database"));
+    draft.draftPlan.mockResolvedValue({ id: "shop-gke-to-eks" });
+    draft.submitPlan.mockResolvedValue(plan({ ref: "pln_draft" }));
+    const { result } = renderHook(() => useLiveMigration());
+    await act(async () => { result.current.aiRun?.start(); });
+    expect(draft.draftPlan).toHaveBeenCalledWith({ app: "shop", source: "gke", target: "eks" });
+    expect(result.current.notice).toBe("");
+  });
+
   it("keeps an accepted AI request apart from a newer Plan for the same app in the reverse direction", async () => {
     startAI.mockResolvedValue({ name: "job-new", app: "shop", source: "gke", target: "eks", status: "running", requestedBy: "op", createdAt: "2026-11-07T00:00:00Z" });
     const { result, rerender } = renderHook(() => useLiveMigration());
@@ -102,7 +124,7 @@ describe("the Plan an AI planning session submits", () => {
     expect(result.current.stage).toBe("ai");
 
     // another operator migrates another app: its Plan arrives first and starts at once
-    const other: PlanRecord["summary"] = { ...plan().summary, planId: "doom-eks-to-gke", source: { env: "eks", namespace: "doom", cluster: "" }, target: { env: "gke", namespace: "doom", cluster: "" } };
+    const other: PlanRecord["summary"] = { ...plan().summary, app: "doom", planId: "doom-eks-to-gke", source: { env: "eks", namespace: "doom", cluster: "" }, target: { env: "gke", namespace: "doom", cluster: "" } };
     lists.plans = [plan({ ref: "pln_doom", summary: other, submittedAt: "2026-11-07T00:00:10Z" })];
     act(() => rerender());
     lists.plans = [plan({ ref: "pln_doom", status: "started", summary: other, submittedAt: "2026-11-07T00:00:10Z" })];
