@@ -204,7 +204,10 @@
 /* the video popup of a finished migration */
 .mg-video-bar { display: flex; justify-content: flex-end; }
 .mg-pop-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
-.mg-pop { background: var(--canvas); border: 1px solid var(--card-line); border-radius: var(--r-card); width: min(960px, 100%); max-height: 100%; padding: var(--sp-md); display: grid; gap: var(--sp-md); outline: none; }
-.mg-pop header { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-md); }
-.mg-pop h2 { margin: 0; font-size: 18px; }
-.mg-pop video { width: 100%; max-height: calc(100vh - 160px); background: #000; border-radius: var(--r-control); }
+/* the video fills the popup: no white frame around it. The title stays for screen readers, the close button sits on the video. */
+.mg-pop { position: relative; width: min(960px, 100%); max-height: 100%; outline: none; }
+.mg-pop header { position: absolute; top: var(--sp-sm); right: var(--sp-sm); z-index: 1; }
+.mg-pop h2 { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mg-pop header .btn { background: rgba(0, 0, 0, 0.55); color: #fff; border-color: rgba(255, 255, 255, 0.45); }
+.mg-pop header .btn:hover { background: rgba(0, 0, 0, 0.75); }
+.mg-pop video { display: block; width: 100%; max-height: calc(100vh - 48px); background: #000; border-radius: var(--r-card); }
