@@ -15,6 +15,13 @@ export function justSucceeded(prev: { id?: string; status?: string }, run?: Pick
 /** The person asked the system to reduce motion: the video then waits for them to press play. */
 export const prefersReducedMotion = (): boolean => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** The video, or the reason there is none: the popup has no visible title or frame to show that it failed. Mounted per opening, so a failure does not stick. */
+function PopupVideo() {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <p role="alert" className="mg-pop-err">영상을 불러오지 못했습니다.</p>;
+  return <video src={COMPLETION_VIDEO_SRC} controls autoPlay={!prefersReducedMotion()} muted playsInline aria-label="이전 완료 영상" onError={() => setFailed(true)} />;
+}
+
 export function CompletionVideo({ run }: { run?: Run }) {
   const [open, setOpen] = useState(false);
   const seen = useRef<{ id?: string; status?: string }>({});
@@ -60,7 +67,7 @@ export function CompletionVideo({ run }: { run?: Run }) {
                 닫기
               </button>
             </header>
-            <video src={COMPLETION_VIDEO_SRC} controls autoPlay={!prefersReducedMotion()} muted playsInline aria-label="이전 완료 영상" />
+            <PopupVideo />
           </div>
         </div>
       )}

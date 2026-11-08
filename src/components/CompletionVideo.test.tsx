@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fakeRun } from "../api/fakes";
 import type { Run } from "../api/types";
@@ -85,5 +85,31 @@ describe("motion", () => {
     const v = open();
     expect(v.autoplay).toBe(false);
     expect(v).toHaveAttribute("controls");
+  });
+});
+
+describe("when the video cannot be loaded", () => {
+  const open = () => {
+    const r = render(<CompletionVideo run={run()} />);
+    r.rerender(<CompletionVideo run={run({ status: "succeeded" })} />);
+    return r;
+  };
+
+  it("says so instead of leaving a blank box, and keeps the close button", async () => {
+    open();
+    fireEvent.error(screen.getByRole("dialog").querySelector("video")!);
+    expect(screen.getByRole("alert")).toHaveTextContent("영상을 불러오지 못했습니다.");
+    expect(screen.getByRole("dialog").querySelector("video")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("tries the video again the next time it is opened", async () => {
+    open();
+    fireEvent.error(screen.getByRole("dialog").querySelector("video")!);
+    await userEvent.click(screen.getByRole("button", { name: "닫기" }));
+    await userEvent.click(screen.getByRole("button", { name: /완료 영상 보기/ }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("dialog").querySelector("video")).not.toBeNull();
   });
 });
