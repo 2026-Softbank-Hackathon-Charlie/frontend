@@ -22,7 +22,7 @@ import type { CheckStatus, PreflightView } from "../data/preflight";
 import { hiddenSteps } from "../data/migrationMap";
 import { SAMPLE } from "../sim/data";
 import { dur, fmt, mmss, type StepState } from "../sim/format";
-import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, TARGET_SEC, type CanaryPreset } from "../sim/mig";
+import { CANARY, CANARY_PRESET_ORDER, CANARY_PRESETS, ENGINE_STEPS, statusText, targetReadShare, type CanaryPreset } from "../sim/mig";
 
 const STATUS_KIND: Record<RunStatus, ChipKind> = {
   running: "run",
@@ -1112,8 +1112,6 @@ function goSec(d: string): number | undefined {
   return parts.reduce((t, [, n, u]) => t + Number(n) * unit[u], 0);
 }
 
-const TARGET_TEXT = TARGET_SEC % 60 ? dur(TARGET_SEC) : TARGET_SEC / 60 + "분";
-
 /**
  * When the run crossed from one part to the next, from its events (complete in both modes, see useRun):
  * sync done, waiting for the switch (or the switch itself when nothing waited), switch, cutover done, observe.
@@ -1490,7 +1488,7 @@ function ObserveBox({ r }: { r: Run }) {
   );
 }
 
-// The ended run's numbers, each checked against its target.
+// The ended run's numbers, each checked against its target where it has one.
 function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
   const x = r.result;
   const verification = writeVerificationOf(x);
@@ -1509,7 +1507,7 @@ function ResultBox({ r, v }: { r: Run; v: MigrationView }) {
         <span className="hint">목표와 비교</span>
       </div>
       <div className="mg-report">
-        <Num label="전체 시간" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note={"목표 " + TARGET_TEXT + " 이내"} ok={x.durationMillis === undefined || r.status !== "succeeded" ? undefined : x.durationMillis <= TARGET_SEC * 1000} />
+        <Num label="전체 시간" value={x.durationMillis !== undefined ? dur(x.durationMillis / 1000) : "-"} note="시작부터 끝까지" />
         {!res.postgres ? none("쓰기 보류", "DB 없음") : <Num
           label="쓰기 보류"
           value={down !== undefined ? (down / 1000).toFixed(1) + "초" : "-"}
