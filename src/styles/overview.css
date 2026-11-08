@@ -21,6 +21,7 @@
 .ov-rec-meta { font-size: 12px; margin-top: var(--sp-xs); }
 .ov-rec-list > li { padding: var(--sp-md) 0; align-items: flex-start; }
 .ov-rec-route { font-weight: 400; }
+.ov-now .txt .ov-rec-decision { color: var(--heading); overflow-wrap: anywhere; }
 .ov-rec-evidence, .ov-rec-method, .ov-rec-more { font-size: 12px; margin-top: var(--sp-xs); }
 .ov-rec-evidence summary, .ov-rec-method summary, .ov-rec-more summary { color: var(--muted); cursor: pointer; }
 .ov-rec-evidence ul { padding-left: 16px; }
