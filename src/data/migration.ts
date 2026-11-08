@@ -745,7 +745,9 @@ export function useLiveMigration(): MigrationView {
   // an older Plan the page may have picked up.
   // A started run whose first snapshot has not arrived yet keeps its Plan on screen (its status is
   // already starting/started), so the page does not drop back to the setup form until the run shows.
-  const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" || (runId && plan) ? "review" : "setup";
+  // So does a Plan in starting before the start answers with its run: the platform holds it there while
+  // its start checks reach the clusters, which takes seconds.
+  const stage: MigrationView["stage"] = run ? "run" : planning || currentAI ? "ai" : plan?.status === "pending_approval" || plan?.status === "approved" || plan?.status === "starting" || (runId && plan) ? "review" : "setup";
 
   // The Plan from the platform's draft, without the AI: the "Plan 작성" path, and an AI start answered no_database.
   const draftAndSubmit = async (name: string, source: string) => {
