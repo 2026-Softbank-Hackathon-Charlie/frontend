@@ -5,7 +5,7 @@ import { envName } from "./shared";
 import { Chip, Skeleton } from "./ui";
 
 const date = (value: string) => new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false });
-const LABEL = { move: "이전 추천", stay: "현재 환경 유지", insufficient: "추가 확인" } as const;
+const LABEL = { move: "이전 추천", stay: "현재 환경 유지", insufficient: "판단 보류" } as const;
 const MISSING_LABEL = new Map([
   ["comparable_total_cost_estimates", "총비용 견적"],
   ["capacity_preflight_required", "대상 자원 여유"],
@@ -17,18 +17,29 @@ const MISSING_LABEL = new Map([
   ["destination_country_restricted", "대상 국가 보관 제한"],
 ]);
 
+function deferredReason(item: MigrationRecommendation, missing: string[]): string {
+  if (item.missing.includes("migration_in_progress")) return "진행 중인 이전이 끝날 때까지 다음 판단을 보류합니다.";
+  if (item.missing.includes("destination_country_restricted")) return "대상 국가가 등록 데이터 보관 정책을 벗어납니다.";
+  if (item.missing.includes("current_environment_unobserved")) return "현재 실행 위치가 미확인이라 이전 출발지를 정할 수 없습니다.";
+  if (item.missing.includes("target_environment_unregistered")) return "등록된 다른 환경이 없어 이전 대상을 비교할 수 없습니다.";
+  if (missing.length) return missing.slice(0, 3).join(" · ") + (missing.length > 3 ? " 등" : "") + " 미확인으로 판단을 보류합니다.";
+  return item.reasons.join(" · ") || "AI가 이전 판단을 보류했습니다.";
+}
+
 function RecommendationRow({ item, stale }: { item: MigrationRecommendation; stale: boolean }) {
   const href = stale ? undefined : recommendationHref(item);
   const go = item.action === "move" ? "이전하기" : "이전 조건 확인";
   const missing = [...new Set(item.missing.map(code => MISSING_LABEL.get(code) ?? "추가 확인 필요"))];
+  const deferred = item.action === "insufficient";
   return <li>
     <Chip kind={item.action === "move" ? "run" : "neu"}>{LABEL[item.action]}</Chip>
     <div className="txt">
-      <b>{item.app}{item.source && <span className="ov-rec-route"> · {envName(item.source)}{item.target && item.target !== item.source ? " → " + envName(item.target) : ""}</span>}</b>
-      <span>{item.title}</span>
-      {item.reasons.length > 0 && <span>{item.reasons.join(" · ")}</span>}
-      {item.estimatedMonthlySavingsUsd !== null && <small>입력 총비용 견적 기준 월 약 ${item.estimatedMonthlySavingsUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} 차이</small>}
-      {(item.sources.length > 0 || item.missing.length > 0) && <details className="ov-rec-evidence"><summary>판단 근거</summary>
+      <b>{item.app}</b>
+      <span className="ov-rec-route">{item.source ? envName(item.source) : "현재 위치 미확인"}{item.target && item.target !== item.source ? " → " + envName(item.target) : ""}{deferred && item.target && " · 비교 대상"}</span>
+      <span className="ov-rec-decision">{deferred ? deferredReason(item, missing) : item.reasons.join(" · ")}</span>
+      {item.action === "move" && item.estimatedMonthlySavingsUsd !== null && <small>입력 총비용 견적 기준 월 약 ${item.estimatedMonthlySavingsUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} 차이</small>}
+      {(item.sources.length > 0 || item.missing.length > 0 || deferred && item.reasons.length > 0) && <details className="ov-rec-evidence"><summary>판단 근거·참고 자료</summary>
+        {deferred && item.missing.length > 0 && item.reasons.length > 0 && <p>{item.reasons.join(" · ")}</p>}
         {missing.length > 0 && <p>확인 필요: {missing.join(" · ")}</p>}
         <ul>{item.sources.map((source, i) => <li key={source.title + i}>
           {sourceUrl(source.url) ? <a href={sourceUrl(source.url)} target="_blank" rel="noreferrer">{source.title} ↗</a> : source.title}
@@ -57,8 +68,8 @@ export function MigrationRecommendations() {
   const waiting = report?.status === "generating";
   const canRefresh = !state.loading && now >= deadline;
   const ready = report?.status === "ready";
-  return <div className="ov-recommendations" role="region" aria-label="AI 이전 추천" aria-busy={state.loading}>
-    <div className="ov-rec-heading"><h3>AI 이전 추천</h3>
+  return <div className="ov-recommendations" role="region" aria-label="AI 이전 판단" aria-busy={state.loading}>
+    <div className="ov-rec-heading"><h3>AI 이전 판단</h3>
       <button type="button" className="btn sm ghost" disabled={!canRefresh} onClick={state.refresh}>{waiting ? "추천 결과 확인" : "추천 새로고침"}</button>
     </div>
     {!report && state.loading ? <Skeleton rows={1} /> : !report ? <p role="status" className="hint">추천을 읽지 못했습니다. 잠시 후 다시 확인하세요.</p> : <>
