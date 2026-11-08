@@ -3,6 +3,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import type { AgentEvent, AgentSession, AIRun, AppResources, PlanAttachment, Run, RunEvent, RunPhase, RunStatus } from "../api/types";
 import { useAttachment } from "../data/attachment";
 import { blockedOf, runLines, secs, SessionFeed, SessionTable } from "../components/agent";
+import { CompletionVideo } from "../components/CompletionVideo";
 import { MigrationMapFrame } from "../components/MigrationMapFrame";
 import { invalidRequestCounts, RunDecisionPanel } from "../components/RunDecisionPanel";
 import { LiveSourceRetention } from "../components/SourceRetention";
@@ -220,7 +221,7 @@ function SimMigrate() {
   return <MigrateView v={useSimMigration()} />;
 }
 
-function MigrateView({ v }: { v: MigrationView }) {
+export function MigrateView({ v }: { v: MigrationView }) {
   const live = v.live;
   const res = resOf(v);
   const { gkeDemoApp, setApp } = v;
@@ -383,6 +384,7 @@ function MigrateView({ v }: { v: MigrationView }) {
       <PageHead icon="arrow-right-left" title={title} sub={<><EnvRoute source={v.src} target={v.tgt} sourceLabel={v.srcLabel} targetLabel={v.tgtLabel} />{where}</>} acts={<HeadActs v={v} />} />
       <Notice text={v.notice} />
       {r && <RunDecisionPanel r={r} />}
+      <CompletionVideo run={r} />
     </>,
     <MigrationMapFrame v={v} hero={hero} />,
     r ? <RunView v={v} r={r} /> : <AiView v={v} />,
