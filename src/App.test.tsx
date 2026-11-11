@@ -503,6 +503,40 @@ describe("HopCharlie console (platform API)", () => {
     expect(screen.getByText(/끝나지 않은 시작 요청을 같은 옵션으로 다시 보냅니다/)).toBeInTheDocument();
   });
 
+  it("keeps the map on screen while the platform runs the start checks", { timeout: 10000 }, async () => {
+    let starting = false;
+    let polled = 0;
+    let release: (() => void) | undefined;
+    installFetch((c: FakeCall) => {
+      const u = new URL(c.url, "http://x");
+      if (u.pathname === "/v1/plans") {
+        if (starting) polled++;
+        return json(200, { plans: [{ ...basePlan, status: starting ? "starting" : "pending_approval" }] });
+      }
+      if (u.pathname === "/v1/migrations" && c.method === "POST") {
+        // the platform holds the plan in starting until its checks answer and the run exists
+        starting = true;
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json(502, { error: { code: "bad_gateway", message: "upstream closed" } }));
+        });
+      }
+      if (u.pathname === "/v1/audit") return json(200, { entries: [] });
+      return route(() => [])(c);
+    });
+    storeSession();
+    const { user } = setup("", "live");
+    window.location.hash = "#migrate-shop";
+    await user.click(await screen.findByRole("button", { name: "승인하고 시작" }));
+    expect(screen.getByTitle("이주 지도")).toBeInTheDocument();
+
+    // the plans poll sees the plan in starting before the start request answers with its run
+    await waitFor(() => expect(polled).toBeGreaterThan(0), { timeout: 5000 });
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    expect(screen.getByTitle("이주 지도")).toBeInTheDocument();
+    expect(screen.queryByLabelText("옮겨 갈 환경")).toBeNull();
+    release?.();
+  });
+
   it("starts the next plan from the default options after a reject", async () => {
     let rejected = false;
     let submitted = false;
