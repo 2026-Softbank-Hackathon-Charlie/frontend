@@ -523,6 +523,8 @@ function renderAppAI(s){
   const data=s.aiServices || {nodes:[],edges:[],message:'앱 AI 서비스 관측 미수신',status:'unobserved'};
   const items=data.nodes || [], edges=data.edges || [];
   const key=JSON.stringify([items.map(n=>[n.serviceId,n.name,n.lane,n.icon]),edges.map(e=>[e.id,e.serviceId,e.caller])]);
+  // wider only when the cards need it: a card inside a lane, or a third card in the outside row (two fit in 1020)
+  const expanded=items.some(n=>LANES.includes(n.lane)) || ['external','unknown'].some(p=>items.filter(n=>n.lane===p).length>2);
   if(key!==aiDrawingKey){
     const retired=new Set(aiPaths.map(f=>f.path));
     for(let i=parts.length-1;i>=0;i--) if(retired.has(parts[i].path)){ parts[i].e.used=false; parts[i].e.el.style.display='none'; parts.splice(i,1); }
@@ -534,7 +536,7 @@ function renderAppAI(s){
       const inside=LANES.includes(placement);
       const baseY=inside?LANE_Y[placement]:placement==='external'?530:625;
       if(!inside){
-        el('rect',{x:280,y:baseY-24,width:1110,height:80,rx:2,fill:'none',stroke:'var(--sb-border-subtle)','stroke-dasharray':'5 4'},group);
+        el('rect',{x:280,y:baseY-24,width:expanded?1110:720,height:80,rx:2,fill:'none',stroke:'var(--sb-border-subtle)','stroke-dasharray':'5 4'},group);
         txt(group,292,baseY-8,'lane-t',placement==='external'?'외부 AI API · 클러스터 밖':'실행 위치 미확인 · 환경을 추정하지 않음','start');
       } else txt(group,1012,baseY-43,'lane-r','앱 AI 서비스','start');
       const shown=members.length>4?[...members.slice(0,3),{serviceId:'group:'+placement,name:`추가 AI 서비스 ${members.length-3}개`,icon:'unknown',detail:'전체 목록에서 개별 근거 확인'}]:members;
@@ -586,9 +588,8 @@ function renderAppAI(s){
   }
   const labels={observed:'관측됨',stale:'오래된 관측',unobserved:'미관측',unavailable:'조회 오류',not_configured:'미연결'};
   $('appAISummary').textContent=`앱 AI · ${labels[data.status]||'미확인'}${data.observedAt?' · '+data.observedAt:''} · ${data.message||''} 토끼는 최근 90초 호출 표시이며 실시간 요청 수를 재현하지 않습니다.`;
-  const expanded=items.length>0;
   $('map').setAttribute('viewBox',`0 0 ${expanded?1420:1020} ${items.some(n=>n.lane==='unknown')?700:items.some(n=>n.lane==='external')?605:500}`);
-  $('map').style.minWidth=expanded?'1280px':'760px';
+  $('map').style.minWidth=expanded?'1060px':'760px';
   for(const k of LANES) lanesEl[k].g.querySelector('.lane-box').setAttribute('width',expanded?1110:720);
 }
 
