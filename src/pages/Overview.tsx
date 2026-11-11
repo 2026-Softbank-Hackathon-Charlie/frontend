@@ -14,7 +14,7 @@ import { isPrioritySeverity, type SecurityFindingRow } from "../data/security";
 import { PRIORITY_FINDINGS } from "../router";
 import { SAMPLE } from "../sim/data";
 import { dur, fmt } from "../sim/format";
-import { iso, statusText, TARGET_SEC } from "../sim/mig";
+import { iso, statusText } from "../sim/mig";
 import { DEMO_SECURITY_FINDINGS } from "../sim/securityWorkspace";
 import { ONB_STATE_LABEL } from "../sim/onboard";
 import { migLabel, type SimState } from "../sim/state";
@@ -58,7 +58,7 @@ function OverviewView({ now, apps, activity, runs }: { now: ReactNode; apps: App
         <section className="box ov-routes">
           <div className="bh">
             <h2 className="icon-label"><Icon name="route" /><span>경로별 결과</span></h2>
-            <span className="hint">목표: {TARGET_SEC / 60}분 이내, 실패 0, 누락 0</span>
+            <span className="hint">목표: 실패 0, 누락 0</span>
           </div>
           <div className="bb">
             <RouteMatrix active={runs?.filter(isActive)} />

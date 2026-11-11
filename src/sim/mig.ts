@@ -77,8 +77,6 @@ export const POST_END = 13.6;
 const HOLD_START = 0.4;
 const HOLD_END = 6.8;
 const PROMOTE_AT = 1.2;
-/** Whole-run target the topic commits to (seconds). */
-export const TARGET_SEC = 180;
 /** k6 successful writes per simulated second */
 export const RATE = 20;
 
